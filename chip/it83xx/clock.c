@@ -138,9 +138,15 @@ static uint8_t pll_setting;
 
 void __ram_code clock_ec_pll_ctrl(enum ec_pll_ctrl mode)
 {
+	volatile uint8_t _pll_ctrl __unused;
+
 	IT83XX_ECPM_PLLCTRL = mode;
-	/* for deep doze / sleep mode */
-	IT83XX_ECPM_PLLCTRL = mode;
+	/*
+	 * for deep doze / sleep mode
+	 * This load operation will ensure PLL setting is taken into
+	 * control register before wait for interrupt instruction.
+	 */
+	_pll_ctrl = IT83XX_ECPM_PLLCTRL;
 	asm volatile ("dsb");
 }
 
