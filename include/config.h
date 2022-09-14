@@ -4413,5 +4413,9 @@
 #endif
 #endif /* defined(CONFIG_USB_PD_TCPM_PS8705) + ... */
 
-#endif  /* __CROS_EC_CONFIG_H */
+/* Default to 1024 for end of ram data (panic and jump data) */
+#ifndef CONFIG_PRESERVED_END_OF_RAM_SIZE
+#define CONFIG_PRESERVED_END_OF_RAM_SIZE 1024
+#endif
 
+#endif  /* __CROS_EC_CONFIG_H */

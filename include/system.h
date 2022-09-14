@@ -153,7 +153,7 @@ int system_jumped_to_this_image(void);
  * This may ONLY be called from within a HOOK_SYSJUMP handler.
  *
  * @param tag		Data type
- * @param size          Size of data; must be less than 255 bytes.
+ * @param size          Size of data; must be less than JUMP_TAG_MAX_SIZE bytes.
  * @param version       Data version, so that tag data can evolve as firmware
  *			is updated.
  * @param data		Pointer to data to save
