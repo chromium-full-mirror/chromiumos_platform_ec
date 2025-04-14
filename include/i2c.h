@@ -44,9 +44,9 @@ extern "C" {
 /* BIT(15) SPI_FLAG - used in motion_sense to overload address */
 #define I2C_FLAG_ADDR_IS_SPI BIT(15)
 
-#define I2C_STRIP_FLAGS(addr_flags) ((addr_flags) & I2C_ADDR_MASK)
-#define I2C_USE_PEC(addr_flags) ((addr_flags) & I2C_FLAG_PEC)
-#define I2C_IS_BIG_ENDIAN(addr_flags) ((addr_flags) & I2C_FLAG_BIG_ENDIAN)
+#define I2C_STRIP_FLAGS(addr_flags) ((addr_flags)&I2C_ADDR_MASK)
+#define I2C_USE_PEC(addr_flags) ((addr_flags)&I2C_FLAG_PEC)
+#define I2C_IS_BIG_ENDIAN(addr_flags) ((addr_flags)&I2C_FLAG_BIG_ENDIAN)
 
 /*
  * All 7-bit addresses in the following formats
@@ -73,7 +73,7 @@ extern "C" {
 /* This port allows changing speed at runtime */
 #define I2C_PORT_FLAG_DYNAMIC_SPEED BIT(0)
 
-#ifndef CONFIG_I2C_BITBANG
+#ifndef CONFIG_I2C_BITBANG_CROS_EC
 #define I2C_BITBANG_PORT_COUNT 0
 #endif
 
@@ -82,10 +82,10 @@ extern "C" {
  * TODO(crbug.com/549286): Use this enum in i2c_port_t.
  */
 enum i2c_freq {
-	I2C_FREQ_1000KHZ = 0,
-	I2C_FREQ_400KHZ = 1,
-	I2C_FREQ_100KHZ = 2,
-	I2C_FREQ_COUNT,
+  I2C_FREQ_1000KHZ = 0,
+  I2C_FREQ_400KHZ = 1,
+  I2C_FREQ_100KHZ = 2,
+  I2C_FREQ_COUNT,
 };
 
 /*
@@ -96,33 +96,32 @@ enum i2c_freq {
 enum mask_update_action { MASK_CLR, MASK_SET };
 
 struct i2c_info_t {
-	uint16_t port; /* Physical port for device */
-	uint16_t addr_flags;
+  uint16_t port; /* Physical port for device */
+  uint16_t addr_flags;
 };
 
 struct i2c_port_t; /* forward declaration */
 
 struct i2c_drv {
-	int (*xfer)(const struct i2c_port_t *i2c_port,
-		    const uint16_t addr_flags, const uint8_t *out, int out_size,
-		    uint8_t *in, int in_size, int flags);
+  int (*xfer)(const struct i2c_port_t *i2c_port, const uint16_t addr_flags,
+              const uint8_t *out, int out_size, uint8_t *in, int in_size,
+              int flags);
 };
 
 /* Data structure to define I2C port configuration. */
 struct i2c_port_t {
-	int port; /* Port */
+  int port; /* Port */
 #ifndef CONFIG_ZEPHYR
-	const char *name; /* Port name */
-	int kbps; /* Speed in kbps */
-	enum gpio_signal scl; /* Port SCL GPIO line */
-	enum gpio_signal sda; /* Port SDA GPIO line */
-#endif /* CONFIG_ZEPHYR */
-	/* When bus is protected, returns true if passthru allowed for address.
-	 * If the function is not defined, the default value is true. */
-	int (*passthru_allowed)(const struct i2c_port_t *port,
-				uint16_t addr_flags);
-	const struct i2c_drv *drv;
-	uint16_t flags; /* I2C_PORT_FLAG_* flags */
+  const char *name;     /* Port name */
+  int kbps;             /* Speed in kbps */
+  enum gpio_signal scl; /* Port SCL GPIO line */
+  enum gpio_signal sda; /* Port SDA GPIO line */
+#endif                  /* CONFIG_ZEPHYR */
+  /* When bus is protected, returns true if passthru allowed for address.
+   * If the function is not defined, the default value is true. */
+  int (*passthru_allowed)(const struct i2c_port_t *port, uint16_t addr_flags);
+  const struct i2c_drv *drv;
+  uint16_t flags; /* I2C_PORT_FLAG_* flags */
 };
 
 extern const struct i2c_port_t i2c_ports[];
@@ -130,34 +129,34 @@ extern const unsigned int i2c_ports_used;
 
 #ifdef CONFIG_CMD_I2C_STRESS_TEST
 struct i2c_test_reg_info {
-	int read_reg; /* Read register (WHO_AM_I, DEV_ID, MAN_ID) */
-	int read_val; /* Expected val (WHO_AM_I, DEV_ID, MAN_ID) */
-	int write_reg; /* Read/Write reg which doesn't impact the system */
+  int read_reg;  /* Read register (WHO_AM_I, DEV_ID, MAN_ID) */
+  int read_val;  /* Expected val (WHO_AM_I, DEV_ID, MAN_ID) */
+  int write_reg; /* Read/Write reg which doesn't impact the system */
 };
 
 struct i2c_test_results {
-	int read_success; /* Successful read count */
-	int read_fail; /* Read fail count */
-	int write_success; /* Successful write count */
-	int write_fail; /* Write fail count */
+  int read_success;  /* Successful read count */
+  int read_fail;     /* Read fail count */
+  int write_success; /* Successful write count */
+  int write_fail;    /* Write fail count */
 };
 
 /* Data structure to define I2C test configuration. */
 struct i2c_stress_test_dev {
-	struct i2c_test_reg_info reg_info;
-	struct i2c_test_results test_results;
-	int (*i2c_read)(const int port, const uint16_t addr_flags,
-			const int reg, int *data);
-	int (*i2c_write)(const int port, const uint16_t addr_flags,
-			 const int reg, int data);
-	int (*i2c_read_dev)(const int reg, int *data);
-	int (*i2c_write_dev)(const int reg, int data);
+  struct i2c_test_reg_info reg_info;
+  struct i2c_test_results test_results;
+  int (*i2c_read)(const int port, const uint16_t addr_flags, const int reg,
+                  int *data);
+  int (*i2c_write)(const int port, const uint16_t addr_flags, const int reg,
+                   int data);
+  int (*i2c_read_dev)(const int reg, int *data);
+  int (*i2c_write_dev)(const int reg, int data);
 };
 
 struct i2c_stress_test {
-	int port;
-	uint16_t addr_flags;
-	struct i2c_stress_test_dev *i2c_test;
+  int port;
+  uint16_t addr_flags;
+  struct i2c_stress_test_dev *i2c_test;
 };
 
 extern struct i2c_stress_test i2c_stress_tests[];
@@ -168,14 +167,14 @@ extern const int i2c_test_dev_used;
  * Data structure to define I2C Parameters for a command
  */
 struct i2c_cmd_desc_t {
-	uint8_t port; /* I2C port */
-	uint16_t addr_flags; /* Peripheral address and flags */
-	uint8_t cmd; /* command, only valid on write operations */
+  uint8_t port;        /* I2C port */
+  uint16_t addr_flags; /* Peripheral address and flags */
+  uint8_t cmd;         /* command, only valid on write operations */
 };
 
 /* Flags for i2c_xfer_unlocked() */
 #define I2C_XFER_START BIT(0) /* Start smbus session from idle state */
-#define I2C_XFER_STOP BIT(1) /* Terminate smbus session with stop bit */
+#define I2C_XFER_STOP BIT(1)  /* Terminate smbus session with stop bit */
 #define I2C_XFER_SINGLE (I2C_XFER_START | I2C_XFER_STOP) /* One transaction */
 
 /**
@@ -193,7 +192,7 @@ struct i2c_cmd_desc_t {
  * @return EC_SUCCESS, or non-zero if error.
  */
 int i2c_xfer(const int port, const uint16_t addr_flags, const uint8_t *out,
-	     int out_size, uint8_t *in, int in_size);
+             int out_size, uint8_t *in, int in_size);
 
 /**
  * Same as i2c_xfer, but the bus is not implicitly locked.  It must be called
@@ -202,8 +201,8 @@ int i2c_xfer(const int port, const uint16_t addr_flags, const uint8_t *out,
  * @param flags		Flags (see I2C_XFER_* above)
  */
 int i2c_xfer_unlocked(const int port, const uint16_t addr_flags,
-		      const uint8_t *out, int out_size, uint8_t *in,
-		      int in_size, int flags);
+                      const uint8_t *out, int out_size, uint8_t *in,
+                      int in_size, int flags);
 
 #define I2C_LINE_SCL_HIGH BIT(0)
 #define I2C_LINE_SDA_HIGH BIT(1)
@@ -305,7 +304,7 @@ void i2c_set_timeout(int port, uint32_t timeout);
  * space.
  */
 int i2c_read32(const int port, const uint16_t addr_flags, int offset,
-	       int *data);
+               int *data);
 
 /**
  * Write a 32-bit register to the peripheral at 7-bit peripheral address
@@ -313,7 +312,7 @@ int i2c_read32(const int port, const uint16_t addr_flags, int offset,
  * space.
  */
 int i2c_write32(const int port, const uint16_t addr_flags, int offset,
-		int data);
+                int data);
 
 /**
  * Read a 16-bit register from the peripheral at 7-bit peripheral address
@@ -321,7 +320,7 @@ int i2c_write32(const int port, const uint16_t addr_flags, int offset,
  * space.
  */
 int i2c_read16(const int port, const uint16_t addr_flags, int offset,
-	       int *data);
+               int *data);
 
 /**
  * Write a 16-bit register to the peripheral at 7-bit peripheral address
@@ -329,7 +328,7 @@ int i2c_read16(const int port, const uint16_t addr_flags, int offset,
  * space.
  */
 int i2c_write16(const int port, const uint16_t addr_flags, int offset,
-		int data);
+                int data);
 
 /**
  * Read an 8-bit register from the peripheral at 7-bit peripheral address
@@ -354,10 +353,10 @@ int i2c_write8(const int port, const uint16_t addr_flags, int offset, int data);
  * performed.
  */
 int i2c_update8(const int port, const uint16_t addr_flags, const int offset,
-		const uint8_t mask, const enum mask_update_action action);
+                const uint8_t mask, const enum mask_update_action action);
 
 int i2c_update16(const int port, const uint16_t addr_flags, const int offset,
-		 const uint16_t mask, const enum mask_update_action action);
+                 const uint16_t mask, const enum mask_update_action action);
 
 /**
  * Read, modify, write field of an i2c register to the peripheral at 7-bit
@@ -369,40 +368,40 @@ int i2c_update16(const int port, const uint16_t addr_flags, const int offset,
  * written back out to the device, otherwise no write will be performed.
  */
 int i2c_field_update8(const int port, const uint16_t addr_flags,
-		      const int offset, const uint8_t field_mask,
-		      const uint8_t set_value);
+                      const int offset, const uint8_t field_mask,
+                      const uint8_t set_value);
 
 int i2c_field_update16(const int port, const uint16_t addr_flags,
-		       const int offset, const uint16_t field_mask,
-		       const uint16_t set_value);
+                       const int offset, const uint16_t field_mask,
+                       const uint16_t set_value);
 
 /**
  * Read one or two bytes data from the peripheral at 7-bit peripheral address
  * <addr_flags>, at 16-bit <offset> in the peripheral's address space.
  */
 int i2c_read_offset16(const int port, const uint16_t addr_flags,
-		      uint16_t offset, int *data, int len);
+                      uint16_t offset, int *data, int len);
 
 /**
  * Write one or two bytes data to the peripheral at 7-bit peripheral address
  * <addr_flags>, at 16-bit <offset> in the peripheral's address space.
  */
 int i2c_write_offset16(const int port, const uint16_t addr_flags,
-		       uint16_t offset, int data, int len);
+                       uint16_t offset, int data, int len);
 
 /**
  * Read <len> bytes block data from the peripheral at 7-bit peripheral address
  * * <addr_flags>, at 16-bit <offset> in the peripheral's address space.
  */
 int i2c_read_offset16_block(const int port, const uint16_t addr_flags,
-			    uint16_t offset, uint8_t *data, int len);
+                            uint16_t offset, uint8_t *data, int len);
 
 /**
  * Write <len> bytes block data to the peripheral at 7-bit peripheral address
  * <addr_flags>, at 16-bit <offset> in the peripheral's address space.
  */
 int i2c_write_offset16_block(const int port, const uint16_t addr_flags,
-			     uint16_t offset, const uint8_t *data, int len);
+                             uint16_t offset, const uint8_t *data, int len);
 
 /**
  * @return non-zero if i2c bus is busy
@@ -426,7 +425,7 @@ int i2c_unwedge(int port);
  * <len>      : the max length of receiving buffer
  */
 int i2c_read_sized_block(const int port, const uint16_t addr_flags, int offset,
-			 uint8_t *data, int max_len, int *read_len);
+                         uint8_t *data, int max_len, int *read_len);
 
 /**
  * Read ascii string using smbus read block protocol.
@@ -439,7 +438,7 @@ int i2c_read_sized_block(const int port, const uint16_t addr_flags, int offset,
  *              always written into the output buffer.
  */
 int i2c_read_string(const int port, const uint16_t addr_flags, int offset,
-		    uint8_t *data, int len);
+                    uint8_t *data, int len);
 
 /**
  * Read a data block of <len> 8-bit transfers from the peripheral at 7-bit
@@ -447,7 +446,7 @@ int i2c_read_string(const int port, const uint16_t addr_flags, int offset,
  * peripheral's address space.
  */
 int i2c_read_block(const int port, const uint16_t addr_flags, int offset,
-		   uint8_t *data, int len);
+                   uint8_t *data, int len);
 
 /**
  * Write a data block of <len> 8-bit transfers to the peripheral at 7-bit
@@ -455,7 +454,7 @@ int i2c_read_block(const int port, const uint16_t addr_flags, int offset,
  * peripheral's address space.
  */
 int i2c_write_block(const int port, const uint16_t addr_flags, int offset,
-		    const uint8_t *data, int len);
+                    const uint8_t *data, int len);
 
 /**
  * Convert port number to controller number, for multi-port controllers.
@@ -548,8 +547,8 @@ void i2c_end_xfer_notify(const int port, const uint16_t addr_flags);
  * @param ret: return of i2c transaction (EC_SUCCESS or otherwise on failure)
  */
 void i2c_trace_notify(int port, uint16_t addr_flags, const uint8_t *out_data,
-		      size_t out_size, const uint8_t *in_data, size_t in_size,
-		      int ret);
+                      size_t out_size, const uint8_t *in_data, size_t in_size,
+                      int ret);
 
 /**
  * Convert an enum i2c_freq constant to numeric frequency in kHz.
