@@ -36,6 +36,12 @@ void ztest_interrupt_disable_all(void);
 #define interrupt_disable_all() irq_lock()
 #endif
 
+/* If every reset flag is set, the potential string length is around 200
+ * characters.  Assume that less than half the reset flags will be set
+ * at any given time to minimize the stack impact.
+ */
+#define MAX_RESET_FLAG_STRLEN 100
+
 /* Per chip implementation to save/read raw EC_RESET_FLAG_ flags. */
 void chip_save_reset_flags(uint32_t flags);
 uint32_t chip_read_reset_flags(void);
@@ -125,6 +131,15 @@ void system_encode_save_flags(int flags, uint32_t *save_flags);
  * @return Reset flags (EC_RESET_FLAG_*), or 0 if the cause is unknown.
  */
 uint32_t system_get_reset_flags(void);
+
+/**
+ * Convert the reset flags to a string.
+ *
+ * @param flags - Reset flags to convert
+ * @param output_buf - Output buffer to store the string
+ * @param buf_len - Size of the output buffer
+ */
+void stringify_reset_flags(uint32_t flags, char *output_buf, int buf_len);
 
 /**
  * Set the reboot command to be executed on shutdown.

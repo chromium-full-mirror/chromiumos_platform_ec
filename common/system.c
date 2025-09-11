@@ -29,6 +29,7 @@
 #endif
 #include "cros_version.h"
 #include "panic.h"
+#include "printf.h"
 #include "sysjump.h"
 #include "system.h"
 #include "system_boot_time.h"
@@ -42,6 +43,9 @@
 
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/kernel.h>
+#include <zephyr/logging/log.h>
+
+LOG_MODULE_REGISTER(system, LOG_LEVEL_INF);
 
 /* Console output macros */
 #define CPUTS(outstr) cputs(CC_SYSTEM, outstr)
@@ -290,55 +294,93 @@ void system_clear_reset_flags(uint32_t flags)
 	reset_flags &= ~flags;
 }
 
-static void print_reset_flags(uint32_t flags)
+void stringify_reset_flags(uint32_t flags, char *output_buf, int buf_len)
 {
 	int count = 0;
 	int i;
+	int offset = 0;
 	static const char *const reset_flag_descs[] = {
 #include "reset_flag_desc.inc"
 	};
 
+	if (buf_len <= 0) {
+		return;
+	}
+
 	if (!flags) {
-		CPUTS("unknown");
+		strzcpy(output_buf, "unknown", buf_len);
 		return;
 	}
 
 	for (i = 0; i < ARRAY_SIZE(reset_flag_descs); i++) {
 		if (flags & BIT(i)) {
-			if (count++)
-				CPUTS(" ");
+			if (count++) {
+				strzcpy(&output_buf[offset], " ",
+					buf_len - offset);
+				offset += strlen(&output_buf[offset]);
+			}
 
-			CPRINTF("%s", reset_flag_descs[i]);
+			strzcpy(&output_buf[offset], reset_flag_descs[i],
+				buf_len - offset);
+			offset += strlen(&output_buf[offset]);
+
+			if (offset >= buf_len - 1) {
+				return;
+			}
 		}
 	}
 
 	if (flags >= BIT(i)) {
-		if (count)
-			CPUTS(" ");
+		if (count) {
+			strzcpy(&output_buf[offset], " ", buf_len - offset);
+			offset += strlen(&output_buf[offset]);
+		}
 
-		CPUTS("no-desc");
+		strzcpy(&output_buf[offset], "no-desc", buf_len - offset);
 	}
 }
 
 void system_print_reset_flags(void)
 {
-	print_reset_flags(reset_flags);
+	/*
+	 * Reset flags string is 100 bytes and allocated on the stack.
+	 * On a shipping device this function is only called once during
+	 * init with a shallow call stack.
+	 * The other use is from the sysinfo shell command which is also
+	 * a shallow call stack to this function.
+	 */
+	char reset_flags_string[MAX_RESET_FLAG_STRLEN];
+
+	stringify_reset_flags(reset_flags, reset_flags_string,
+			      MAX_RESET_FLAG_STRLEN);
+	CPRINTF("%s", reset_flags_string);
 }
 
 void system_print_banner(void)
 {
+	uint32_t flags = system_get_reset_flags();
+
 	/* be less verbose if we boot for USB resume to meet spec timings */
-	if (!(system_get_reset_flags() & EC_RESET_FLAG_USB_RESUME)) {
-		CPUTS("\n");
-		if (system_jumped_to_this_image())
-			CPRINTS("UART initialized after sysjump");
-		else
-			CPUTS("\n--- UART initialized after reboot ---\n");
-		CPRINTF("[Image: %s, %s]\n", system_get_image_copy_string(),
-			system_get_build_info());
-		CPUTS("[Reset cause: ");
-		system_print_reset_flags();
-		CPUTS("]\n");
+	if (!(flags & EC_RESET_FLAG_USB_RESUME)) {
+		char temp_str[MAX_RESET_FLAG_STRLEN];
+
+		/* Use LOG_PRINTK so the banner message is sent as is without
+		 * extra formatting at the beginning.  This also ensures the
+		 * banner cannot be disabled by changing the logging level.
+		 */
+		LOG_PRINTK("\n");
+		if (system_jumped_to_this_image()) {
+			snprintf_timestamp_now(temp_str, sizeof(temp_str));
+			LOG_PRINTK("[%s UART initialized after sysjump]\n",
+				   temp_str);
+		} else {
+			LOG_PRINTK("\n--- UART initialized after reboot ---\n");
+		}
+		LOG_PRINTK("[Image: %s, %s]\n", system_get_image_copy_string(),
+			   system_get_build_info());
+
+		stringify_reset_flags(flags, temp_str, MAX_RESET_FLAG_STRLEN);
+		LOG_PRINTK("[Reset cause: %s]\n", temp_str);
 	}
 }
 
@@ -1680,8 +1722,11 @@ DECLARE_CONSOLE_COMMAND(sysrq, command_sysrq, "[key]",
 #ifdef CONFIG_CMD_RESET_FLAGS
 static int command_rflags(int argc, const char **argv)
 {
-	print_reset_flags(chip_read_reset_flags());
-	ccprintf("\n");
+	char reset_flags_string[MAX_RESET_FLAG_STRLEN];
+
+	stringify_reset_flags(chip_read_reset_flags(), reset_flags_string,
+			      MAX_RESET_FLAG_STRLEN);
+	ccprintf("%s\n", reset_flags_string);
 	return EC_SUCCESS;
 }
 DECLARE_CONSOLE_COMMAND(rflags, command_rflags, NULL,

@@ -21,6 +21,7 @@ FAKE_VALUE_FUNC(int, system_run_image_copy_with_flags, enum ec_image, int);
 FAKE_VALUE_FUNC(enum ec_image, system_get_image_copy);
 FAKE_VOID_FUNC(system_disable_jump);
 FAKE_VOID_FUNC(jump_to_image, uintptr_t);
+FAKE_VALUE_FUNC(int, system_jumped_to_this_image);
 
 /* System Host Commands */
 
@@ -53,6 +54,7 @@ static void system_before_after(void *data)
 		IS_ENABLED(CONFIG_CROS_EC_RW) ? EC_IMAGE_RW : EC_IMAGE_RO;
 	RESET_FAKE(system_disable_jump);
 	RESET_FAKE(jump_to_image);
+	RESET_FAKE(system_jumped_to_this_image);
 }
 
 ZTEST(system, test_system_enter_hibernate__at_g3)
@@ -149,6 +151,98 @@ ZTEST(system, test_system_encode_save_flags_mutually_exclusive_reset_flags)
 	zassert_equal(0, saved_flags & EC_RESET_FLAG_HARD, NULL);
 	zassert_equal(0, saved_flags & EC_RESET_FLAG_HIBERNATE, NULL);
 	zassert_not_equal(0, saved_flags & EC_RESET_FLAG_SOFT, NULL);
+}
+
+ZTEST(system, test_stringify_reset_flags)
+{
+	char buf[MAX_RESET_FLAG_STRLEN];
+
+	/* 0 flags -> "unknown" */
+	stringify_reset_flags(0, buf, sizeof(buf));
+	zassert_str_equal(buf, "unknown");
+
+	/* Single known flag */
+	stringify_reset_flags(EC_RESET_FLAG_POWER_ON, buf, sizeof(buf));
+	zassert_str_equal(buf, "power-on");
+
+	/* Multiple known flags */
+	stringify_reset_flags(EC_RESET_FLAG_RESET_PIN | EC_RESET_FLAG_HARD, buf,
+			      sizeof(buf));
+	zassert_str_equal(buf, "reset-pin hard");
+
+	/* Flag with no description only */
+	stringify_reset_flags(BIT(31), buf, sizeof(buf));
+	zassert_str_equal(buf, "no-desc");
+
+	/* Known flag and flag with no description */
+	stringify_reset_flags(EC_RESET_FLAG_SOFT | BIT(31), buf, sizeof(buf));
+	zassert_str_equal(buf, "soft no-desc");
+
+	/* Print reset flags to console */
+	system_set_reset_flags(EC_RESET_FLAG_POWER_ON);
+	system_print_reset_flags();
+}
+
+ZTEST(system, test_stringify_reset_flags_overflow)
+{
+	/*
+	 * Allocate a buffer with guard bytes before and after the target buffer
+	 * to detect any out-of-bounds writes when all 32 reset flags are set
+	 * (which would require ~188 bytes if untruncated, exceeding
+	 * MAX_RESET_FLAG_STRLEN = 100).
+	 */
+	struct {
+		char pre_guard[16];
+		char buf[MAX_RESET_FLAG_STRLEN];
+		char post_guard[16];
+	} stack_frame;
+
+	memset(&stack_frame, 0xA5, sizeof(stack_frame));
+
+	stringify_reset_flags(UINT32_MAX, stack_frame.buf,
+			      sizeof(stack_frame.buf));
+
+	for (size_t i = 0; i < sizeof(stack_frame.pre_guard); i++) {
+		zassert_equal((uint8_t)stack_frame.pre_guard[i], 0xA5,
+			      "Pre-guard corrupted at index %zu", i);
+	}
+	for (size_t i = 0; i < sizeof(stack_frame.post_guard); i++) {
+		zassert_equal((uint8_t)stack_frame.post_guard[i], 0xA5,
+			      "Post-guard corrupted at index %zu", i);
+	}
+	zassert_equal(stack_frame.buf[sizeof(stack_frame.buf) - 1], '\0',
+		      "Output buffer is not null-terminated");
+	zassert_equal(strlen(stack_frame.buf), sizeof(stack_frame.buf) - 1);
+
+	/* Also exercise system_print_reset_flags() and system_print_banner()
+	 * with all non-USB-resume flags set to ensure their stack-allocated
+	 * buffers do not overflow.
+	 */
+	system_set_reset_flags(UINT32_MAX & ~EC_RESET_FLAG_USB_RESUME);
+	system_print_reset_flags();
+	system_print_banner();
+
+	/* Zero or negative buffer length should be a safe no-op */
+	memset(&stack_frame, 0xA5, sizeof(stack_frame));
+	stringify_reset_flags(UINT32_MAX, stack_frame.buf, 0);
+	zassert_equal((uint8_t)stack_frame.buf[0], 0xA5);
+}
+
+ZTEST(system, test_system_print_banner)
+{
+	/* Normal reboot banner */
+	system_jumped_to_this_image_fake.return_val = 0;
+	system_set_reset_flags(EC_RESET_FLAG_POWER_ON);
+	system_print_banner();
+
+	/* Sysjump banner */
+	system_jumped_to_this_image_fake.return_val = 1;
+	system_set_reset_flags(EC_RESET_FLAG_SYSJUMP);
+	system_print_banner();
+
+	/* USB resume suppresses banner */
+	system_set_reset_flags(EC_RESET_FLAG_USB_RESUME);
+	system_print_banner();
 }
 
 /* System Console Commands */
