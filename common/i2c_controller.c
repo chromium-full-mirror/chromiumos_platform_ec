@@ -835,8 +835,10 @@ int i2c_read_sized_block(const int port,
 			if (rv)
 				continue;
 
-			if (pec != pec_remote)
+			if (pec != pec_remote) {
 				rv = EC_ERROR_CRC;
+				continue;
+			}
 		} else {
 			rv = i2c_xfer_unlocked(port, addr_flags,
 					       0, 0, data, data_length,
