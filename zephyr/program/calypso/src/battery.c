@@ -1,9 +1,9 @@
-/* Copyright 2025 The ChromiumOS Authors
+/* Copyright 2026 The ChromiumOS Authors
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
 
-/* Bluey battery-specific configuration */
+/* Mensa battery-specific configuration */
 
 #include "battery.h"
 #include "charge_state.h"
@@ -11,7 +11,7 @@
 #include "common.h"
 #include "hooks.h"
 
-LOG_MODULE_REGISTER(bluey_battery, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(mensa_battery, LOG_LEVEL_INF);
 
 void poll_battery_info(void);
 DECLARE_DEFERRED(poll_battery_info);
@@ -74,6 +74,7 @@ DECLARE_HOOK(HOOK_CHIPSET_PRE_INIT, board_chipset_pre_init, HOOK_PRIO_DEFAULT);
 enum battery_access_type battery_check_access_limit(void)
 {
 	if (!chipset_in_state(CHIPSET_STATE_HARD_OFF)) {
+		LOG_INF("battery access not allowed when chipset on");
 		return BATTERY_ACCESS_NOT_ALLOWED;
 	}
 
