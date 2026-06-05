@@ -43,6 +43,8 @@ endif
 -include private/util_flags.mk
 
 include util/egis/build.mk
+include util/focaltech/build.mk
+
 
 include util/elan/build.mk
 
