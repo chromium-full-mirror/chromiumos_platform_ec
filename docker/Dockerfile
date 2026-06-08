@@ -123,6 +123,16 @@ RUN g++ -O2 -Wall -o /usr/bin/rtkupdate \
     /opt/repos/src/platform/ec/util/uart_utils.cc \
     -I/opt/repos/src/platform/ec/util
 
+# Build and install uartupdatetool host utility
+RUN g++ -O2 -Wall -o /usr/bin/uartupdatetool \
+    /opt/repos/src/platform/ec/util/uut/main.cc \
+    /opt/repos/src/platform/ec/util/uut/cmd.cc \
+    /opt/repos/src/platform/ec/util/uut/opr.cc \
+    /opt/repos/src/platform/ec/util/uut/l_com_port.cc \
+    /opt/repos/src/platform/ec/util/uut/lib_crc.cc \
+    -I/opt/repos/src/platform/ec/util \
+    -I/opt/repos/src/platform/ec/include
+
 # Build and install futility (which provides dump_fmap)
 RUN git clone --depth 1 \
     ${REPO_BASE}/platform/vboot_reference \

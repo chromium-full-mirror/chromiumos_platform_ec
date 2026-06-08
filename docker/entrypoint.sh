@@ -200,6 +200,32 @@ if [ -d "/workspace/src/platform/ec/zephyr/zmake" ]; then
         mkdir -p "${MONITOR_DEST_DIR}"
         cp "${MONITOR_CACHE}" "${MONITOR_DEST}"
     fi
+
+    # Set up NPCX monitor binary (npcx_monitor)
+    NPCX_MONITOR_CACHE="/workspace/.cache/npcx_monitor.bin"
+    NPCX_MONITOR_DEST_DIR="/usr/share/ec-devutils"
+    NPCX_MONITOR_DEST="${NPCX_MONITOR_DEST_DIR}/npcx_monitor.bin"
+
+    if [ ! -f "${NPCX_MONITOR_CACHE}" ]; then
+        echo "Monitor binary not found in cache. Building npcx_monitor..."
+        if zmake --checkout /workspace build npcx_monitor; then
+            echo "Caching monitor binary..."
+            mkdir -p "$(dirname "${NPCX_MONITOR_CACHE}")"
+            build_bin="/workspace/src/platform/ec/build/zephyr"
+            build_bin="${build_bin}/npcx_monitor/build-singleimage"
+            build_bin="${build_bin}/npcx_monitor.bin"
+            cp "${build_bin}" "${NPCX_MONITOR_CACHE}"
+        else
+            echo "Warning: Failed to build npcx_monitor." \
+                 "NPCX flashing may not work."
+        fi
+    fi
+
+    if [ -f "${NPCX_MONITOR_CACHE}" ]; then
+        echo "Installing monitor binary to ${NPCX_MONITOR_DEST}..."
+        mkdir -p "${NPCX_MONITOR_DEST_DIR}"
+        cp "${NPCX_MONITOR_CACHE}" "${NPCX_MONITOR_DEST}"
+    fi
 else
     echo "Warning: zmake directory not found. Skipping installation."
 fi

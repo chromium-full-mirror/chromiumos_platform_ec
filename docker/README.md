@@ -119,6 +119,16 @@ To run all EC-AIC tests on `realtek/rts5912`:
 ./run_dagwood_tests.py -p realtek/rts5912
 ```
 
+##### Nuvoton (NPCX9) Example
+For Nuvoton boards, the container automatically builds and pre-installs the
+`uartupdatetool` utility and the `npcx_monitor.bin` monitor binary on
+startup.
+
+To run all EC-AIC tests on `npcx9/npcx9m7f`:
+```bash
+./run_dagwood_tests.py -p npcx9/npcx9m7f
+```
+
 ##### Customizing the Run
 You can override the defaults using the script options:
 
