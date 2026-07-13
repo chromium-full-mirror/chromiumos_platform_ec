@@ -23,6 +23,7 @@
 #include <zephyr/ztest.h>
 #include <zephyr/ztest_assert.h>
 
+#include <array>
 #include <drivers/fingerprint.h>
 #include <drivers/fingerprint_sim.h>
 #include <ec_commands.h>
@@ -63,6 +64,16 @@ static const uint8_t fake_rollback_entropy[] = "some_rollback_entropy";
 #define FAKE_USER_ID                                      \
 	{ 0x5f6d5f69, 0x61665f61, 0x755f656b, 0x5f726573, \
 	  0x755f6469, 0x5f646573, 0x5f726f66, 0x74736574 }
+
+/* Alternate numeric patterns for UserID testing */
+#define FAKE_USER_ID_ALT                                  \
+	{ 0x11111111, 0x22222222, 0x33333333, 0x44444444, \
+	  0x55555555, 0x66666666, 0x77777777, 0x88888888 }
+
+/* Matches first 16 bytes of FAKE_USER_ID, differs in remaining 16 bytes */
+#define FAKE_USER_ID_PARTIAL_MATCH                        \
+	{ 0x5f6d5f69, 0x61665f61, 0x755f656b, 0x5f726573, \
+	  0x11111111, 0x22222222, 0x33333333, 0x44444444 }
 
 /*
  * How to manually encrypt a template
@@ -1497,6 +1508,86 @@ ZTEST_USER(fpsensor_template,
 
 	/* Rate-limit sleep required between encryption requests. */
 	k_sleep(K_SECONDS(1));
+}
+
+ZTEST_USER(fpsensor_template, test_fp_context_get_result_blocks_swap)
+{
+	struct ec_params_fp_context_v1 fp_context_params = {
+		.action = FP_CONTEXT_GET_RESULT,
+		.userid = FAKE_USER_ID_ALT,
+	};
+
+	/* Prerequisite state: a User ID must already be active and locked. */
+	zassert_true(global_context.fp_encryption_status &
+		     FP_CONTEXT_USER_ID_SET);
+
+	/*
+	 * Verify that changing the active User ID out-of-band triggers a
+	 * security violation enforcement inside fp_command_context() and
+	 * returns EC_RES_ACCESS_DENIED, regardless of session auth status.
+	 */
+	zassert_equal(EC_RES_ACCESS_DENIED,
+		      ec_cmd_fp_context_v1(NULL, &fp_context_params),
+		      "Context modification mid-session should be blocked");
+
+	constexpr std::array<uint32_t, FP_CONTEXT_USERID_WORDS>
+		expected_user_id = FAKE_USER_ID;
+
+	zassert_mem_equal(global_context.user_id.data(),
+			  expected_user_id.data(),
+			  sizeof(global_context.user_id));
+}
+
+ZTEST_USER(fpsensor_template, test_fp_context_get_result_blocks_partial_match)
+{
+	struct ec_params_fp_context_v1 fp_context_params = {
+		.action = FP_CONTEXT_GET_RESULT,
+		.userid = FAKE_USER_ID_PARTIAL_MATCH,
+	};
+
+	/* Prerequisite state: a User ID must already be active and locked. */
+	zassert_true(global_context.fp_encryption_status &
+		     FP_CONTEXT_USER_ID_SET);
+
+	/*
+	 * Verify that changing to a User ID that matches the first 16 bytes
+	 * but differs in the remaining bytes is rejected with
+	 * EC_RES_ACCESS_DENIED. This validates that safe_memcmp checks the full
+	 * buffer length.
+	 */
+	zassert_equal(
+		EC_RES_ACCESS_DENIED,
+		ec_cmd_fp_context_v1(NULL, &fp_context_params),
+		"Context modification with partial match should be blocked");
+
+	constexpr std::array<uint32_t, FP_CONTEXT_USERID_WORDS>
+		expected_user_id = FAKE_USER_ID;
+
+	zassert_mem_equal(global_context.user_id.data(),
+			  expected_user_id.data(),
+			  sizeof(global_context.user_id));
+}
+
+ZTEST_USER(fpsensor_template,
+	   test_fp_context_get_result_allows_idempotent_retry)
+{
+	struct ec_params_fp_context_v1 fp_context_params = {
+		.action = FP_CONTEXT_GET_RESULT,
+		.userid = FAKE_USER_ID, /* Exact same user ID */
+	};
+
+	/* Prerequisite state: a User ID must already be active. */
+	zassert_true(global_context.fp_encryption_status &
+		     FP_CONTEXT_USER_ID_SET);
+
+	/*
+	 * Verify that executing FP_CONTEXT_GET_RESULT with the SAME user ID
+	 * succeeds (idempotent retry), ensuring AP IPC timeouts do not break
+	 * the state machine.
+	 */
+	zassert_equal(EC_RES_SUCCESS,
+		      ec_cmd_fp_context_v1(NULL, &fp_context_params),
+		      "Idempotent context retries should be allowed");
 }
 
 static void *fpsensor_setup(void)
