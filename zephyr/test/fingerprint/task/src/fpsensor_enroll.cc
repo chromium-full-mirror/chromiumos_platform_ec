@@ -20,6 +20,7 @@
 #include <ec_commands.h>
 #include <ec_tasks.h>
 #include <fingerprint/fingerprint_alg.h>
+#include <fpsensor/fpsensor_auth_commands.h>
 #include <fpsensor/fpsensor_state.h>
 #include <host_command.h>
 
@@ -48,6 +49,24 @@ static int custom_enroll_step(const struct fingerprint_algorithm *const alg,
 	*percent = enroll_percent;
 
 	return enroll_step_return_val;
+}
+
+static void trigger_enroll_step(int percent)
+{
+	struct fingerprint_sensor_state state;
+
+	fingerprint_get_state(fp_sim, &state);
+	state.finger_state = FINGERPRINT_FINGER_STATE_PRESENT;
+	fingerprint_set_state(fp_sim, &state);
+
+	memset(image_buffer, 1, IMAGE_SIZE);
+	fingerprint_load_image(fp_sim, image_buffer, IMAGE_SIZE);
+
+	enroll_percent = percent;
+	mock_alg_enroll_step_fake.custom_fake = custom_enroll_step;
+
+	fingerprint_run_callback(fp_sim);
+	k_msleep(1);
 }
 
 ZTEST_USER(fpsensor_enroll, test_enroll_start_stop)
@@ -578,6 +597,67 @@ ZTEST_USER(fpsensor_enroll, test_enroll_max_capacity_reached)
 		      "Algorithm enrollment state should be aborted");
 }
 
+ZTEST_USER(fpsensor_enroll, test_enroll_positive_match_secret_classic_flow)
+{
+	struct ec_params_fp_mode params = {
+		.mode = FP_MODE_ENROLL_SESSION | FP_MODE_ENROLL_IMAGE,
+	};
+	struct ec_response_fp_mode response;
+
+	/* Ensure fingerprint auth flow is NOT enabled. */
+	zassert_false(fingerprint_auth_enabled());
+
+	/* Start enrollment session. */
+	zassert_ok(ec_cmd_fp_mode(NULL, &params, &response));
+	k_msleep(1);
+
+	/* Simulate finger present and completion. */
+	trigger_enroll_step(100);
+
+	/*
+	 * In classic flow, post-enrollment positive match secret should be
+	 * enabled/armed.
+	 */
+	zassert_true(global_context.positive_match_secret_state.readable);
+	zassert_equal(
+		global_context.positive_match_secret_state.template_matched, 0);
+	zassert_equal(global_context.templ_valid, 1);
+}
+
+ZTEST_USER(fpsensor_enroll, test_enroll_positive_match_secret_auth_flow)
+{
+	struct ec_params_fp_mode params = {
+		.mode = FP_MODE_ENROLL_SESSION | FP_MODE_ENROLL_IMAGE,
+	};
+	struct ec_response_fp_mode response;
+
+	/*
+	 * Start enrollment session prior to enabling auth mode session state to
+	 * bypass authenticate_fp_mode() MAC verification (since this test suite
+	 * does not mock validate_request()).
+	 */
+	zassert_ok(ec_cmd_fp_mode(NULL, &params, &response));
+	k_msleep(1);
+
+	/* Enable fingerprint auth flow session flag mid-session. */
+	global_context.fp_encryption_status |=
+		FP_CONTEXT_STATUS_SESSION_ESTABLISHED;
+	zassert_true(fingerprint_auth_enabled());
+
+	/* Simulate finger present and completion. */
+	trigger_enroll_step(100);
+
+	/*
+	 * In Fingerprint Auth flow, positive match secret should NOT be armed
+	 * for classic host readback.
+	 */
+	zassert_false(global_context.positive_match_secret_state.readable);
+	zassert_equal(
+		global_context.positive_match_secret_state.template_matched,
+		FP_NO_SUCH_TEMPLATE);
+	zassert_equal(global_context.templ_valid, 0);
+}
+
 static void *fpsensor_setup(void)
 {
 	/* Start shimmed tasks. */
@@ -610,6 +690,7 @@ static void fpsensor_before(void *f)
 
 	/* Reset global context to a clean state. */
 	fp_reset_and_clear_context();
+	global_context.fp_encryption_status = 0;
 
 	zassert_ok(ec_cmd_fp_mode(NULL, &params, &response));
 	zassert_equal(response.mode, 0);
