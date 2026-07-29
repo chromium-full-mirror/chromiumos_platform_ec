@@ -245,8 +245,8 @@
     <vif:SOP_Capable value="true" />
     <vif:SOP_P_Capable value="true" />
     <vif:SOP_PP_Capable value="true" />
-    <vif:SOP_P_Debug_Capable value="false" />
-    <vif:SOP_PP_Debug_Capable value="false" />
+    <vif:SOP_P_Debug_Capable value="true" />
+    <vif:SOP_PP_Debug_Capable value="true" />
     <vif:Manufacturer_Info_Supported_Port value="false" />
     <vif:Chunking_Implemented_SOP value="true" />
     <vif:Unchunked_Extended_Messages_Supported value="false" />
