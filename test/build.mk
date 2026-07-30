@@ -52,6 +52,7 @@ test-list-host += utils_str
 test-list-host += vboot
 test-list-host += virtual_nvmem
 test-list-host += x25519
+test-list-host += prod_mode
 endif
 
 aes-y=aes.o
@@ -76,6 +77,7 @@ pingpong-y=pingpong.o
 pinweaver-y=pinweaver.o
 power_button-y=power_button.o
 powerdemo-y=powerdemo.o
+prod_mode-y=prod_mode.o
 printf-y=printf.o
 queue-y=queue.o
 rma_auth-y=rma_auth.o
