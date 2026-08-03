@@ -1081,6 +1081,14 @@ fp_commit_template(std::span<const uint8_t> context)
 static enum ec_host_cmd_status
 fp_command_template_v0(struct ec_host_cmd_handler_args *args)
 {
+	/*
+	 * Disable legacy synchronous v0 template requests (both chunk loads
+	 * and commits) when fingerprint auth is enabled; callers must use the
+	 * asynchronous v1 command instead.
+	 */
+	if (fingerprint_auth_enabled())
+		return EC_HOST_CMD_ACCESS_DENIED;
+
 	const auto *params = static_cast<const struct ec_params_fp_template *>(
 		args->input_buf);
 	uint32_t size = params->size & ~FP_TEMPLATE_COMMIT;
