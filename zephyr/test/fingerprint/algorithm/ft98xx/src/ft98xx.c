@@ -69,15 +69,21 @@ static int fixture_alg_init(struct ft98xx_bio_alg_fixture *fixture)
 	return res;
 }
 
+static struct {
+	int finger_size;
+	int subtpl_size;
+	int head_size;
+} mock_detailed_info;
+
 static int custom_get_finger_detailed_info(int *finger_size, int *subtpl_size,
 					   int *head_size)
 {
 	if (finger_size)
-		*finger_size = CONFIG_FP_ALGORITHM_TEMPLATE_SIZE;
+		*finger_size = mock_detailed_info.finger_size;
 	if (subtpl_size)
-		*subtpl_size = FOCAL_TEMPLATE_SUBTEMPLATE_SIZE;
+		*subtpl_size = mock_detailed_info.subtpl_size;
 	if (head_size)
-		*head_size = FOCAL_TEMPLATE_HEADER_SIZE;
+		*head_size = mock_detailed_info.head_size;
 	return 0;
 }
 
@@ -94,20 +100,6 @@ static void custom_focal_algo_version(uint8_t *ver)
 	if (ver) {
 		snprintf((char *)ver, FOCAL_ALGO_VERSION_MAX_LEN, "v1.0.0");
 	}
-}
-
-static int custom_get_finger_detailed_info_too_large(int *finger_size,
-						     int *subtpl_size,
-						     int *head_size)
-{
-	if (finger_size)
-		*finger_size = CONFIG_FP_ALGORITHM_TEMPLATE_SIZE + 1;
-	if (subtpl_size)
-		*subtpl_size = 0;
-	if (head_size)
-		*head_size = 0;
-
-	return 0;
 }
 
 static int custom_match_update_flag(uint8_t *feature, uint8_t *tpl,
@@ -171,6 +163,9 @@ static void ft98xx_alg_before(void *f)
 	RESET_FAKE(focal_algo_update_template_by_feature);
 
 	/* Default mock returns. */
+	mock_detailed_info.finger_size = CONFIG_FP_ALGORITHM_TEMPLATE_SIZE;
+	mock_detailed_info.subtpl_size = FOCAL_TEMPLATE_SUBTEMPLATE_SIZE;
+	mock_detailed_info.head_size = FOCAL_TEMPLATE_HEADER_SIZE;
 	ft_sensor_query_rows_fake.return_val = SENSOR_ROWS;
 	ft_sensor_query_cols_fake.return_val = SENSOR_COLS;
 	focal_algo_set_buffer_fake.return_val = 0;
@@ -223,9 +218,15 @@ ZTEST_F(ft98xx_bio_alg, test_init_algo_init_failure)
 
 ZTEST_F(ft98xx_bio_alg, test_init_template_size_exceeded)
 {
-	focal_algo_get_finger_detailed_info_fake.custom_fake =
-		custom_get_finger_detailed_info_too_large;
+	mock_detailed_info.finger_size = CONFIG_FP_ALGORITHM_TEMPLATE_SIZE + 1;
 	zassert_equal(fingerprint_algorithm_init(fixture->alg), -EINVAL);
+}
+
+ZTEST_F(ft98xx_bio_alg, test_init_template_size_zero_fails)
+{
+	mock_detailed_info.finger_size = 0;
+	zassert_equal(fingerprint_algorithm_init(fixture->alg), -EINVAL,
+		      "Expected -EINVAL when template size is 0.");
 }
 
 ZTEST_F(ft98xx_bio_alg, test_exit_success)
