@@ -13,7 +13,6 @@ else
 test-list-host =
 test-list-host += battery_config
 test-list-host += bklight_passthru
-test-list-host += body_detection
 test-list-host += boringssl_crypto
 test-list-host += cbi
 test-list-host += charge_ramp
@@ -37,7 +36,6 @@ test-list-host += motion_angle_tablet
 test-list-host += motion_lid
 test-list-host += motion_sense_fifo
 test-list-host += power_button
-test-list-host += printf
 test-list-host += queue
 test-list-host += rollback_secret
 test-list-host += rsa3
@@ -48,7 +46,6 @@ test-list-host += sha256_unrolled
 # TODO(b/237823627): When building for the host, we're linking against the
 # toolchain's C standard library, so these tests are actually testing the
 # toolchain's C standard library.
-test-list-host += stdlib
 test-list-host += thermal
 test-list-host += uptime
 test-list-host += usb_pd_timer
@@ -79,7 +76,6 @@ endif
 
 battery_config-y=battery_config.o
 bklight_passthru-y=bklight_passthru.o
-body_detection-y=body_detection.o body_detection_data_literals.o motion_common.o
 boringssl_crypto-y=boringssl_crypto.o
 cbi-y=cbi.o
 charge_ramp-y+=charge_ramp.o
@@ -103,7 +99,6 @@ motion_angle_tablet-y=motion_angle_tablet.o motion_angle_data_literals_tablet.o 
 motion_lid-y=motion_lid.o
 motion_sense_fifo-y=motion_sense_fifo.o
 power_button-y=power_button.o
-printf-y=printf.o
 queue-y=queue.o
 rollback_secret-y=rollback_secret.o
 rsa3-y=rsa.o
@@ -111,7 +106,6 @@ rtc-y=rtc.o
 sbs_charging-y=sbs_charging.o
 sha256-y=sha256.o
 sha256_unrolled-y=sha256.o
-stdlib-y=stdlib.o
 thermal-y=thermal.o
 uptime-y=uptime.o
 usb_pd_timer-y=usb_pd_timer.o
