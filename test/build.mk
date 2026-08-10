@@ -11,8 +11,6 @@ ifneq ($(TEST_LIST_HOST),)
 test-list-host=$(TEST_LIST_HOST)
 else
 test-list-host =
-test-list-host += fpsensor_auth_commands
-test-list-host += fpsensor_auth_commands_otp
 
 
 # TODO(b/237823627): When building for the host, we're linking against the
@@ -39,9 +37,6 @@ ifeq ($(and $(BOARD_HOST),$(TEST_BUILD)),y)
 # tests from the RO image, so we need to build for RO.
 rw-test = ro
 endif
-
-fpsensor_auth_commands-y=fpsensor_auth_commands.o
-fpsensor_auth_commands_otp-$(rw-test)=fpsensor_auth_commands_otp.o
 
 
 sbs_charging-y=sbs_charging.o
