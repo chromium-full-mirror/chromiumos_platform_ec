@@ -1010,6 +1010,16 @@ class AllTests:
             TestConfig(test_name="restricted_console"),
             TestConfig(test_name="rng_benchmark"),
             TestConfig(
+                test_name="rollback_lock",
+                exclude_boards=[
+                    BLOONCHIPPER,
+                    CHUDOW,
+                    DARTMONKEY,
+                    SANOK,
+                ],
+                skip_for_ec_legacy=True,
+            ),
+            TestConfig(
                 config_name="rollback_region0",
                 test_name="rollback",
                 finish_regexes=[board_config.rollback_region0_regex],
