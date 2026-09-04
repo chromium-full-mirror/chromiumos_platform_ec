@@ -3187,13 +3187,9 @@ static void tps_start_thread(const struct device *dev)
 	k_thread_start(data->thread);
 }
 
-static bool tps_is_init_done(const struct device *dev)
+static enum pdc_driver_init_state_t tps_is_init_done(const struct device *dev)
 {
 	struct pdc_data_t *data = dev->data;
-
-	if (get_state(data) == ST_DISABLE) {
-		return PDC_DRIVER_INIT_STATE_FAILED;
-	}
 
 	return data->init_done ? PDC_DRIVER_INIT_STATE_SUCCESS :
 				 PDC_DRIVER_INIT_STATE_WAIT;
