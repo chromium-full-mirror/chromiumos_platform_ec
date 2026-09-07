@@ -29,6 +29,7 @@ void board_chipset_startup_c1nv(void)
 	gpio_pin_set_dt(GPIO_DT_FROM_NODELABEL(gpio_ec_en_pp5000), 1);
 	gpio_pin_set_dt(GPIO_DT_FROM_NODELABEL(gpio_ec_en_pp5000_fan), 1);
 	gpio_pin_set_dt(GPIO_DT_FROM_NODELABEL(gpio_en_i2c_ec_adsp_batt), 1);
+	gpio_pin_set_dt(GPIO_DT_FROM_NODELABEL(gpio_ec_bkoff_odl), 1);
 }
 DECLARE_HOOK(HOOK_CHIPSET_STARTUP, board_chipset_startup_c1nv,
 	     HOOK_PRIO_DEFAULT);
@@ -46,6 +47,7 @@ void board_chipset_shutdown_c1nv(void)
 	gpio_pin_set_dt(GPIO_DT_FROM_NODELABEL(gpio_en_ppvar_oled), 0);
 	gpio_pin_set_dt(GPIO_DT_FROM_NODELABEL(gpio_ec_en_pp5000_fan), 0);
 	gpio_pin_set_dt(GPIO_DT_FROM_NODELABEL(gpio_en_i2c_ec_adsp_batt), 0);
+	gpio_pin_set_dt(GPIO_DT_FROM_NODELABEL(gpio_ec_bkoff_odl), 0);
 }
 DECLARE_HOOK(HOOK_CHIPSET_SHUTDOWN, board_chipset_shutdown_c1nv,
 	     HOOK_PRIO_DEFAULT);
