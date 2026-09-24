@@ -79,7 +79,6 @@ endif()
 
 if(DEFINED CONFIG_BOARD_COOLUM)
 	project(coolum)
-	zephyr_library_sources("src/rvp_board_power.c")
 endif()
 
 zephyr_include_directories("include/")
