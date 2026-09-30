@@ -25,7 +25,7 @@ CPUS?=1
 LCOV_CPUS?=$(CPUS)
 LCOV_PARALLEL=--parallel $(LCOV_CPUS)
 
-# test/mock is not a generator or system path. However, listing it here
+# zephyr/mock is not a generator or system path. However, listing it here
 # removes it from consideration in CQ coverage math, which is the intent.
 GENERATED_AND_SYSTEM_PATTERNS='**/.cache/**' \
 	'**/lib/gcc/**' \
@@ -34,8 +34,8 @@ GENERATED_AND_SYSTEM_PATTERNS='**/.cache/**' \
 	'**/usr/include/**' \
 	'**/usr/lib/**' \
 	'$(PLATFORM_EC)/build/**' \
-	'$(PLATFORM_EC)/test/mock/**' \
 	'$(PLATFORM_EC)/twister-out*/**' \
+	'$(PLATFORM_EC)/zephyr/mock/**' \
 	'$(THIRD_PARTY)/zephyrproject/zephyr/arch/x86/**'
 TEST_PATTERNS='**/*_benchmark.cc' \
 	'**/*_emul.c' \
@@ -44,8 +44,6 @@ TEST_PATTERNS='**/*_benchmark.cc' \
 	'**/*_test.c' \
 	'**/*_test.cc' \
 	'**/*_test.h' \
-	'$(PLATFORM_EC)/test/mock/**' \
-	'$(PLATFORM_EC)/include/mock/**' \
 	'$(PLATFORM_EC)/include/test_util.h' \
 	'$(PLATFORM_EC)/include/tests/**' \
 	'$(PLATFORM_EC)/test/**' \
