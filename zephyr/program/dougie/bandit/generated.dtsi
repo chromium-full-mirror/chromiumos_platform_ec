@@ -75,10 +75,6 @@
 			gpios = <&gpiod 7 (GPIO_OUTPUT | GPIO_ACTIVE_HIGH | GPIO_OUTPUT_INIT_LOW)>;
 			enum-name = "GPIO_PACKET_MODE_EN";
 		};
-		gpio_ec_i2c_pdc_sm_int_odl: ec_i2c_pdc_sm_int_odl {
-			gpios = <&gpiof 5 (GPIO_INPUT)>;
-			enum-name = "GPIO_USB_C0_PD_INT_ODL";
-		};
 		gpio_ec_kso_02_inv: ec_kso_02_inv {
 			gpios = <&gpioksol 2 (GPIO_OUTPUT | GPIO_ACTIVE_HIGH | GPIO_OUTPUT_INIT_HIGH)>;
 		};
@@ -168,20 +164,8 @@
 	named-i2c-ports {
 		compatible = "named-i2c-ports";
 
-		i2c_ec_bat_chg_vr_smb: ec_bat_chg_vr_smb {
-			i2c-port = <&i2c0>;
-		};
 		i2c_ec_smb_batt_scl_3v3: ec_smb_batt_scl_3v3 {
 			i2c-port = <&i2c1>;
-		};
-		i2c_ec_i2c_dbg_scl_3v3: ec_i2c_dbg_scl_3v3 {
-			i2c-port = <&i2c2>;
-		};
-		i2c_ec_i2c_pdc_sm_scl_3v3: ec_i2c_pdc_sm_scl_3v3 {
-			i2c-port = <&i2c4>;
-		};
-		i2c_ec_i2c_sensor_scl_1v8: ec_i2c_sensor_scl_1v8 {
-			i2c-port = <&i2c5>;
 		};
 	};
 
