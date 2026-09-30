@@ -33,7 +33,6 @@
 /* Default values */
 #define DEFAULT_BAUD_RATE 115200
 #define DEFAULT_PORT_NAME "ttyS0"
-#define DEFAULT_DEV_NUM 0
 #define DEFAULT_FLASH_OFFSET 0
 
 /* The magic number in monitor header */
@@ -74,7 +73,6 @@ static char file_name[MAX_FILE_NAME_SIZE];
 static char addr_str[MAX_PARAM_SIZE];
 static char size_str[MAX_PARAM_SIZE];
 static uint32_t baudrate;
-static uint32_t dev_num;
 static uint32_t flash_offset;
 static bool auto_mode;
 static bool read_flash_flag;
@@ -377,7 +375,6 @@ int main(int argc, char *argv[])
 	/* Setup defaults */
 	strncpy(port_name, DEFAULT_PORT_NAME, sizeof(port_name));
 	baudrate = DEFAULT_BAUD_RATE;
-	dev_num = DEFAULT_DEV_NUM;
 	flash_offset = DEFAULT_FLASH_OFFSET;
 	opr_name[0] = '\0';
 	verbose = true;
