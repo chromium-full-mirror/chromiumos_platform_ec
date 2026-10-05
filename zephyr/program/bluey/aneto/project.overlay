@@ -24,6 +24,9 @@
 #include "led_pins.dtsi"
 #include "led_policy.dtsi"
 #include <aneto/overlay.dtsi>
+#include <cros/cbi_ufsc_std_schema.dtsi>
+#include <cros/cbi_ufsc_oem_schema.dtsi>
+#include "aneto_ec_ufsc.dtsi"
 
 /* aneto overrides follow... */
 
