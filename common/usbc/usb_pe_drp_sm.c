@@ -1081,6 +1081,14 @@ uint32_t pd_get_events(int port)
 
 void pe_set_snk_caps(int port, int cnt, uint32_t *snk_caps)
 {
+	const int limit = ARRAY_SIZE(pe[port].snk_caps);
+
+	if (cnt > limit) {
+		CPRINTS("C%d: Trim sink PDOs (%d) exceeding limit (%d)", port,
+			cnt, limit);
+		cnt = limit;
+	}
+
 	pe[port].snk_cap_cnt = cnt;
 
 	memcpy(pe[port].snk_caps, snk_caps, sizeof(uint32_t) * cnt);

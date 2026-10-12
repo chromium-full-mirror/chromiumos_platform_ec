@@ -411,6 +411,32 @@ ZTEST_F(usb_pe_test_source, test_pe_sink_cap_query_as_source)
 }
 
 /**
+ * @brief Test that pe_set_snk_caps() never stores more than PDO_MAX_OBJECTS
+ * PDOs.
+ */
+ZTEST_F(usb_pe_test_source, test_pe_set_snk_caps_clamps_count)
+{
+	int port = TEST_USB_PORT;
+	uint32_t pdos[PDO_MAX_OBJECTS + 3];
+
+	for (int i = 0; i < ARRAY_SIZE(pdos); i++) {
+		pdos[i] = 0xA5000000 | i;
+	}
+
+	/* More PDOs than fit: the count is clamped, the leading PDOs kept. */
+	pe_set_snk_caps(port, ARRAY_SIZE(pdos), pdos);
+	zassert_equal(pd_get_snk_cap_cnt(port), PDO_MAX_OBJECTS);
+	zassert_mem_equal(pd_get_snk_caps(port), pdos,
+			  PDO_MAX_OBJECTS * sizeof(pdos[0]));
+
+	/* Exactly full: every PDO and the full count are stored. */
+	pe_set_snk_caps(port, PDO_MAX_OBJECTS, pdos + 1);
+	zassert_equal(pd_get_snk_cap_cnt(port), PDO_MAX_OBJECTS);
+	zassert_mem_equal(pd_get_snk_caps(port), pdos + 1,
+			  PDO_MAX_OBJECTS * sizeof(pdos[0]));
+}
+
+/**
  * @brief Test sending VDM request from DFP/Source.
  */
 ZTEST_F(usb_pe_test_source, test_dpm_vdm_attention_source)

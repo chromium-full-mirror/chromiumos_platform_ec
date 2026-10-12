@@ -91,5 +91,6 @@ enum usb_pe_state {
 
 void set_state_pe(const int port, const enum usb_pe_state new_state);
 enum usb_pe_state get_state_pe(const int port);
+void pe_set_snk_caps(int port, int cnt, uint32_t *snk_caps);
 
 #endif /* PLATFORM_EC_TEST_USB_PE_H_ */
