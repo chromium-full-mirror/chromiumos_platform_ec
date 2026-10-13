@@ -1317,7 +1317,12 @@ config_ocelot() {
   readonly USE_LEGACY_GPIO_API=0
 
   readonly TRANSPORT="SPI"
-  readonly DEVICE="/dev/spidev0.0"
+
+  if [[ "$(os)" == "android" ]]; then
+    readonly DEVICE="/dev/spidev1.0"
+  else
+    readonly DEVICE="/dev/spidev0.0"
+  fi
 
   readonly GPIO_CHIP="gpiochip0"
 
