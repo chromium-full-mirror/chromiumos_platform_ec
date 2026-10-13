@@ -68,7 +68,7 @@
 
 &spi0 {
 	status = "okay";
-	clock-frequency = <100000000>;
+	clock-frequency = <200000000>;
 };
 
 &spi1 {
@@ -88,6 +88,14 @@
 };
 
 &clock {
-	ahb-divide = <2>;
-	apb-divide = <1>;
+	/*
+	 * CPU is clocked from AHB. The base clock is 200Mhz.
+	 * AHB clock = Base clock / AHB divider
+	 */
+	ahb-divide = <1>;
+	/*
+	 * APB Source Clock is AHB Clock divided by 2.
+	 * APB clock = AHB clock / 2 / APB divider
+	 */
+	apb-divide = <2>;
 };
