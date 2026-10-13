@@ -6,6 +6,7 @@
 #include "accelgyro.h"
 #include "body_detection.h"
 #include "console.h"
+#include "hooks.h"
 #include "math_util.h"
 #include "test/drivers/test_state.h"
 #include "test/drivers/utils.h"
@@ -514,7 +515,69 @@ ZTEST_USER(bodydetectsample, test_reallife_data)
 }
 
 /* Note: ALOGIRTHM spelling matches Kconfig.body_detection */
-#if !defined(CONFIG_BODY_DETECTION_ALOGIRTHM_V2)
+#if defined(CONFIG_BODY_DETECTION_ALOGIRTHM_V2)
+static int body_detect_change_cnt;
+
+static void body_detect_change_hook(void)
+{
+	body_detect_change_cnt++;
+}
+DECLARE_HOOK(HOOK_BODY_DETECT_CHANGE, body_detect_change_hook,
+	     HOOK_PRIO_DEFAULT);
+
+/**
+ * @brief TestPurpose: verify ON_BODY hysteresis uses OFF_BODY_CON (10%) rather
+ * than ON_BODY_CON (90%), so moderate motion (~35% confidence) keeps the
+ * device ON_BODY, and verify body_detect_reset() clears filter state without
+ * emitting a duplicate ON_BODY state transition.
+ */
+ZTEST_USER(bodydetectsample, test_on_body_hysteresis)
+{
+	int i, cnt;
+	float fs = 50.0f;
+	int G_1 = 16384;
+
+	cnt = 2 * 60 * fs;
+
+	/*
+	 * 0.25Hz signal with amplitude G_1 / 250 (~4 mG) yields peak
+	 * var ~= 3100 uG (motion_confidence ~= 35%, which is >= OFF_BODY_CON
+	 * (10%) but < ON_BODY_CON (90%)). While already ON_BODY, this must
+	 * keep the state in BODY_DETECTION_ON_BODY.
+	 */
+	for (i = 0; i < cnt; i++) {
+		time_fake_value = (1000000 / fs * i);
+		body_sensor->xyz[X] = 0;
+		body_sensor->xyz[Y] = 0;
+		body_sensor->xyz[Z] =
+			G_1 + sin(0.25f * 2 * 3.14f / fs * i) * (G_1 / 250);
+		body_detect();
+	}
+	zassert_equal(BODY_DETECTION_ON_BODY, body_detect_get_state(),
+		      "expected ON_BODY to be maintained by hysteresis");
+
+	/*
+	 * Resetting while already ON_BODY must reinitialize filters cleanly
+	 * without emitting a redundant ON_BODY hook on reset or first sample.
+	 */
+	body_detect_change_cnt = 0;
+	time_fake_value = 0;
+	body_detect_reset();
+	zassert_equal(0, body_detect_change_cnt);
+	for (i = 0; i < cnt; i++) {
+		time_fake_value = (1000000 / fs * i);
+		body_sensor->xyz[X] = 0;
+		body_sensor->xyz[Y] = 0;
+		body_sensor->xyz[Z] = G_1;
+		body_detect();
+		if (i == 0) {
+			zassert_equal(0, body_detect_change_cnt);
+		}
+	}
+	zassert_equal(BODY_DETECTION_OFF_BODY, body_detect_get_state());
+	zassert_equal(1, body_detect_change_cnt);
+}
+#else
 /**
  * @brief TestPurpose: verify calculate_motion_confidence does not underflow
  * uint64_t when confidence_delta_scaled > var_threshold_scaled.
