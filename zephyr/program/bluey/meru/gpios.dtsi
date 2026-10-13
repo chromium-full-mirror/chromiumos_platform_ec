@@ -99,7 +99,7 @@
 			enum-name = "GPIO_PMIC_RESIN";
 		};
 		gpio_ec_pen_eject: ec_pen_eject {
-			gpios = <&gpio9 7 (GPIO_OUTPUT | GPIO_OUTPUT_INIT_HIGH)>;
+			gpios = <&gpio9 7 (GPIO_OUTPUT | GPIO_OPEN_DRAIN)>;
 		};
 		gpio_sys_in_suspend: sys_in_suspend {
 			gpios = <&gpioa 0 (GPIO_INPUT)>;
@@ -125,6 +125,9 @@
 		};
 		gpio_soc_ec_reset_out_l: soc_ec_reset_out_l {
 			gpios = <&gpiob 0 (GPIO_INPUT)>;
+		};
+		gpio_wlc_download_mode: wlc_download_mode {
+			gpios = <&gpiob 4 (GPIO_OUTPUT | GPIO_OUTPUT_INIT_LOW)>;
 		};
 		gpio_fp_apm: fp_apm {
 			gpios = <&gpiob 5 (GPIO_INPUT)>;
