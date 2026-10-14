@@ -125,7 +125,12 @@ test_mockable_static_inline int sniff_pdc_set_rdo(const struct device *dev,
 /**
  * @brief Time to wait for typec only devices (Non PD) to settle
  */
-#define TYPEC_ONLY_SINK_DEBOUNCE_TIME_US (1000 * USEC_PER_MSEC)
+#define TYPEC_ONLY_DEBOUNCE_TIME_US (1000 * USEC_PER_MSEC)
+
+/**
+ * @brief Time delay before retrying a failed CMD_PDC_SET_SINK_PATH command
+ */
+#define SINK_PATH_RETRY_DELAY_MS 500
 
 /**
  * @brief maximum number of times to try and send a command, or wait for a
@@ -2045,17 +2050,22 @@ static void run_snk_policies(struct pdc_port_t *port)
 static void run_typec_snk_policies(struct pdc_port_t *port)
 {
 	const struct pdc_config_t *config = port->dev->config;
-	/* Note - hard resets specifically not checked for here.
-
-	 * We don't expect hard resets while connected to a non-PD
-	 * partner.
-	 */
 
 	if (run_common_policies(port)) {
 		return;
 	}
 
-	if (atomic_test_and_clear_bit(port->snk_policy.flags,
+	/* A PDC hard reset while attempting PD discovery on a non-PD source
+	 * can disable the sink FET. Re-evaluate the sink path if one completed.
+	 */
+	if (atomic_get(&port->hard_reset_sent)) {
+		atomic_clear(&port->hard_reset_sent);
+		atomic_set_bit(port->snk_policy.flags,
+			       SNK_POLICY_SET_ACTIVE_CHARGE_PORT);
+	}
+
+	if (k_timer_remaining_get(&port->typec_only_timer) == 0 &&
+	    atomic_test_and_clear_bit(port->snk_policy.flags,
 				      SNK_POLICY_SET_ACTIVE_CHARGE_PORT)) {
 		/* Check if we are the active charge port */
 		port->sink_path_to_send =
@@ -2298,6 +2308,7 @@ static void pdc_unattached_entry(void *obj)
 
 	if (get_pdc_state(port) != port->send_cmd_return_state) {
 		invalidate_charger_settings(port, true);
+		atomic_clear(&port->hard_reset_sent);
 		port->unattached_local_state = UNATTACHED_SET_SINK_PATH_OFF;
 		/* Update source current limit policy */
 		pdc_dpm_remove_sink(port_number);
@@ -3591,10 +3602,19 @@ static void pdc_send_cmd_wait_exit(void *obj)
 			}
 		}
 		break;
+	case CMD_PDC_SET_SINK_PATH:
+		if (port->cmd->error &&
+		    port->send_cmd_return_state == PDC_SNK_TYPEC_ONLY) {
+			k_timer_start(&port->typec_only_timer,
+				      K_MSEC(SINK_PATH_RETRY_DELAY_MS),
+				      K_NO_WAIT);
+			atomic_set_bit(port->snk_policy.flags,
+				       SNK_POLICY_SET_ACTIVE_CHARGE_PORT);
+		}
+		__fallthrough;
 	case CMD_PDC_SET_PDR:
 	case CMD_PDC_SET_UOR:
 	case CMD_PDC_SET_PDOS:
-	case CMD_PDC_SET_SINK_PATH:
 	case CMD_PDC_READ_POWER_LEVEL:
 		trigger_ppm_status_change(port);
 		break;
@@ -3625,11 +3645,10 @@ static void pdc_src_typec_only_entry(void *obj)
 		 * is typec_only. Note that the timer is not explicitly
 		 * stopped. Since there is no callback associated, letting it
 		 * expire in the src.attached state will have no effect and the
-		 * k_timer_start call always resets the timer status.
+		 * k_timer_start call always resets the timer.
 		 */
 		k_timer_start(&port->typec_only_timer,
-			      K_USEC(TYPEC_ONLY_SINK_DEBOUNCE_TIME_US),
-			      K_NO_WAIT);
+			      K_USEC(TYPEC_ONLY_DEBOUNCE_TIME_US), K_NO_WAIT);
 
 		if (IS_ENABLED(CONFIG_PDC_POWER_MGMT_USB_MUX)) {
 			usb_mux_set(
@@ -3676,7 +3695,7 @@ static enum smf_state_result pdc_src_typec_only_run(void *obj)
 		queue_internal_cmd(port, CMD_PDC_SET_SINK_PATH);
 		return SMF_EVENT_HANDLED;
 	case SRC_TYPEC_ATTACHED_DEBOUNCE:
-		if (k_timer_status_get(&port->typec_only_timer) > 0) {
+		if (k_timer_remaining_get(&port->typec_only_timer) == 0) {
 			port->src_typec_attached_local_state =
 				SRC_TYPEC_ATTACHED_ADD_SINK;
 		}
@@ -3716,10 +3735,10 @@ static void pdc_snk_typec_only_entry(void *obj)
 		 * is typec_only. Note that the timer is not explicitly
 		 * stopped. Since there is no callback associated, letting it
 		 * expire in the snk.attached state will have no effect and the
-		 * k_timer_start call always resets the timer status.
+		 * k_timer_start call always resets the timer.
 		 */
 		k_timer_start(&port->typec_only_timer,
-			      K_USEC(PD_T_SINK_WAIT_CAP), K_NO_WAIT);
+			      K_USEC(TYPEC_ONLY_DEBOUNCE_TIME_US), K_NO_WAIT);
 
 		if (IS_ENABLED(CONFIG_PDC_POWER_MGMT_USB_MUX)) {
 			usb_mux_set(
@@ -3765,7 +3784,7 @@ static enum smf_state_result pdc_snk_typec_only_run(void *obj)
 
 	switch (port->snk_typec_attached_local_state) {
 	case SNK_TYPEC_ATTACHED_DEBOUNCE:
-		if (k_timer_status_get(&port->typec_only_timer) > 0) {
+		if (k_timer_remaining_get(&port->typec_only_timer) == 0) {
 			port->snk_typec_attached_local_state =
 				SNK_TYPEC_ATTACHED_SET_CHARGE_CURRENT;
 		}

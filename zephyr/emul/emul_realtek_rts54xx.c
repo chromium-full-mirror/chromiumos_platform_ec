@@ -1480,7 +1480,8 @@ static int emul_realtek_rts54xx_set_connector_status(
 
 	change_bits.raw_value = connector_status->raw_conn_status_change_bits;
 
-	if (change_bits.supported_provider_caps) {
+	if (change_bits.supported_provider_caps ||
+	    change_bits.pd_reset_complete) {
 		/* Turn off the sink path */
 		data->set_power_switch_data.vbsin_en_control = 0;
 		data->set_power_switch_data.vbsin_en = 0;
