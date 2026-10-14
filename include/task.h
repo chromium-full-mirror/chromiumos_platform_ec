@@ -104,11 +104,6 @@ uint32_t task_wait_event(int timeout_us);
  */
 uint32_t task_wait_event_mask(uint32_t event_mask, int timeout_us);
 
-typedef struct k_mutex mutex_t;
-
-#define mutex_lock(mtx) (k_mutex_lock(mtx, K_FOREVER))
-#define mutex_unlock(mtx) (k_mutex_unlock(mtx))
-
 #ifdef __cplusplus
 }
 #endif

@@ -462,7 +462,7 @@ test_mockable int rt1718s_get_adc(int port, enum rt1718s_adc_channel channel,
 		return EC_ERROR_INVAL;
 	}
 
-	mutex_lock(&adc_lock);
+	k_mutex_lock(&adc_lock, K_FOREVER);
 
 	/* Start ADC conversation */
 	rv = rt1718s_write16(port, RT1718S_ADC_CTRL_01, BIT(channel));
@@ -510,7 +510,7 @@ out:
 	rt1718s_write16(port, RT1718S_ADC_CTRL_01, 0);
 	rt1718s_write8(port, RT1718S_RT_INT6, RT1718S_RT_INT6_INT_ADC_DONE);
 
-	mutex_unlock(&adc_lock);
+	k_mutex_unlock(&adc_lock);
 	return rv;
 }
 
