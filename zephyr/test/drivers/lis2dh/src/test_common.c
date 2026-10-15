@@ -33,7 +33,11 @@ ZTEST_USER(lis2dh, test_init)
 {
 	struct stprivate_data *drvdata = acc->drv_data;
 
+	/* Stale S5/warm-boot CLICK_CFG must be cleared by init(). */
+	zassert_ok(i2c_write8(acc->port, acc->i2c_spi_addr_flags,
+			      LIS2DH_CLICK_CFG_ADDR, LIS2DH_CLICK_ZD));
 	zassert_ok(lis2dh_drv.init(acc));
+	zassert_equal(lis2dh_emul_peek_reg(emul, LIS2DH_CLICK_CFG_ADDR), 0);
 	zassert_equal(drvdata->resol, 12,
 		      "expected 12-bit resolution for LIS2DH");
 }

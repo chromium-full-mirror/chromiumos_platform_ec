@@ -85,6 +85,13 @@ void lis2dh_emul_set_fifo_data(const struct emul *emul,
 			       const int16_t *fifo_data, uint8_t data_sz);
 
 /**
+ * @brief Set the emulated CLICK_SRC register value and update INT1 GPIO state.
+ * @param emul Reference to current LIS2DH emulator.
+ * @param click_src Value to place in CLICK_SRC (e.g. IA | DCLICK, or 0).
+ */
+void lis2dh_emul_set_click_src(const struct emul *emul, uint8_t click_src);
+
+/**
  * @brief Returns pointer to i2c_common_emul_data for argument emul
  *
  * @param emul Pointer to LIS2DH emulator

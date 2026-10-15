@@ -405,6 +405,7 @@ ZTEST(lis2dh, test_lis2dh__set_range_fifo_fail)
 	int rv;
 
 	zassert_ok(lis2dh_drv.init(acc));
+	zassert_ok(acc->drv->set_data_rate(acc, 10000, 1));
 	zassert_ok(lis2dh_drv.set_range(acc, 4, 0));
 
 	/* Configure LIS2DH_FIFO_CTRL_ADDR write to fail */
