@@ -76,7 +76,7 @@ static const char *_text_mode(enum pchg_mode mode)
 	return mode_names[mode];
 }
 
-static const char *_text_event(enum pchg_event event)
+test_export_static const char *_text_event(enum pchg_event event)
 {
 	/* TODO: Use "S%d" for normal build. */
 	static const char *const event_names[] = {
@@ -109,7 +109,7 @@ static const char *_text_event(enum pchg_event event)
 	};
 	BUILD_ASSERT(ARRAY_SIZE(event_names) == PCHG_EVENT_COUNT);
 
-	if (event >= sizeof(event_names))
+	if (event >= ARRAY_SIZE(event_names))
 		return "UNDEF";
 
 	return event_names[event];
@@ -188,14 +188,14 @@ static void pchg_queue_host_event(struct pchg *ctx, uint32_t event)
 	mkbp_send_event(EC_MKBP_EVENT_PCHG);
 }
 
-static const char *_text_state(enum pchg_state state)
+test_export_static const char *_text_state(enum pchg_state state)
 {
 	/* TODO: Use "S%d" for normal build. */
 	static const char *const state_names[] = EC_PCHG_STATE_TEXT;
 
 	BUILD_ASSERT(ARRAY_SIZE(state_names) == PCHG_STATE_COUNT);
 
-	if (state >= sizeof(state_names))
+	if (state >= ARRAY_SIZE(state_names))
 		return "UNDEF";
 
 	return state_names[state];

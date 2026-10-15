@@ -481,4 +481,9 @@ config LINK_TEST_SUITE_RT3645
 	help
 	  Verifies functionality of rt3645 IMVP driver
 
+config LINK_TEST_SUITE_PCHG
+	bool "Link and test the pchg tests"
+	help
+	  Link and test the peripheral charger tests.
+
 source "Kconfig.zephyr"

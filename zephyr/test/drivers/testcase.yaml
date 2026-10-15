@@ -2397,3 +2397,10 @@ tests:
     extra_dtc_overlay_files:
     - ./boards/native_sim.overlay
     - ./rt3645/imvp.dts
+  drivers.pchg:
+    tags:
+    - common
+    extra_configs:
+    - CONFIG_LINK_TEST_SUITE_PCHG=y
+    - CONFIG_PLATFORM_EC_PERIPHERAL_CHARGER=y
+    - CONFIG_HAS_TASK_PCHG=y
