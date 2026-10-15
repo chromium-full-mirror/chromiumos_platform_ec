@@ -848,6 +848,20 @@ static void init_jump_data(void)
 
 	jdata = (struct jump_data *)(addr - sizeof(struct jump_data));
 
+#ifdef SECTION_IS_RO
+	/*
+	 * If a sysjump target resets before init_jump_data() clears
+	 * jdata->magic, stale jump_data remains in RAM when RO boots.
+	 * Discard jump_data if RO booted from a reset (excluding POWER_ON
+	 * and RESET_PIN, which some chip drivers set even on a sysjump).
+	 */
+	if (reset_flags & (RESET_FLAG_WATCHDOG | RESET_FLAG_SOFT |
+			   RESET_FLAG_HARD | RESET_FLAG_HIBERNATE)) {
+		memset(jdata, 0, sizeof(struct jump_data));
+		return;
+	}
+#endif
+
 	/*
 	 * Check jump data if this is a jump between images.  Jumps all show up
 	 * as an unknown reset reason, because we jumped directly from one
