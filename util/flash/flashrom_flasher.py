@@ -69,6 +69,8 @@ class FlashromFlasher(BaseEcFlasher):
 
         chip = getattr(self.args, "chip", "")
         board = getattr(self.args, "board", "")
+        servo_type = self.servo.get("servo_type", default="")
+        dbg_hdr = not self.on_raiden() or "servo_micro" in servo_type
 
         vref = "pp3300"
         if board in ("coral", "reef") or chip in (
@@ -81,25 +83,21 @@ class FlashromFlasher(BaseEcFlasher):
         ):
             vref = "pp1800"
 
-        for ctrl in ["spi1_vref", "spi1_buf_en", "spi1_buf_on_flex_en"]:
-            self.servo.save_state(ctrl)
+        if dbg_hdr:
+            for ctrl in ["spi1_vref", "spi1_buf_en"]:
+                self.servo.save_state(ctrl)
 
-        try:
-            self.servo.set("spi1_vref", vref)
-        except ServoError:
-            pass
+            try:
+                self.servo.set("spi1_vref", vref)
+            except ServoError:
+                pass
 
-        if not self.on_raiden():
-            for ctrl in ["spi1_buf_en", "spi1_buf_on_flex_en"]:
-                try:
-                    self.servo.set(ctrl, "on")
-                except ServoError:
-                    pass
+            try:
+                self.servo.set("spi1_buf_en", "on")
+            except ServoError:
+                pass
 
-        servo_type = self.servo.get("servo_type", default="")
-        hold_reset = board in BOARDS_HOLD_COLD_RESET_DBG_HDR and (
-            not self.on_raiden() or "servo_micro" in servo_type
-        )
+        hold_reset = board in BOARDS_HOLD_COLD_RESET_DBG_HDR and dbg_hdr
 
         if chip in (
             "ite_spi",

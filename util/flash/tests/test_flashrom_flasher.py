@@ -118,10 +118,9 @@ class TestFlashromFlasher(unittest.TestCase):
             arg for c in mock_run.call_args_list for arg in c.args[0][2:]
         ]
         self.assertEqual(
-            controls[-7:],
+            controls[-6:],
             [
                 "cold_reset:on",
-                "spi1_buf_on_flex_en:off",
                 "spi1_buf_en:off",
                 "spi1_vref:off",
                 "cold_reset:off",
@@ -591,6 +590,51 @@ class TestFlashromSerial(unittest.TestCase):
                     ["sudo", "flashrom", programmer, "-r", "out.bin"],
                     check=True,
                 )
+
+
+class TestFlashromSpiBuffers(unittest.TestCase):
+    """Tests for SPI buffer controls across debug-header and CCD servo types."""
+
+    def test_prepare_dut_ccd_only_skips_spi_buffers(self) -> None:
+        """Verify CCD-only setups (DUT_POOL_QUOTA) do not touch SPI buffers."""
+        servo = MagicMock()
+        servo.get.side_effect = lambda ctrl, default="": (
+            "servo_v4p1_with_ccd_cr50" if ctrl == "servo_type" else default
+        )
+        servo.has_control.return_value = False
+        args = MagicMock(
+            board="other", chip="other", dry_run=False, raiden=False
+        )
+        flasher = FlashromFlasher(servo, args)
+        flasher.prepare_dut()
+        for ctrl in ("spi1_vref", "spi1_buf_en"):
+            self.assertNotIn(
+                call(ctrl),
+                servo.save_state.call_args_list,
+            )
+            self.assertNotIn(
+                call(ctrl, "on"),
+                servo.set.call_args_list,
+            )
+
+    def test_prepare_dut_servo_micro_enables_spi_buffers(self) -> None:
+        """Verify composite servo_v4+servo_micro setups drive SPI buffers."""
+        servo = MagicMock()
+        servo.get.side_effect = lambda ctrl, default="": (
+            "servo_v4_with_servo_micro_and_ccd_cr50"
+            if ctrl == "servo_type"
+            else default
+        )
+        servo.has_control.return_value = False
+        args = MagicMock(
+            board="coral", chip="npcx_spi", dry_run=False, raiden=False
+        )
+        flasher = FlashromFlasher(servo, args)
+        flasher.prepare_dut()
+        servo.save_state.assert_any_call("spi1_vref")
+        servo.save_state.assert_any_call("spi1_buf_en")
+        servo.set.assert_any_call("spi1_vref", "pp1800")
+        servo.set.assert_any_call("spi1_buf_en", "on")
 
 
 class TestFlashromColdResetHold(unittest.TestCase):
