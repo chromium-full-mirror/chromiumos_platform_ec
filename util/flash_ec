@@ -1832,16 +1832,13 @@ function flash_it83xx() {
 			ITEFLASH_ARGS+=( "--block-write-size=256" )
 		fi
 
-		local ITE_AP_RST_PIN=""
-		if dut_has_control ite_ap_rst_pin; then
-			ITE_AP_RST_PIN="$(dut_control_get ite_ap_rst_pin)"
+		local ITE_PRESERVE_PIN=""
+		if dut_has_control ite_dbgr_preserve_pin; then
+			ITE_PRESERVE_PIN="$(dut_control_get ite_dbgr_preserve_pin)"
 		fi
-		if [[ -n "${ITE_AP_RST_PIN}" && \
-		      "${ITE_AP_RST_PIN}" != *"Problem with"* ]]; then
-			ITEFLASH_ARGS+=( "--dbgr-preserve-pin=${ITE_AP_RST_PIN}" )
-		elif [[ "${BOARD}" =~ ^(corsola|krabby|tentacruel|magikarp|chinchou|skitty|veluza|staryu|wugtrio|starmie|wyrdeer)$ ]]; then
-			info "Falling back to G1 for ITE AP_RST preservation on ${BOARD}"
-			ITEFLASH_ARGS+=( "--dbgr-preserve-pin=G1" )
+		if [[ -n "${ITE_PRESERVE_PIN}" && \
+		      "${ITE_PRESERVE_PIN}" != *"Problem with"* ]]; then
+			ITEFLASH_ARGS+=( "--dbgr-preserve-pin=${ITE_PRESERVE_PIN}" )
 		fi
 	fi
 

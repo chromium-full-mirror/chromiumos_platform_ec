@@ -5,6 +5,7 @@
 
 """Unit tests for IteI2cFlasher and IteUartFlasher."""
 
+from typing import Callable, Optional
 import unittest
 from unittest.mock import call
 from unittest.mock import MagicMock
@@ -150,7 +151,6 @@ class TestIteI2cFlasher(unittest.TestCase):
                 "--i2c-interface=usb",
                 "-s",
                 "SM123",
-                "--dbgr-preserve-pin=G1",
                 "--erase",
                 "--write=/tmp/image.bin",
             ],
@@ -193,43 +193,62 @@ class TestIteI2cFlasher(unittest.TestCase):
     @patch("os.path.exists", return_value=True)
     @patch("flash.ite_flasher.locate_tool", return_value="/mock/iteflash")
     @patch("subprocess.run")
-    def test_execute_flash_ccd_preserve_pin_fallback(
+    def test_execute_flash_ccd_preserve_pin_from_servod(
         self,
         mock_run: MagicMock,
         _mock_locate: MagicMock,
         _mock_exists: MagicMock,
     ) -> None:
-        """Verify --block-write-size=256 and --dbgr-preserve-pin=G1 on corsola/staryu."""
+        """Verify --dbgr-preserve-pin is read from servod ite_dbgr_preserve_pin."""
 
-        def mock_get(key: str, default: str = "") -> str:
-            if key == "servo_type":
-                return "servo_v4_with_ccd_cr50"
-            if key == "ccd_serialname":
-                return "CCD123"
-            return default
+        def make_mock_get(
+            preserve_pin: str = "",
+            error: Optional[Exception] = None,
+        ) -> Callable[[str, str], str]:
+            def mock_get(key: str, default: str = "") -> str:
+                if key == "servo_type":
+                    return "servo_v4_with_ccd_cr50"
+                if key == "ccd_serialname":
+                    return "CCD123"
+                if key == "ite_dbgr_preserve_pin":
+                    if error is not None:
+                        raise error
+                    return preserve_pin
+                return default
 
-        self.servo.get.side_effect = mock_get
-        self.servo.has_control.return_value = False
+            return mock_get
 
-        for board in ("veluza", "staryu", "wugtrio"):
-            with self.subTest(board=board):
+        # 1. ite_dbgr_preserve_pin returns G1 and G4
+        for pin in ("G1", "G4"):
+            with self.subTest(pin=pin):
                 mock_run.reset_mock()
-                self.args.board = board
-                self.flasher.execute_flash()
+                self.servo.get.side_effect = make_mock_get(preserve_pin=pin)
+                self.servo.has_control.return_value = True
 
-                mock_run.assert_called_once_with(
-                    [
-                        "/mock/iteflash",
-                        "--send-waveform=0",
-                        "--i2c-interface=usb",
-                        "-s",
-                        "CCD123",
-                        "--block-write-size=256",
-                        "--dbgr-preserve-pin=G1",
-                        "--erase",
-                        "--write=/tmp/image.bin",
-                    ],
-                    check=True,
+                self.flasher.execute_flash()
+                cmd = mock_run.call_args.args[0]
+                self.assertIn(f"--dbgr-preserve-pin={pin}", cmd)
+
+        # 2. Control missing, empty, error, or Problem with -> no --dbgr-preserve-pin
+        for case, has_ctrl, val, err in (
+            ("no_control", False, "", None),
+            ("empty_val", True, "", None),
+            ("problem_val", True, "Problem with ite_dbgr_preserve_pin", None),
+            ("servo_error", True, "", ServoError("timeout")),
+        ):
+            with self.subTest(case=case):
+                mock_run.reset_mock()
+                self.servo.get.side_effect = make_mock_get(
+                    preserve_pin=val,
+                    error=err,
+                )
+                self.servo.has_control.return_value = has_ctrl
+
+                self.flasher.execute_flash()
+                cmd = mock_run.call_args.args[0]
+                self.assertFalse(
+                    any(arg.startswith("--dbgr-preserve-pin") for arg in cmd),
+                    f"Unexpected --dbgr-preserve-pin in cmd for {case}: {cmd}",
                 )
 
     @patch("flash.ite_flasher.parse_fmap_areas", return_value={})
@@ -314,7 +333,6 @@ class TestIteI2cFlasher(unittest.TestCase):
                 "-s",
                 "CCD123",
                 "--block-write-size=256",
-                "--dbgr-preserve-pin=G1",
                 "--skip-range=0x5e000:0x1000",
                 "--erase",
                 "--write=/tmp/image.bin",

@@ -160,29 +160,16 @@ class IteI2cFlasher(_IteBaseFlasher):
         if controller == "ccd":
             cmd.append("--block-write-size=256")
 
-        ap_rst_pin = ""
-        if self.servo and self.servo.has_control("ite_ap_rst_pin"):
+        preserve_pin = ""
+        if self.servo and self.servo.has_control("ite_dbgr_preserve_pin"):
             try:
-                ap_rst_pin = self.servo.get("ite_ap_rst_pin", default="")
+                preserve_pin = self.servo.get(
+                    "ite_dbgr_preserve_pin", default=""
+                )
             except ServoError:
-                ap_rst_pin = ""
-        board_lower = (getattr(self.args, "board", "") or "").lower()
-        if ap_rst_pin and "Problem with" not in ap_rst_pin:
-            cmd.append(f"--dbgr-preserve-pin={ap_rst_pin}")
-        elif board_lower in (
-            "corsola",
-            "krabby",
-            "tentacruel",
-            "magikarp",
-            "chinchou",
-            "skitty",
-            "veluza",
-            "staryu",
-            "wugtrio",
-            "starmie",
-            "wyrdeer",
-        ):
-            cmd.append("--dbgr-preserve-pin=G1")
+                preserve_pin = ""
+        if preserve_pin and "Problem with" not in preserve_pin:
+            cmd.append(f"--dbgr-preserve-pin={preserve_pin}")
 
         if self.args.verbose:
             cmd.append("--debug")
