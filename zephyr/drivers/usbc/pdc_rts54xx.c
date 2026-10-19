@@ -964,10 +964,11 @@ static bool any_irq_gpio_asserted(void)
 /**
  * @brief Called from the main thread to handle interrupts
  */
-static void handle_irqs(struct pdc_data_t *data)
+static bool handle_irqs(struct pdc_data_t *data)
 {
 	uint8_t ara;
 	int rv;
+	int limit = RTS54XX_MAX_IRQ_LOOP_COUNT;
 
 	/*
 	 * Since we use edge triggered interrupts, we need to check ARA for all
@@ -985,7 +986,7 @@ static void handle_irqs(struct pdc_data_t *data)
 		 */
 		rv = get_ara(data->dev, &ara);
 		if (rv) {
-			return;
+			return any_irq_gpio_asserted();
 		}
 
 		/* Search for port with matching I2C address */
@@ -1022,7 +1023,14 @@ static void handle_irqs(struct pdc_data_t *data)
 				break;
 			}
 		}
-	} while (any_irq_gpio_asserted());
+	} while (any_irq_gpio_asserted() && --limit > 0);
+
+	if (limit == 0) {
+		LOG_WRN("PDC IRQ loop limit reached, IRQ still asserted!");
+		return true;
+	}
+
+	return false;
 }
 
 static void st_idle_entry(void *o)
@@ -3296,7 +3304,7 @@ static void rts54xx_thread(void *dev, void *unused1, void *unused2)
 					cfg->connector_number);
 				continue;
 			}
-			handle_irqs(data);
+			irq_pending_for_idle = handle_irqs(data);
 		}
 	}
 }

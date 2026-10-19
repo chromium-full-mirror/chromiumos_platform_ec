@@ -8,6 +8,8 @@
 #include "console.h"
 #include "drivers/pdc.h"
 #include "drivers/ucsi_v3.h"
+#include "drivers/usbc/pdc_rts54xx.h"
+#include "emul/emul_common_i2c.h"
 #include "emul/emul_pdc.h"
 #include "emul/emul_realtek_rts54xx_public.h"
 #include "i2c.h"
@@ -20,6 +22,8 @@
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/emul.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/gpio/gpio_emul.h>
 #include <zephyr/fff.h>
 #include <zephyr/kernel.h>
 #include <zephyr/ztest.h>
@@ -254,6 +258,88 @@ ZTEST_USER(rts54xx, test_irq)
 	zassert_true(TEST_WAIT_FOR((port_interrupt(EMUL_PORT) &&
 				    port_interrupt(EMUL2_PORT)),
 				   IRQ_TEST_TIMEOUT_MS));
+}
+
+struct stuck_ara_ctx {
+	atomic_t read_count;
+	atomic_t deassert_after_reads;
+};
+
+static struct stuck_ara_ctx stuck_ara_ctx;
+
+static int stuck_ara_read_cb(const struct emul *target, int reg, uint8_t *val,
+			     int bytes, void *data)
+{
+	struct stuck_ara_ctx *ctx = data;
+	const struct i2c_dt_spec i2c_spec = I2C_DT_SPEC_GET(RTS5453P_NODE);
+	const struct gpio_dt_spec irq_gpio =
+		GPIO_DT_SPEC_GET(RTS5453P_NODE, irq_gpios);
+	atomic_val_t count;
+
+	ARG_UNUSED(target);
+	ARG_UNUSED(reg);
+	ARG_UNUSED(bytes);
+
+	count = atomic_inc(&ctx->read_count) + 1;
+	*val = i2c_spec.addr << 1;
+	if (count == atomic_get(&ctx->deassert_after_reads)) {
+		gpio_emul_input_set(irq_gpio.port, irq_gpio.pin, 1);
+	}
+	return 0;
+}
+
+ZTEST_USER(rts54xx, test_handle_irqs_limit)
+{
+	const int kInitialYieldSleepMs = 5;
+	const int kInitialBoundedReads = 2 * RTS54XX_MAX_IRQ_LOOP_COUNT;
+	const struct emul *ara_emul = EMUL_DT_GET(DT_NODELABEL(smbus_ara_emul));
+	struct i2c_common_emul_data *ara_common = ara_emul->data;
+	const struct gpio_dt_spec irq_gpio =
+		GPIO_DT_SPEC_GET(RTS5453P_NODE, irq_gpios);
+
+	atomic_set(&stuck_ara_ctx.read_count, 0);
+	atomic_set(&stuck_ara_ctx.deassert_after_reads, 0);
+	i2c_common_emul_set_read_func(ara_common, stuck_ara_read_cb,
+				      &stuck_ara_ctx);
+
+	/*
+	 * Pulse IRQ directly with deassert_after_reads = 0 so the active-low
+	 * GPIO stays asserted indefinitely. Pass 1 yields after 10 reads to
+	 * pdc_power_mgmt (which queues GET_CONNECTOR_STATUS), Pass 2 yields
+	 * after 10 reads into ST_WRITE, and irq_pending_for_idle re-polls once
+	 * the driver returns to ST_IDLE.
+	 */
+	gpio_emul_input_set(irq_gpio.port, irq_gpio.pin, 1);
+	gpio_emul_input_set(irq_gpio.port, irq_gpio.pin, 0);
+	k_msleep(kInitialYieldSleepMs);
+	zassert_equal(atomic_get(&stuck_ara_ctx.read_count),
+		      kInitialBoundedReads,
+		      "handle_irqs read ARA %ld times before yielding",
+		      atomic_get(&stuck_ara_ctx.read_count));
+
+	atomic_set(&stuck_ara_ctx.deassert_after_reads,
+		   kInitialBoundedReads + 1);
+	zassert_true(TEST_WAIT_FOR(atomic_get(&stuck_ara_ctx.read_count) ==
+					   kInitialBoundedReads + 1,
+				   IRQ_TEST_TIMEOUT_MS));
+
+	/*
+	 * Verify handle_irqs() stops early as soon as the IRQ GPIO deasserts
+	 * before reaching RTS54XX_MAX_IRQ_LOOP_COUNT.
+	 */
+	zassert_ok(emul_pdc_idle_wait(emul));
+	atomic_set(&stuck_ara_ctx.read_count, 0);
+	atomic_set(&stuck_ara_ctx.deassert_after_reads,
+		   RTS54XX_MAX_IRQ_LOOP_COUNT - 1);
+	gpio_emul_input_set(irq_gpio.port, irq_gpio.pin, 1);
+	gpio_emul_input_set(irq_gpio.port, irq_gpio.pin, 0);
+	zassert_true(TEST_WAIT_FOR(atomic_get(&stuck_ara_ctx.read_count) ==
+					   RTS54XX_MAX_IRQ_LOOP_COUNT - 1,
+				   IRQ_TEST_TIMEOUT_MS));
+
+	/* Restore normal ARA read handler. No emulator ARAs were queued. */
+	i2c_common_emul_set_read_func(ara_common, NULL, NULL);
+	zassert_ok(emul_pdc_idle_wait(emul));
 }
 
 ZTEST_USER(rts54xx, test_emul_vdo_set_bounds)
