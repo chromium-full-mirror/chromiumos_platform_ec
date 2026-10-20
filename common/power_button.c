@@ -221,6 +221,7 @@ test_export_static void power_button_change_deferred(void)
 	int new_pressed = raw_power_button_pressed();
 
 #ifdef CONFIG_PLATFORM_EC_POWER_BUTTON_KEYBOARD
+	update_pb_suppress_state();
 	if (pb_suppress_active) {
 		/*
 		 * S0 Tablet Mode active:
@@ -364,6 +365,11 @@ DECLARE_CONSOLE_COMMAND(powerbtn, command_powerbtn, "[msec]",
 			"Simulate power button press");
 
 #ifdef CONFIG_PLATFORM_EC_POWER_BUTTON_KEYBOARD
+#define PB_KEYBOARD_NODE \
+	DT_COMPAT_GET_ANY_STATUS_OKAY(cros_ec_power_button_keyboard)
+#define PB_SUPPRESS_EN_GPIO \
+	GPIO_DT_FROM_NODE(DT_PHANDLE(PB_KEYBOARD_NODE, suppress_enable_pin))
+
 /*
  * Monitor the power button state during suspend transition.
  *
@@ -386,7 +392,8 @@ DECLARE_HOOK(HOOK_CHIPSET_SUSPEND, power_button_suspend, HOOK_PRIO_DEFAULT);
 static void update_pb_suppress_state(void)
 {
 	bool new_state = chipset_in_state(CHIPSET_STATE_ON) &&
-			 tablet_get_mode();
+			 tablet_get_mode() &&
+			 (gpio_pin_get_dt(PB_SUPPRESS_EN_GPIO) == 1);
 
 	if (eat_next_release && !power_button_signal_asserted()) {
 		CPRINTS("PB release missed during suspend, clearing eat_next_release");
