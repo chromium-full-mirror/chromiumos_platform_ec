@@ -23,8 +23,7 @@
 
 #ifdef CONFIG_PLATFORM_EC_ONE_WIRE_UART
 #include "drivers/one_wire_uart_stream.h"
-#elif defined(CONFIG_USB_DEVICE_GOOGLE_UPDATE) || \
-	defined(CONFIG_USBD_GOOGLE_UPDATE_SUPPORT)
+#elif defined(CONFIG_USBD_GOOGLE_UPDATE_SUPPORT)
 #include "drivers/usb_stream.h"
 #else
 #include "usb-stream.h"
@@ -86,8 +85,7 @@ static uint32_t block_index;
 
 static int pair_challenge(struct pair_challenge *challenge)
 {
-#if defined(CONFIG_USB_DEVICE_GOOGLE_UPDATE) || \
-	defined(CONFIG_USBD_GOOGLE_UPDATE_SUPPORT)
+#if defined(CONFIG_USBD_GOOGLE_UPDATE_SUPPORT)
 	struct pair_challenge_response response;
 #else
 	uint8_t response;
@@ -106,8 +104,7 @@ static int pair_challenge(struct pair_challenge *challenge)
 
 	/* tmp = device_secret */
 	if (rollback_get_secret(tmp) != EC_SUCCESS) {
-#if defined(CONFIG_USB_DEVICE_GOOGLE_UPDATE) || \
-	defined(CONFIG_USBD_GOOGLE_UPDATE_SUPPORT)
+#if defined(CONFIG_USBD_GOOGLE_UPDATE_SUPPORT)
 		response.status = EC_RES_UNAVAILABLE;
 		QUEUE_ADD_UNITS(&update_to_usb, &response, 1);
 #else
@@ -121,8 +118,7 @@ static int pair_challenge(struct pair_challenge *challenge)
 	 * Nothing can fail from now on, let's push data to the queue as soon as
 	 * possible to save some temporary variables.
 	 */
-#if defined(CONFIG_USB_DEVICE_GOOGLE_UPDATE) || \
-	defined(CONFIG_USBD_GOOGLE_UPDATE_SUPPORT)
+#if defined(CONFIG_USBD_GOOGLE_UPDATE_SUPPORT)
 	response.status = EC_RES_SUCCESS;
 #else
 	response = EC_RES_SUCCESS;
@@ -138,8 +134,7 @@ static int pair_challenge(struct pair_challenge *challenge)
 
 	/* tmp = device_public = x25519(device_private, x25519_base_point) */
 	X25519_public_from_private(tmp, tmp2);
-#if defined(CONFIG_USB_DEVICE_GOOGLE_UPDATE) || \
-	defined(CONFIG_USBD_GOOGLE_UPDATE_SUPPORT)
+#if defined(CONFIG_USBD_GOOGLE_UPDATE_SUPPORT)
 	memcpy(&response.device_public, tmp,
 	       member_size(struct pair_challenge_response, device_public));
 #else
@@ -152,8 +147,7 @@ static int pair_challenge(struct pair_challenge *challenge)
 	/* tmp2 = authenticator = HMAC_SHA256(shared_secret, nonce) */
 	hmac_SHA256(tmp2, tmp, sizeof(tmp), challenge->nonce,
 		    sizeof(challenge->nonce));
-#if defined(CONFIG_USB_DEVICE_GOOGLE_UPDATE) || \
-	defined(CONFIG_USBD_GOOGLE_UPDATE_SUPPORT)
+#if defined(CONFIG_USBD_GOOGLE_UPDATE_SUPPORT)
 	memcpy(&response.authenticator, tmp2,
 	       member_size(struct pair_challenge_response, authenticator));
 	QUEUE_ADD_UNITS(&update_to_usb, &response, sizeof(response));
@@ -422,8 +416,7 @@ static int try_vendor_command(struct consumer const *consumer, size_t count)
 		case UPDATE_EXTRA_CMD_GET_VERSION_STRING: {
 			enum ec_image active_slot = system_get_image_copy();
 			char version_str[35] = {};
-#if defined(CONFIG_USB_DEVICE_GOOGLE_UPDATE) || \
-	defined(CONFIG_USBD_GOOGLE_UPDATE_SUPPORT)
+#if defined(CONFIG_USBD_GOOGLE_UPDATE_SUPPORT)
 			uint8_t version_str_resp[1 + sizeof(version_str)];
 #endif
 
@@ -435,8 +428,7 @@ static int try_vendor_command(struct consumer const *consumer, size_t count)
 				break;
 			}
 			response = EC_SUCCESS;
-#if defined(CONFIG_USB_DEVICE_GOOGLE_UPDATE) || \
-	defined(CONFIG_USBD_GOOGLE_UPDATE_SUPPORT)
+#if defined(CONFIG_USBD_GOOGLE_UPDATE_SUPPORT)
 			version_str_resp[0] = response;
 			memcpy(version_str_resp + 1, version_str,
 			       sizeof(version_str));
