@@ -17,15 +17,48 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 
+#ifndef CONFIG_TEST_CORTEX_M_MPU
 #include <cmsis_core.h>
 #include <kernel_arch_data.h>
+#else
+#include <zephyr/sys/barrier.h>
 
-LOG_MODULE_REGISTER(shim_mpu, LOG_LEVEL_ERR);
+struct cortex_m_mpu_regs test_mpu_regs;
+#define MPU (&test_mpu_regs)
+#define __DSB() barrier_dsync_fence_full()
+#define __ISB() barrier_isync_fence_full()
+#endif
+
+LOG_MODULE_REGISTER(shim_mpu, LOG_LEVEL_INF);
+
+static int mpu_disable_fixed_regions(void)
+{
+	/* MPU is configured and enabled by the Zephyr init code, disable the
+	 * fixed sections by default.
+	 */
+	for (int index = 0; index < mpu_config.num_regions; index++) {
+		MPU->RNR = index;
+		MPU->RASR &= ~MPU_RASR_ENABLE_Msk;
+		LOG_DBG("[%d] %08x %08x", index, MPU->RBAR, MPU->RASR);
+	}
+
+	return 0;
+}
 
 extern void arm_core_mpu_disable(void);
 
 void arch_pre_system_jump(void)
 {
+	/*
+	 * The fixed regions are enabled by system_disable_jump() even on
+	 * unlocked systems, which still allow sysjump. Disable them before
+	 * jumping so the target image (or a RAM loader such as the MCHP LFW)
+	 * can execute.
+	 */
+	mpu_disable_fixed_regions();
+	__DSB();
+	__ISB();
+
 	/*
 	 * When HW_STACK_PROTECTION is enabled on ARMv7-M microcontroller then
 	 * the last 64 bytes of the stack is protected to detect stack
@@ -45,6 +78,13 @@ void arch_pre_system_jump(void)
 
 void mpu_enable(void)
 {
+#if defined(CONFIG_NPCX_RAM_LOCK)
+	bool lock_ram = system_is_locked();
+
+	if (!lock_ram)
+		LOG_INF("System is unlocked. Skip RAM lock configuration");
+#endif
+
 	for (int index = 0; index < mpu_config.num_regions; index++) {
 #if defined(CONFIG_NPCX_RAM_LOCK)
 		/*
@@ -52,38 +92,28 @@ void mpu_enable(void)
 		 * CONFIG_FLASH_BASE_ADDRESS is used as the code RAM base, and
 		 * CONFIG_SRAM_BASE_ADDRESS is used as the data RAM base.
 		 */
-		if (mpu_config.mpu_regions[index].base ==
-		    CONFIG_FLASH_BASE_ADDRESS) {
-			/* Apply the write lock to code RAM */
-			ram_lock_config_lock_region(REGION_STORAGE,
-						    CONFIG_FLASH_BASE_ADDRESS,
-						    (CONFIG_FLASH_SIZE << 10));
-		} else if (mpu_config.mpu_regions[index].base ==
-			   CONFIG_SRAM_BASE_ADDRESS) {
-			/* Apply the fetch lock to data RAM */
-			ram_lock_config_lock_region(REGION_DATA_RAM,
-						    CONFIG_SRAM_BASE_ADDRESS,
-						    (CONFIG_SRAM_SIZE << 10));
+		if (lock_ram) {
+			if (mpu_config.mpu_regions[index].base ==
+			    CONFIG_FLASH_BASE_ADDRESS) {
+				/* Apply the write lock to code RAM */
+				ram_lock_config_lock_region(
+					REGION_STORAGE,
+					CONFIG_FLASH_BASE_ADDRESS,
+					(CONFIG_FLASH_SIZE << 10));
+			} else if (mpu_config.mpu_regions[index].base ==
+				   CONFIG_SRAM_BASE_ADDRESS) {
+				/* Apply the fetch lock to data RAM */
+				ram_lock_config_lock_region(
+					REGION_DATA_RAM,
+					CONFIG_SRAM_BASE_ADDRESS,
+					(CONFIG_SRAM_SIZE << 10));
+			}
 		}
 #endif
 		MPU->RNR = index;
 		MPU->RASR |= MPU_RASR_ENABLE_Msk;
 		LOG_DBG("[%d] %08x %08x", index, MPU->RBAR, MPU->RASR);
 	}
-}
-
-static int mpu_disable_fixed_regions(void)
-{
-	/* MPU is configured and enabled by the Zephyr init code, disable the
-	 * fixed sections by default.
-	 */
-	for (int index = 0; index < mpu_config.num_regions; index++) {
-		MPU->RNR = index;
-		MPU->RASR &= ~MPU_RASR_ENABLE_Msk;
-		LOG_DBG("[%d] %08x %08x", index, MPU->RBAR, MPU->RASR);
-	}
-
-	return 0;
 }
 
 SYS_INIT(mpu_disable_fixed_regions, PRE_KERNEL_1, 50);
