@@ -10,13 +10,13 @@
 	named-adc-channels {
 		compatible = "named-adc-channels";
 
-		adc_charger_pmon_q: charger_pmon_q {
+		adc_ec_ufs_thrm_alert: ec_ufs_thrm_alert {
 			io-channels = <&adc0 0>;
 		};
-		adc_charger_amon_q: charger_amon_q {
+		adc_ec_soc_thrm_alert: ec_soc_thrm_alert {
 			io-channels = <&adc0 1>;
 		};
-		adc_ec_soc_thrm_alert: ec_soc_thrm_alert {
+		adc_ec_ssd_thrm_alert: ec_ssd_thrm_alert {
 			io-channels = <&adc0 2>;
 		};
 		adc_ec_chgr_thrm_alert: ec_chgr_thrm_alert {
