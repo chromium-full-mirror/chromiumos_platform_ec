@@ -20,23 +20,32 @@ target_compile_definitions(app PRIVATE CHARGER_SOLO=0 CONFIG_PLATFORM_EC_CHARGER
 
 target_sources(app PRIVATE
 	${PLATFORM_EC_PROGRAM_DIR}/rauru/src/common.c
-	${PLATFORM_EC_PROGRAM_DIR}/rauru/src/usbc.c
-	${PLATFORM_EC_PROGRAM_DIR}/rauru/src/dp_alt_mode.c
-	${PLATFORM_EC_PROGRAM_DIR}/rauru/src/hdmi.c
-	${PLATFORM_EC_PROGRAM_DIR}/rauru/src/hooks.c
-	${PLATFORM_EC_PROGRAM_DIR}/rauru/src/hibernate.c
-	${PLATFORM_EC_PROGRAM_DIR}/rauru/src/sub_board.c
-	${PLATFORM_EC_PROGRAM_DIR}/rauru/navi/src/suspend_resume.c
-	${PLATFORM_EC_PROGRAM_DIR}/rauru/navi/src/usb_mux.c
-	${PLATFORM_EC}/driver/retimer/ps8802.c
-	${PLATFORM_EC}/driver/usb_mux/anx3443.c)
+	src/main.c)
 
-# Add the test source
-target_sources(app PRIVATE
-	src/main.c
-	src/usbc_test.c
-	src/dp_alt_mode_test.c
-	src/hooks_test.c
-	src/navi_test.c
-	src/retimer_mux_test.c
-)
+if(DEFINED CONFIG_TEST_RAURU_USBC)
+	target_sources(app PRIVATE
+		${PLATFORM_EC_PROGRAM_DIR}/rauru/src/usbc.c
+		${PLATFORM_EC_PROGRAM_DIR}/rauru/src/dp_alt_mode.c
+		${PLATFORM_EC_PROGRAM_DIR}/rauru/src/hdmi.c
+		${PLATFORM_EC_PROGRAM_DIR}/rauru/src/hooks.c
+		${PLATFORM_EC_PROGRAM_DIR}/rauru/src/hibernate.c
+		${PLATFORM_EC_PROGRAM_DIR}/rauru/src/sub_board.c
+		${PLATFORM_EC_PROGRAM_DIR}/rauru/navi/src/suspend_resume.c
+		${PLATFORM_EC_PROGRAM_DIR}/rauru/navi/src/usb_mux.c
+		${PLATFORM_EC}/driver/retimer/ps8802.c
+		${PLATFORM_EC}/driver/usb_mux/anx3443.c
+		src/usbc_test.c
+		src/dp_alt_mode_test.c
+		src/hooks_test.c
+		src/navi_test.c
+		src/retimer_mux_test.c
+	)
+endif()
+
+if(DEFINED CONFIG_TEST_RAURU_HYLIA)
+	target_sources(app PRIVATE
+		${PLATFORM_EC_PROGRAM_DIR}/rauru/src/usbc.c
+		${PLATFORM_EC_PROGRAM_DIR}/rauru/hylia/src/dp_alt_mode.c
+		src/hylia_test.c
+	)
+endif()
