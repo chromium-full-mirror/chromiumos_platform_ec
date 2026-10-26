@@ -326,10 +326,13 @@ ZTEST_USER(tps6699x, test_init_state_sequence)
 	zassert_ok(pdc_reset(dev));
 	k_sleep(K_MSEC(INIT_SLEEP_MS * 2));
 
-	/* Init retries are exhausted: the port is now in ST_DISABLE, which
-	 * still reports init done so the upper layer can proceed past it.
+	/* Init retries are exhausted: the port is now in ST_DISABLE.
+	 * pdc_is_init_done() reports FAILED so the upper layer stops
+	 * polling GET_CONNECTOR_STATUS on this dead port and transitions
+	 * to the inert PDC_DISABLED state.
 	 */
 	wait_for_st_disable();
+	zassert_equal(PDC_DRIVER_INIT_STATE_FAILED, pdc_is_init_done(dev));
 	verify_st_disable_behavior();
 
 	/* A disabled port fast-fails further commands with -ENOSYS. */
@@ -864,6 +867,7 @@ ZTEST_USER(tps6699x, test_st_disable_on_init_failure)
 	zassert_ok(emul_pdc_pulse_irq(emul));
 
 	wait_for_st_disable();
+	zassert_equal(PDC_DRIVER_INIT_STATE_FAILED, pdc_is_init_done(dev));
 	verify_st_disable_behavior();
 	i2c_common_emul_set_read_fail_reg(
 		emul_tps6699x_get_i2c_common_data(emul),
