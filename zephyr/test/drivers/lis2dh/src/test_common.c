@@ -10,6 +10,8 @@
 #include "motion_sense_fifo.h"
 #include "test/drivers/test_state.h"
 
+#include <limits.h>
+
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/ztest.h>
 
@@ -114,6 +116,20 @@ ZTEST(lis2dh, test_lis2dh__set_range)
 ZTEST_USER(lis2dh, test_lis2dh__set_data_rate)
 {
 	struct stprivate_data *drvdata = acc->drv_data;
+	const struct {
+		int rate;
+		int rnd;
+	} invalid[] = {
+		{ -1, 0 },
+		{ -1, 1 },
+		{ LIS2DH_ODR_MAX_VAL + 1, 0 },
+		{ LIS2DH_ODR_MAX_VAL + 1, 1 },
+		{ INT_MAX, 0 },
+		{ INT_MAX, 1 },
+		/* Below the minimum rate cannot be rounded down. */
+		{ 1, 0 },
+		{ LIS2DH_ODR_MIN_VAL - 1, 0 },
+	};
 
 	zassert_ok(lis2dh_drv.init(acc));
 
@@ -121,9 +137,44 @@ ZTEST_USER(lis2dh, test_lis2dh__set_data_rate)
 	zassert_ok(acc->drv->set_data_rate(acc, 10000, 1));
 	zassert_equal(drvdata->base.odr, 10000);
 
-	/* Set data rate to 0 (Power Off) */
-	zassert_ok(acc->drv->set_data_rate(acc, 0, 1));
+	/*
+	 * Invalid rates must fail before touching the sensor: the mutex stays
+	 * unlocked, the ODR is unchanged, and the FIFO keeps running.
+	 */
+	for (int i = 0; i < ARRAY_SIZE(invalid); i++) {
+		zassert_equal(acc->drv->set_data_rate(acc, invalid[i].rate,
+						      invalid[i].rnd),
+			      EC_RES_INVALID_PARAM, "rate %d", invalid[i].rate);
+		zassert_equal(acc->mutex->lock_count, 0);
+		zassert_equal(drvdata->base.odr, 10000);
+		if (IS_ENABLED(ACCEL_LIS2DH_INT_ENABLE)) {
+			zassert_true(lis2dh_emul_is_fifo_enabled(emul));
+		}
+	}
+
+	/* The ends of the supported range are accepted */
+	zassert_ok(acc->drv->set_data_rate(acc, LIS2DH_ODR_MAX_VAL, 0));
+	zassert_equal(drvdata->base.odr, LIS2DH_ODR_MAX_VAL);
+	zassert_ok(acc->drv->set_data_rate(acc, LIS2DH_ODR_MIN_VAL, 0));
+	zassert_equal(drvdata->base.odr, LIS2DH_ODR_MIN_VAL);
+	zassert_ok(acc->drv->set_data_rate(acc, LIS2DH_ODR_MIN_VAL - 1, 1));
+	zassert_equal(drvdata->base.odr, LIS2DH_ODR_MIN_VAL);
+
+	/* 15Hz rounds up to 25Hz, or down to 10Hz */
+	zassert_ok(acc->drv->set_data_rate(acc, 15000, 1));
+	zassert_equal(drvdata->base.odr, 25000);
+	zassert_ok(acc->drv->set_data_rate(acc, 15000, 0));
+	zassert_equal(drvdata->base.odr, 10000);
+
+	/* Set data rate to 0 (Power Off), which leaves the FIFO stopped */
+	if (IS_ENABLED(ACCEL_LIS2DH_INT_ENABLE)) {
+		zassert_true(lis2dh_emul_is_fifo_enabled(emul));
+	}
+	zassert_ok(acc->drv->set_data_rate(acc, 0, 0));
 	zassert_equal(drvdata->base.odr, 0);
+	if (IS_ENABLED(ACCEL_LIS2DH_INT_ENABLE)) {
+		zassert_false(lis2dh_emul_is_fifo_enabled(emul));
+	}
 }
 
 ZTEST_SUITE(lis2dh, drivers_predicate_post_main, NULL, lis2dh_before, NULL,

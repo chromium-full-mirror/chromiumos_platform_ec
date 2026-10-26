@@ -284,9 +284,23 @@ unlock_rate:
 
 static int set_data_rate(const struct motion_sensor_t *s, int rate, int rnd)
 {
-	int ret, normalized_rate;
+	int ret, normalized_rate = 0;
 	struct stprivate_data *data = s->drv_data;
-	uint8_t reg_val;
+	uint8_t reg_val = LIS2DH_ODR_0HZ_VAL;
+
+	if (rate < 0 || rate > LIS2DH_ODR_MAX_VAL ||
+	    (!rnd && rate > 0 && rate < LIS2DH_ODR_MIN_VAL))
+		return EC_RES_INVALID_PARAM;
+
+	if (rate > 0) {
+		reg_val = LIS2DH_ODR_TO_REG(rate);
+		normalized_rate = LIS2DH_ODR_TO_NORMALIZE(rate);
+
+		if (rnd && (normalized_rate < rate)) {
+			reg_val++;
+			normalized_rate = LIS2DH_REG_TO_NORMALIZE(reg_val);
+		}
+	}
 
 	k_mutex_lock(s->mutex, K_FOREVER);
 
@@ -308,28 +322,6 @@ static int set_data_rate(const struct motion_sensor_t *s, int rate, int rnd)
 		}
 	}
 
-	if (rate == 0) {
-		/* Power Off device */
-		ret = st_write_data_with_mask(s, LIS2DH_CTRL1_ADDR,
-					      LIS2DH_ACC_ODR_MASK,
-					      LIS2DH_ODR_0HZ_VAL);
-		if (ret == EC_SUCCESS)
-			data->base.odr = 0;
-		goto unlock_rate;
-	}
-
-	reg_val = LIS2DH_ODR_TO_REG(rate);
-	normalized_rate = LIS2DH_ODR_TO_NORMALIZE(rate);
-
-	if (rnd && (normalized_rate < rate)) {
-		reg_val++;
-		normalized_rate = LIS2DH_REG_TO_NORMALIZE(reg_val);
-	}
-
-	if (normalized_rate > LIS2DH_ODR_MAX_VAL ||
-	    normalized_rate < LIS2DH_ODR_MIN_VAL)
-		return EC_RES_INVALID_PARAM;
-
 	/*
 	 * Lock accel resource to prevent another task from attempting
 	 * to write accel parameters until we are done
@@ -340,7 +332,7 @@ static int set_data_rate(const struct motion_sensor_t *s, int rate, int rnd)
 		data->base.odr = normalized_rate;
 
 	/* FIFO restart collecting events in Stream mode. */
-	if (IS_ENABLED(ACCEL_LIS2DH_INT_ENABLE)) {
+	if (IS_ENABLED(ACCEL_LIS2DH_INT_ENABLE) && rate > 0) {
 		ret = lis2dh_enable_fifo(s, LIS2DH_STREAM_MODE);
 	}
 
