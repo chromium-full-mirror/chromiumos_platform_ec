@@ -146,6 +146,7 @@ def do_test_with_log_level(zmake_factory_from_dir, log_level, fnames=None):
         }
 
     zmk = zmake_factory_from_dir(jobserver=FakeJobserver(fnames))
+    multiproc.LogWriter.set_job_name_logging(True)
     with LogCapture(level=log_level) as cap:
         with unittest.mock.patch(
             "zmake.version.get_version_string", return_value="123"
