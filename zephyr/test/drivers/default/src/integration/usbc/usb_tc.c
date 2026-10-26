@@ -589,8 +589,11 @@ ZTEST_F(usb_tc, test_tc_try_src_partner_switches)
 	k_sleep(K_SECONDS(1));
 }
 
-ZTEST(usb_tc, test_tc_error_recovery_and_suspend)
+ZTEST_F(usb_tc, test_tc_error_recovery_and_suspend)
 {
+	struct i2c_common_emul_data *common_data =
+		emul_tcpci_generic_get_i2c_common_data(fixture->tcpci_emul);
+
 	/* Error recovery entrypoint (PD_T_ERROR_RECOVERY is 240ms) */
 	pd_set_error_recovery(TEST_PORT);
 	k_sleep(K_MSEC(300));
@@ -617,7 +620,28 @@ ZTEST(usb_tc, test_tc_error_recovery_and_suspend)
 	tc_hard_reset_request(TEST_PORT);
 	k_sleep(K_MSEC(20));
 	zassert_equal(PD_ROLE_UFP, pd_get_data_role(TEST_PORT));
+
+	/*
+	 * Trigger RX read failure during TCPC init on resume so tcpc_alert
+	 * calls pd_set_suspend(TEST_PORT, 1) from the PD task itself, then
+	 * wait for pd_deferred_resume (5s) to re-enable the port.
+	 */
+	pd_set_suspend(TEST_PORT, true);
 	k_sleep(K_MSEC(100));
+	tcpci_emul_set_reg(fixture->tcpci_emul, TCPC_REG_ALERT,
+			   TCPC_REG_ALERT_RX_STATUS);
+	i2c_common_emul_set_read_fail_reg(common_data, TCPC_REG_RX_BUFFER);
+	i2c_common_emul_set_write_fail_reg(common_data, TCPC_REG_ALERT);
+	pd_set_suspend(TEST_PORT, false);
+	k_sleep(K_MSEC(100));
+	i2c_common_emul_set_read_fail_reg(common_data,
+					  I2C_COMMON_EMUL_NO_FAIL_REG);
+	i2c_common_emul_set_write_fail_reg(common_data,
+					   I2C_COMMON_EMUL_NO_FAIL_REG);
+	tcpci_emul_set_reg(fixture->tcpci_emul, TCPC_REG_ALERT, 0);
+	zassert_false(pd_is_port_enabled(TEST_PORT));
+	k_sleep(K_MSEC(5100));
+	zassert_true(pd_is_port_enabled(TEST_PORT));
 }
 
 ZTEST_SUITE(usb_tc, drivers_predicate_post_main, usb_tc_setup, usb_tc_before,
