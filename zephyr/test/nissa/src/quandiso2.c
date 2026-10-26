@@ -15,6 +15,8 @@
 #include "gpio/gpio_int.h"
 #include "hooks.h"
 #include "keyboard_protocol.h"
+#include "motion_sense.h"
+#include "motionsense_sensors.h"
 #include "quandiso2.h"
 #include "quandiso_sub_board.h"
 #include "system.h"
@@ -82,6 +84,13 @@ FAKE_VALUE_FUNC(int, chipset_in_state, int);
 
 static int tablet;
 static int kb_layout;
+static int ssfc_data;
+
+static int cbi_get_ssfc_mock(uint32_t *ssfc)
+{
+	*ssfc = ssfc_data;
+	return 0;
+}
 
 uint8_t board_get_charger_chip_count(void)
 {
@@ -119,16 +128,26 @@ static void test_before(void *fixture)
 	RESET_FAKE(extpower_handle_update);
 	RESET_FAKE(schedule_deferred_pd_interrupt);
 	RESET_FAKE(cros_cbi_get_fw_config);
+	RESET_FAKE(cbi_get_ssfc);
+	RESET_FAKE(bmi3xx_interrupt);
+	RESET_FAKE(bma4xx_interrupt);
 	RESET_FAKE(set_scancode_set2);
 	RESET_FAKE(get_scancode_set2);
 	RESET_FAKE(chipset_in_state);
 
 	tablet = 0;
 	kb_layout = 0;
+	ssfc_data = 0;
+	cbi_get_ssfc_fake.custom_fake = cbi_get_ssfc_mock;
+	cros_cbi_ssfc_init();
 
 	/* Make the DB is 1C1A as initial */
 	quandiso_cached_sub_board = QUANDISO_SB_C_A;
 	set_fw_config_value(FW_SUB_BOARD_2);
+	/* Keep Type-C and lid accel IRQs disabled before HOOK_INIT. */
+	gpio_disable_dt_interrupt(GPIO_INT_FROM_NODELABEL(int_usb_c0));
+	gpio_disable_dt_interrupt(GPIO_INT_FROM_NODELABEL(int_usb_c1));
+	gpio_disable_dt_interrupt(GPIO_INT_FROM_NODELABEL(int_acc));
 }
 ZTEST_SUITE(quandiso2, NULL, NULL, test_before, NULL, NULL);
 
@@ -845,10 +864,9 @@ ZTEST(quandiso2, test_convertible)
 		DT_GPIO_PIN(DT_NODELABEL(gpio_imu_int_l), gpios);
 	int interrupt_count;
 
-	/* reset tablet mode for initialize status.
-	 * enable int_imu and int_tablet_mode before clashell_init
-	 * for the priorities of sensor_enable_irqs and
-	 * gmr_tablet_switch_init is earlier.
+	/*
+	 * Reset tablet mode and re-enable int_imu and int_tablet_mode before
+	 * HOOK_INIT runs sensor_enable_irqs() and board_init().
 	 */
 	tablet_reset();
 	gpio_enable_dt_interrupt(GPIO_INT_FROM_NODELABEL(int_tablet_mode));
@@ -857,7 +875,7 @@ ZTEST(quandiso2, test_convertible)
 	cros_cbi_get_fw_config_fake.custom_fake = cros_cbi_get_fw_config_tablet;
 
 	tablet = 1;
-	board_init();
+	hook_notify(HOOK_INIT);
 
 	/* Verify gmr_tablet_switch is enabled, by checking the side effects
 	 * of calling tablet_set_mode, and setting gpio_tablet_mode_l.
@@ -902,12 +920,15 @@ ZTEST(quandiso2, test_clamshell)
 		DT_GPIO_CTLR(DT_NODELABEL(gpio_imu_int_l), gpios));
 	const gpio_port_pins_t base_imu_pin =
 		DT_GPIO_PIN(DT_NODELABEL(gpio_imu_int_l), gpios);
+	const struct device *lid_accel_gpio = DEVICE_DT_GET(
+		DT_GPIO_CTLR(DT_NODELABEL(gpio_acc_int_l), gpios));
+	const gpio_port_pins_t lid_accel_pin =
+		DT_GPIO_PIN(DT_NODELABEL(gpio_acc_int_l), gpios);
 	int interrupt_count;
 
-	/* reset tablet mode for initialize status.
-	 * enable int_imu and int_tablet_mode before clashell_init
-	 * for the priorities of sensor_enable_irqs and
-	 * gmr_tablet_switch_init is earlier.
+	/*
+	 * Reset tablet mode and re-enable int_imu and int_tablet_mode before
+	 * HOOK_INIT runs sensor_enable_irqs() and board_init().
 	 */
 	tablet_reset();
 	gpio_enable_dt_interrupt(GPIO_INT_FROM_NODELABEL(int_tablet_mode));
@@ -916,7 +937,12 @@ ZTEST(quandiso2, test_clamshell)
 	cros_cbi_get_fw_config_fake.custom_fake = cros_cbi_get_fw_config_tablet;
 
 	tablet = 0;
-	board_init();
+	hook_notify(HOOK_INIT);
+
+	ASSERT_GPIO_FLAGS(GPIO_DT_FROM_NODELABEL(gpio_imu_int_l),
+			  GPIO_INPUT | GPIO_PULL_DOWN);
+	ASSERT_GPIO_FLAGS(GPIO_DT_FROM_NODELABEL(gpio_acc_int_l),
+			  GPIO_INPUT | GPIO_PULL_DOWN);
 
 	/* Verify gmr_tablet_switch is disabled, by checking the side effects
 	 * of calling tablet_set_mode, and setting gpio_tablet_mode_l.
@@ -937,24 +963,57 @@ ZTEST(quandiso2, test_clamshell)
 	tablet_set_mode(1, TABLET_TRIGGER_LID);
 	zassert_equal(0, tablet_get_mode(), NULL);
 
-	/* Clear base_imu_irq call count before test */
+	/* Clear base_imu_irq and lid_accel_irq call counts before test */
 	bmi3xx_interrupt_fake.call_count = 0;
+	bma4xx_interrupt_fake.call_count = 0;
 
-	/* Verify base_imu_irq is disabled. */
+	/* Verify base_imu_irq and lid_accel_irq are disabled. */
 	zassert_ok(gpio_emul_input_set(base_imu_gpio, base_imu_pin, 1), NULL);
 	k_sleep(K_MSEC(100));
 	zassert_ok(gpio_emul_input_set(base_imu_gpio, base_imu_pin, 0), NULL);
 	k_sleep(K_MSEC(100));
-	interrupt_count = bmi3xx_interrupt_fake.call_count;
+	zassert_ok(gpio_emul_input_set(lid_accel_gpio, lid_accel_pin, 1), NULL);
+	k_sleep(K_MSEC(100));
+	zassert_ok(gpio_emul_input_set(lid_accel_gpio, lid_accel_pin, 0), NULL);
+	k_sleep(K_MSEC(100));
+	interrupt_count = bmi3xx_interrupt_fake.call_count +
+			  bma4xx_interrupt_fake.call_count;
 	zassert_equal(interrupt_count, 0);
 }
 
-static int ssfc_data;
-
-static int cbi_get_ssfc_mock(uint32_t *ssfc)
+ZTEST(quandiso2, test_alt_sensor_lid_kx022)
 {
-	*ssfc = ssfc_data;
-	return 0;
+	const struct device *lid_accel_gpio = DEVICE_DT_GET(
+		DT_GPIO_CTLR(DT_NODELABEL(gpio_acc_int_l), gpios));
+	const gpio_port_pins_t lid_accel_pin =
+		DT_GPIO_PIN(DT_NODELABEL(gpio_acc_int_l), gpios);
+
+	/* Initial ssfc data for default KX022 lid sensor (polled force-mode).
+	 */
+	cbi_get_ssfc_fake.custom_fake = cbi_get_ssfc_mock;
+	ssfc_data = 0x00;
+	cros_cbi_ssfc_init();
+
+	cros_cbi_get_fw_config_fake.custom_fake = cros_cbi_get_fw_config_tablet;
+	tablet = 1;
+	hook_notify(HOOK_INIT);
+
+	bma4xx_interrupt_fake.call_count = 0;
+
+	/*
+	 * Verify that floating gpio_acc_int_l transitions do not fire
+	 * bma4xx_interrupt when KX022 is selected.
+	 */
+	for (int i = 0; i < 5; i++) {
+		zassert_ok(
+			gpio_emul_input_set(lid_accel_gpio, lid_accel_pin, 1));
+		k_sleep(K_MSEC(10));
+		zassert_ok(
+			gpio_emul_input_set(lid_accel_gpio, lid_accel_pin, 0));
+		k_sleep(K_MSEC(10));
+	}
+
+	zassert_equal(bma4xx_interrupt_fake.call_count, 0);
 }
 
 ZTEST(quandiso2, test_alt_sensor_lid_bma422)
@@ -969,13 +1028,10 @@ ZTEST(quandiso2, test_alt_sensor_lid_bma422)
 	ssfc_data = 0x01;
 	cros_cbi_ssfc_init();
 
-	/* sensor_enable_irqs enable the interrupt int_acc */
-	gpio_enable_dt_interrupt(GPIO_INT_FROM_NODELABEL(int_acc));
-
 	/* make sure cros_cbi_get_fw_config is handled */
 	cros_cbi_get_fw_config_fake.custom_fake = cros_cbi_get_fw_config_tablet;
-
-	board_init();
+	tablet = 1;
+	hook_notify(HOOK_INIT);
 
 	/* Clear irq call count before test */
 	bma4xx_interrupt_fake.call_count = 0;
