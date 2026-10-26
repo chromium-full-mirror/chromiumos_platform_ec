@@ -1092,6 +1092,42 @@ static enum smf_state_result st_suspended_run(void *o)
 	return SMF_EVENT_HANDLED;
 }
 
+static void st_disable_entry(void *o)
+{
+	struct pdc_data_t *data = (struct pdc_data_t *)o;
+
+	print_current_state(data);
+	/* Mark the port as permanently disabled. The upper-layer state
+	 * machine will observe PDC_DRIVER_INIT_STATE_FAILED from
+	 * tps_is_init_done() in its INIT_WAIT_FOR_READY substate and
+	 * transition the port to the inert PDC_DISABLED state so the
+	 * upper layer stops polling GET_CONNECTOR_STATUS on this dead port.
+	 *
+	 * Do NOT set init_done=true here. Doing so would make
+	 * tps_is_init_done() report PDC_DRIVER_INIT_STATE_SUCCESS, causing
+	 * the upper layer to continue past INIT_WAIT_FOR_READY and issue
+	 * subsequent init subcommands (SET_SINK_PDOS, SET_SRC_PDOS, ...,
+	 * GET_CONNECTOR_STATUS) against a dead PDC.
+	 */
+	data->error_status.port_disabled = 1;
+}
+
+static enum smf_state_result st_disable_run(void *o)
+{
+	struct pdc_data_t *data = (struct pdc_data_t *)o;
+
+	/* Clear all events that might keep the thread busy, since the driver
+	 * will not be able to process them while disabled (mirrors
+	 * st_suspended_run). A stale event (e.g. a command posted just
+	 * before entering this state) would otherwise make the thread spin
+	 * forever.
+	 */
+	k_event_clear(&data->pdc_event, PDC_ALL_THREAD_WAKE_EVENTS);
+
+	/* Stay here until reset. */
+	return SMF_EVENT_HANDLED;
+}
+
 static void cmd_set_drp_mode(struct pdc_data_t *data)
 {
 	struct pdc_config_t const *cfg = data->dev->config;
@@ -3155,7 +3191,12 @@ static bool tps_is_init_done(const struct device *dev)
 {
 	struct pdc_data_t *data = dev->data;
 
-	return data->init_done;
+	if (get_state(data) == ST_DISABLE) {
+		return PDC_DRIVER_INIT_STATE_FAILED;
+	}
+
+	return data->init_done ? PDC_DRIVER_INIT_STATE_SUCCESS :
+				 PDC_DRIVER_INIT_STATE_WAIT;
 }
 
 static int tps_get_pch_data_status(const struct device *dev, uint8_t port_num,

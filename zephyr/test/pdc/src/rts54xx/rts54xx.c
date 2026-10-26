@@ -554,3 +554,131 @@ ZTEST_USER(rts54xx, test_idh_vdo_rev30_helpers)
 			ptypes[i], idh.raw_value, expected_bits);
 	}
 }
+
+ZTEST_USER(rts54xx, test_ap_mode_override_off)
+{
+	struct capability_t caps_in, caps_out = { 0 };
+
+	/* Set alt mode override to 1 in emulator */
+	caps_in.bmOptionalFeatures.alt_mode_override = 1;
+	emul_pdc_set_capability(emul, &caps_in);
+
+	/* Use UCSI command to get capabilities */
+	zassert_ok(pdc_execute_ucsi_cmd(dev, UCSI_GET_CAPABILITY,
+					/*command specific=*/0, NULL,
+					(uint8_t *)&caps_out, NULL));
+	zassert_ok(emul_pdc_idle_wait(emul));
+
+	/* Verify alt mode override is cleared when AP mode entry is disabled */
+	if (IS_ENABLED(CONFIG_USBC_PDC_DISABLE_AP_MODE_ENTRY))
+		zassert_false(caps_out.bmOptionalFeatures.alt_mode_override);
+	else
+		zassert_true(caps_out.bmOptionalFeatures.alt_mode_override);
+}
+
+ZTEST_USER(rts54xx, test_dfp_and_ufp_vdo_ack_programming)
+{
+	uint32_t dfp_vdo_raw = 0, ufp_vdo_raw = 0;
+	union get_vdo_t vdo_req;
+
+	vdo_req.raw_value = 0;
+	vdo_req.num_vdos = 1;
+	vdo_req.vdo_origin = 0; /* PDC origin */
+
+	/* 1. Trigger driver init (runs rts54_set_vdo_id_ack) */
+	zassert_ok(pdc_reset(dev));
+	zassert_ok(emul_pdc_idle_wait(emul));
+
+	/* 2. Retrieve DFP VDO (VDO_INDEX_PTYPE_DFP_VDO = 1) */
+	uint8_t dfp_vdo_type[] = { VDO_INDEX_PTYPE_DFP_VDO };
+	zassert_ok(pdc_get_vdo(dev, vdo_req, dfp_vdo_type, &dfp_vdo_raw));
+	zassert_ok(emul_pdc_idle_wait(emul));
+
+	union dfp_vdo_rev3 dfp;
+	dfp.raw_value = dfp_vdo_raw;
+	zassert_equal(dfp.version, DFP_VDO_VERSION_1_2,
+		      "DFP VDO version should be 1.2 (got %d)", dfp.version);
+	zassert_equal(dfp.usb4_cap, 1, "DFP VDO USB4 cap should be 1");
+	zassert_equal(dfp.usb3_cap, 1, "DFP VDO USB3 cap should be 1");
+	zassert_equal(dfp.usb2_cap, 1, "DFP VDO USB2 cap should be 1");
+
+	/* 3. Retrieve UFP VDO (VDO_INDEX_PTYPE_UFP1_VDO = 2) */
+	uint8_t ufp_vdo_type[] = { VDO_INDEX_PTYPE_UFP1_VDO };
+	zassert_ok(pdc_get_vdo(dev, vdo_req, ufp_vdo_type, &ufp_vdo_raw));
+	zassert_ok(emul_pdc_idle_wait(emul));
+
+	union ufp_vdo_rev3 ufp;
+	ufp.raw_value = ufp_vdo_raw;
+	zassert_equal(ufp.version, UFP_VDO_VERSION_1_3,
+		      "UFP VDO version should be 1.3 (got %d)", ufp.version);
+	zassert_equal(ufp.usb4_cap, 0, "UFP VDO USB4 cap should be 0");
+	zassert_equal(ufp.usb3_cap, 0, "UFP VDO USB3 cap should be 0");
+	zassert_equal(ufp.usb2_cap, UFP_USB2_CAPABLE,
+		      "UFP VDO USB2 cap should be UFP_USB2_CAPABLE");
+	zassert_equal(ufp.tbt_support, 0, "UFP VDO TBT support should be 0");
+	zassert_equal(ufp.speed, USB_R30_SS_U32_U40_GEN1,
+		      "UFP VDO speed should be USB_R30_SS_U32_U40_GEN1");
+
+	/* 4. Verify dev2 without USB4 capability */
+	zassert_ok(pdc_reset(dev2));
+	zassert_ok(emul_pdc_idle_wait(emul2));
+
+	dfp_vdo_raw = 0;
+	zassert_ok(pdc_get_vdo(dev2, vdo_req, dfp_vdo_type, &dfp_vdo_raw));
+	zassert_ok(emul_pdc_idle_wait(emul2));
+
+	dfp.raw_value = dfp_vdo_raw;
+	zassert_equal(dfp.usb4_cap, 0, "DFP VDO USB4 cap for dev2 should be 0");
+}
+
+/* Poll interval/timeout when waiting for the driver to enter ST_DISABLE. */
+#define ST_DISABLE_POLL_MS 100
+#define ST_DISABLE_POLL_TIMEOUT_US (10 * USEC_PER_SEC)
+
+ZTEST_USER(rts54xx, test_st_disable_on_i2c_failure)
+{
+	union error_status_t es;
+
+	/* Port starts initialized. */
+	zassert_equal(PDC_DRIVER_INIT_STATE_SUCCESS, pdc_is_init_done(dev));
+
+	/* Fail all I2C writes so that every init attempt fails in ST_WRITE.
+	 * The driver exhausts its error-recovery retries and enters
+	 * ST_DISABLE.
+	 */
+	i2c_common_emul_set_write_fail_reg(
+		rts5453p_emul_get_i2c_common_data(emul),
+		I2C_COMMON_EMUL_FAIL_ALL_REG);
+
+	/* Trigger a PDC reset which restarts init. With I2C failing, the
+	 * port cycles through error recovery until it enters ST_DISABLE.
+	 */
+	zassert_ok(pdc_reset(dev));
+
+	/* A port in ST_DISABLE reports its cached error status synchronously
+	 * with port_disabled set. In every other state pdc_get_error_status()
+	 * returns -EBUSY, making this a race-free indicator.
+	 */
+	zassert_true(WAIT_FOR((memset(&es, 0, sizeof(es)),
+			       pdc_get_error_status(dev, &es) == 0 &&
+				       es.port_disabled),
+			      ST_DISABLE_POLL_TIMEOUT_US,
+			      k_sleep(K_MSEC(ST_DISABLE_POLL_MS))),
+		     "PDC did not enter ST_DISABLE");
+
+	/* The port is permanently disabled. pdc_is_init_done() reports
+	 * FAILED so the upper layer stops polling GET_CONNECTOR_STATUS on
+	 * this dead port.
+	 */
+	zassert_equal(PDC_DRIVER_INIT_STATE_FAILED, pdc_is_init_done(dev));
+
+	/* Clear the I2C failure injection and recover via pdc_reset(), which
+	 * restarts init from ST_DISABLE.
+	 */
+	i2c_common_emul_set_write_fail_reg(
+		rts5453p_emul_get_i2c_common_data(emul),
+		I2C_COMMON_EMUL_NO_FAIL_REG);
+	zassert_ok(pdc_reset(dev));
+	zassert_ok(emul_pdc_idle_wait(emul));
+	zassert_equal(PDC_DRIVER_INIT_STATE_SUCCESS, pdc_is_init_done(dev));
+}

@@ -6,8 +6,10 @@
 #include "charge_manager.h"
 #include "chipset.h"
 #include "drivers/intel_altmode.h"
+#include "drivers/pdc.h"
 #include "drivers/ucsi_v3.h"
 #include "emul/emul_pdc.h"
+#include "emul/emul_realtek_rts54xx_public.h"
 #include "hooks.h"
 #include "test/util.h"
 #include "usbc/pdc_power_mgmt.h"
@@ -2679,3 +2681,154 @@ ZTEST_USER(pdc_power_mgmt_api_suspended,
 	zassert_ok(pdc_power_mgmt_set_comms_state(false));
 }
 #endif /* !defined(CONFIG_TODO_B_345292002) */
+
+/* The test below uses RTS54XX-specific emulator APIs that are only available
+ * when the Realtek emulator is compiled in. It also requires that at least
+ * two PDC ports be present (i.e. C1 is not disabled), because it drives a
+ * port into the terminal PDC_DISABLED state and that port must not be C0
+ * (the port relied on by the subsequent pdc_power_mgmt_api_suspended suite).
+ */
+#if !defined(CONFIG_TODO_B_345292002) && !defined(CONFIG_TEST_PDC_DISABLE_C1)
+
+/* The disabled-port test targets C1 (TEST_PORT 1) rather than C0 so that
+ * the terminal PDC_DISABLED state it induces does not pollute C0 state
+ * relied upon by subsequent test suites (notably pdc_power_mgmt_api_suspended).
+ * C1 is the second RTS5453p emulator instance (pdc_emul2).
+ */
+#define DISABLED_PORT 1
+static const struct emul *emul2 = EMUL_DT_GET(DT_NODELABEL(pdc_emul2));
+
+/* When the PDC driver init fails and the port enters ST_DISABLE, the
+ * subsystem-level state machine must transition to PDC_DISABLED so that
+ * healthy ports are not blocked in INIT_WAIT_FOR_READY and the upper
+ * layers stop polling a dead PDC.
+ */
+ZTEST_USER(pdc_power_mgmt_api_disabled,
+	   test_pdc_disabled_on_driver_init_failure)
+{
+	const struct device *dev = DEVICE_DT_GET(DT_NODELABEL(pdc_emul2));
+	union error_status_t es;
+
+	/* Fail all I2C writes so the RTS54XX driver exhausts its error
+	 * recovery retries and enters ST_DISABLE.
+	 */
+	i2c_common_emul_set_write_fail_reg(
+		rts5453p_emul_get_i2c_common_data(emul2),
+		I2C_COMMON_EMUL_FAIL_ALL_REG);
+
+	/* Reset the PDC driver to trigger re-initialization. With I2C
+	 * failing, the driver cycles through error recovery and enters
+	 * ST_DISABLE. pdc_reset() just queues the command; the actual
+	 * failure happens asynchronously in the driver state machine.
+	 */
+	pdc_reset(dev);
+
+	/* Wait for the driver to enter ST_DISABLE (port_disabled set). */
+	zassert_true(WAIT_FOR((memset(&es, 0, sizeof(es)),
+			       pdc_get_error_status(dev, &es) == 0 &&
+				       es.port_disabled),
+			      10 * USEC_PER_SEC, k_sleep(K_MSEC(100))),
+		     "Driver did not enter ST_DISABLE");
+
+	/* The driver should report FAILED init state. */
+	zassert_equal(PDC_DRIVER_INIT_STATE_FAILED, pdc_is_init_done(dev));
+
+	/* Force the subsystem to re-check the init state by suspending and
+	 * resuming. This makes pdc_init_run() see the FAILED state and
+	 * transition to PDC_DISABLED.
+	 */
+	zassert_ok(pdc_power_mgmt_set_comms_state(false));
+	zassert_ok(pdc_power_mgmt_set_comms_state(true));
+
+	/* The subsystem should detect the FAILED state in INIT_WAIT_FOR_READY
+	 * and transition to PDC_DISABLED ("Disabled").
+	 */
+	zassert_true(wait_state_name(DISABLED_PORT, PDC_DISABLED, "Disabled"),
+		     "Port did not enter PDC_DISABLED");
+
+	/* A disabled port still exists (visible to console commands) but is
+	 * not valid for power management operations.
+	 */
+	zassert_true(pdc_power_mgmt_pdc_port_exists(DISABLED_PORT),
+		     "Disabled port should still exist");
+	zassert_false(pdc_power_mgmt_is_pdc_port_valid(DISABLED_PORT),
+		      "Disabled port should not be valid for PM");
+
+	/* Reset on an out-of-range port number returns -ERANGE. */
+	zassert_equal(-ERANGE,
+		      pdc_power_mgmt_reset(CONFIG_USB_PD_PORT_MAX_COUNT),
+		      "Expected -ERANGE for invalid port");
+
+	/* Clear the I2C failure and recover the driver from ST_DISABLE.
+	 * Note: the subsystem remains in PDC_DISABLED (a terminal state).
+	 * The before-test hook for the next suite will call emul_pdc_reset()
+	 * and the subsystem will re-enter PDC_INIT on the next
+	 * pdc_power_mgmt_set_comms_state(true).
+	 */
+	i2c_common_emul_set_write_fail_reg(
+		rts5453p_emul_get_i2c_common_data(emul2),
+		I2C_COMMON_EMUL_NO_FAIL_REG);
+	zassert_ok(pdc_reset(dev));
+	zassert_ok(emul_pdc_idle_wait(emul2));
+}
+
+static void *pdc_disabled_setup(void)
+{
+	return NULL;
+}
+
+static void pdc_disabled_before(void *fixture)
+{
+	/* Reset the C1 emulator and wait for the driver to be idle. The
+	 * subsystem may be in PDC_DISABLED from a prior run; suspend and
+	 * resume to force a re-init of C0 (C1 will stay in PDC_DISABLED).
+	 */
+	emul_pdc_reset(emul2);
+	emul_pdc_set_response_delay(emul2, 0);
+	emul_pdc_disconnect(emul2);
+	emul_pdc_reset_feature_flags(emul2);
+
+	zassert_ok(emul_pdc_idle_wait(emul2));
+
+	/* If the subsystem is in PDC_DISABLED, suspend/resume to re-init. */
+	pdc_power_mgmt_set_comms_state(false);
+	pdc_power_mgmt_set_comms_state(true);
+	zassert_ok(pdc_power_mgmt_wait_for_sync(TEST_PORT, -1));
+	reset_fakes();
+}
+
+static void pdc_disabled_after(void *fixture)
+{
+	/* PDC_DISABLED is a terminal state with no run/exit handlers; the
+	 * port cannot be re-initialized within a single EC boot. We reset
+	 * the C1 emulator and driver thread here so subsequent test suites
+	 * see a clean driver layer; C1's subsystem state remains in
+	 * PDC_DISABLED, which is acceptable because the remaining suites
+	 * target C0 (TEST_PORT 0) and are unaffected by C1's terminal
+	 * state.
+	 *
+	 * Note: do NOT call pdc_power_mgmt_wait_for_sync(DISABLED_PORT)
+	 * here -- it will time out (C1 stays in PDC_DISABLED) and trigger
+	 * an assertion in the after-hook, aborting the entire test binary.
+	 */
+	emul_pdc_reset(emul2);
+	emul_pdc_set_response_delay(emul2, 0);
+	emul_pdc_disconnect(emul2);
+	emul_pdc_reset_feature_flags(emul2);
+	/* Best-effort cleanup: ignore emul_pdc_idle_wait() return value.
+	 * Asserting in an after-hook is unsafe (a failure raises a kernel
+	 * panic that aborts the whole test binary). The next suite's
+	 * before-hook re-initializes C0 via set_comms_state(false/true)
+	 * regardless of C1's driver state, so a stale C1 driver thread is
+	 * harmless.
+	 */
+	(void)emul_pdc_idle_wait(emul2);
+
+	reset_fakes();
+}
+
+ZTEST_SUITE(pdc_power_mgmt_api_disabled, NULL, pdc_disabled_setup,
+	    pdc_disabled_before, pdc_disabled_after, NULL);
+
+#endif /* !defined(CONFIG_TODO_B_345292002) && \
+	  !defined(CONFIG_TEST_PDC_DISABLE_C1) */

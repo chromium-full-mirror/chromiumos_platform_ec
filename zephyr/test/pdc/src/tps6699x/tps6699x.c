@@ -223,16 +223,20 @@ ZTEST_USER(tps6699x, test_init_state_sequence)
 	zassert_ok(pdc_reset(dev));
 	k_sleep(K_MSEC(INIT_SLEEP_MS * 2));
 
-	/* PDC should not be init because SET_NOTIFICATION failed. */
-	zassert_false(pdc_is_init_done(dev));
+	/* Init retries are exhausted: the port is now in ST_DISABLE.
+	 * pdc_is_init_done() reports FAILED so the upper layer stops
+	 * polling GET_CONNECTOR_STATUS on this dead port and transitions
+	 * to the inert PDC_DISABLED state.
+	 */
+	wait_for_st_disable();
+	zassert_equal(PDC_DRIVER_INIT_STATE_FAILED, pdc_is_init_done(dev));
+	verify_st_disable_behavior();
 
-	/* Reset will fail because it's in suspended state. Restore from
-	 * suspended and it should be ok again. */
-	zassert_not_ok(pdc_reset(dev));
-	zassert_ok(pdc_set_comms_state(dev, true));
-	k_sleep(K_MSEC(INIT_SLEEP_MS));
+	/* A disabled port fast-fails further commands with -ENOSYS. */
+	zassert_equal(-ENOSYS, pdc_reset(dev));
 
-	zassert_true(pdc_is_init_done(dev));
+	/* Recover both ports by re-initializing all of them. */
+	recover_from_st_disable();
 
 	/* Fail register read/writes for some init tasks at least once for
 	 * coverage. These all will cause error handling to trigger.
@@ -382,7 +386,6 @@ ZTEST_USER(tps6699x, test_set_rdo)
 		      CONFIG_PLATFORM_EC_USB_PD_MAX_CURRENT_MA / 10);
 }
 
-/* Cover the tps6699x driver returning revision with GET_PD_MESSAGE */
 ZTEST_USER(tps6699x, test_get_pd_message_revision)
 {
 	struct ucsi_memory_region ucsi_data;
@@ -423,24 +426,50 @@ ZTEST_USER(tps6699x, test_get_pd_message_identity)
 	struct ucsi_memory_region ucsi_data;
 	struct ucsi_control_t *control = &ucsi_data.control;
 	union get_pd_message_t get_pd_message_cmd = { 0 };
-	uint32_t disc_in[PDC_DISC_IDENTITY_VDO_COUNT] = { 0x1, 0x2, 0x3, 0x4,
+	uint32_t disc_in[PDC_DISC_IDENTITY_VDO_COUNT] = { 0x0, 0x2, 0x3, 0x4,
 							  0x5, 0x6, 0x7 };
 	uint32_t disc_out[PDC_DISC_IDENTITY_VDO_COUNT] = { 0 };
+	struct pdc_callback callback;
 
 	access = ACCESS_OK;
 	RESET_FAKE(tps_rw_port_control);
 	tps_rw_port_control_fake.custom_fake = custom_fake_tps_rw_port_control;
 
-	/* Set fake Disc ID response in PDC emulator */
-	emul_pdc_set_identity(emul, disc_in);
-	k_sleep(K_MSEC(SLEEP_MS));
+	/* Verify command_specific == NULL returns -EINVAL */
+	zassert_equal(pdc_execute_ucsi_cmd(dev, UCSI_GET_PD_MESSAGE, 0, NULL,
+					   ucsi_data.message_in, NULL),
+		      -EINVAL);
 
-	/* GET_PD_MESSAGE command to request Disc ID */
+	/* Verify unsupported response_message_type returns -ENOSYS */
 	get_pd_message_cmd.connector_number = 0;
-	get_pd_message_cmd.recipient = 1;
-	get_pd_message_cmd.response_message_type = GET_PD_MESSAGE_DISC_ID;
+	get_pd_message_cmd.recipient = VDO_ORIGIN_SOP;
+	get_pd_message_cmd.response_message_type = GET_PD_MESSAGE_REVISION;
+	memcpy(&control->command_specific, &get_pd_message_cmd.raw_value,
+	       sizeof(union get_pd_message_t));
+	zassert_equal(pdc_execute_ucsi_cmd(dev, UCSI_GET_PD_MESSAGE,
+					   sizeof(union get_pd_message_t),
+					   control->command_specific,
+					   ucsi_data.message_in, NULL),
+		      -ENOSYS);
 
-	/* Send GET_PD_MESSAGE */
+	/* Verify unsupported recipient returns -ENOSYS */
+	get_pd_message_cmd.recipient = 0;
+	get_pd_message_cmd.response_message_type = GET_PD_MESSAGE_DISC_ID;
+	memcpy(&control->command_specific, &get_pd_message_cmd.raw_value,
+	       sizeof(union get_pd_message_t));
+	zassert_equal(pdc_execute_ucsi_cmd(dev, UCSI_GET_PD_MESSAGE,
+					   sizeof(union get_pd_message_t),
+					   control->command_specific,
+					   ucsi_data.message_in, NULL),
+		      -ENOSYS);
+
+	/* Test case where response_type != 1 (identity not discovered) */
+	callback.handler = test_cc_cb;
+	pdc_set_cc_callback(dev, &callback);
+
+	get_pd_message_cmd.connector_number = 0;
+	get_pd_message_cmd.recipient = VDO_ORIGIN_SOP;
+	get_pd_message_cmd.response_message_type = GET_PD_MESSAGE_DISC_ID;
 	memcpy(&control->command_specific, &get_pd_message_cmd.raw_value,
 	       sizeof(union get_pd_message_t));
 	zassert_ok(pdc_execute_ucsi_cmd(
@@ -448,10 +477,392 @@ ZTEST_USER(tps6699x, test_get_pd_message_identity)
 		control->command_specific, ucsi_data.message_in, NULL));
 	k_sleep(K_MSEC(SLEEP_MS));
 
-	/* Verify returned RMDO matches the emulator's RMDO */
+	/* Verify error in CCI event */
+	zassert_true(test_cc_cb_cci.error);
+
+	memcpy(disc_out, &ucsi_data.message_in,
+	       sizeof(uint32_t) * PDC_DISC_IDENTITY_VDO_COUNT);
+	for (int i = 0; i < PDC_DISC_IDENTITY_VDO_COUNT; i++) {
+		zassert_equal(0, disc_out[i]);
+	}
+
+	pdc_set_cc_callback(dev, NULL);
+
+	/* Set fake Disc ID response in PDC emulator */
+	emul_pdc_set_identity(emul, disc_in);
+	k_sleep(K_MSEC(SLEEP_MS));
+
+	/* Send GET_PD_MESSAGE for SOP once identity is discovered */
+	memset(ucsi_data.message_in, 0, sizeof(ucsi_data.message_in));
+	zassert_ok(pdc_execute_ucsi_cmd(
+		dev, UCSI_GET_PD_MESSAGE, sizeof(union get_pd_message_t),
+		control->command_specific, ucsi_data.message_in, NULL));
+	k_sleep(K_MSEC(SLEEP_MS));
+
+	/* Verify returned Discover Identity matches the emulator's Discover
+	 * Identity */
 	memcpy(disc_out, &ucsi_data.message_in,
 	       sizeof(uint32_t) * PDC_DISC_IDENTITY_VDO_COUNT);
 	for (int i = 0; i < PDC_DISC_IDENTITY_VDO_COUNT; i++) {
 		zassert_equal(disc_in[i], disc_out[i]);
 	}
+}
+
+/* Cover the tps6699x driver returning discover identity with GET_CURRENT_CAM */
+ZTEST_USER(tps6699x, test_get_current_cam)
+{
+	struct ucsi_memory_region ucsi_data;
+	struct ucsi_control_t *control = &ucsi_data.control;
+	uint32_t current_cam = 0;
+
+	access = ACCESS_OK;
+	RESET_FAKE(tps_rw_port_control);
+	tps_rw_port_control_fake.custom_fake = custom_fake_tps_rw_port_control;
+
+	/* Set fake CAM in PDC emulator */
+	emul_pdc_set_current_cam(emul, 0);
+	k_sleep(K_MSEC(SLEEP_MS));
+
+	/* Send GET_CURRENT_CAM */
+	zassert_ok(pdc_execute_ucsi_cmd(
+		dev, UCSI_GET_CURRENT_CAM, sizeof(uint32_t),
+		control->command_specific, ucsi_data.message_in, NULL));
+	k_sleep(K_MSEC(SLEEP_MS));
+
+	/* Verify returned CAM matches emulator. */
+	memcpy(&current_cam, &ucsi_data.message_in, sizeof(uint32_t));
+	zassert_equal(current_cam, 0);
+
+	/* Set fake CAM in PDC emulator */
+	emul_pdc_set_current_cam(emul, 0x1);
+	k_sleep(K_MSEC(SLEEP_MS));
+
+	/* Send GET_CURRENT_CAM */
+	zassert_ok(pdc_execute_ucsi_cmd(
+		dev, UCSI_GET_CURRENT_CAM, sizeof(uint32_t),
+		control->command_specific, ucsi_data.message_in, NULL));
+	k_sleep(K_MSEC(SLEEP_MS));
+
+	/* Verify returned CAM matches emulator. */
+	memcpy(&current_cam, &ucsi_data.message_in, sizeof(uint32_t));
+	zassert_equal(current_cam, 0x1);
+}
+
+/* Cover the tps6699x driver mapping SET_UOR from the PPM to CMD_SET_DRS */
+ZTEST_USER(tps6699x, test_ppm_set_uor)
+{
+	union uor_t in, out;
+	in.raw_value = 0;
+	out.raw_value = 0;
+	in.connector_number = 1;
+	in.accept_dr_swap = 1;
+
+	struct ucsi_memory_region ucsi_data;
+	struct ucsi_control_t *control = &ucsi_data.control;
+
+	access = ACCESS_OK;
+	RESET_FAKE(tps_rw_port_control);
+	tps_rw_port_control_fake.custom_fake = custom_fake_tps_rw_port_control;
+
+	/* Verify command_specific == NULL returns -EINVAL */
+	zassert_equal(pdc_execute_ucsi_cmd(dev, UCSI_SET_UOR, sizeof(uint32_t),
+					   NULL, ucsi_data.message_in, NULL),
+		      -EINVAL);
+
+	/* Send SET_UOR to UFP through pdc_execute_ucsi_cmd() */
+	in.swap_to_ufp = 1;
+	in.swap_to_dfp = 0;
+	memcpy(&control->command_specific, &in.raw_value, sizeof(in.raw_value));
+	zassert_ok(pdc_execute_ucsi_cmd(dev, UCSI_SET_UOR, sizeof(uint32_t),
+					control->command_specific,
+					ucsi_data.message_in, NULL));
+	k_sleep(K_MSEC(SLEEP_MS));
+
+	/* Verify UOR has swap_to_ufp set. */
+	zassert_ok(emul_pdc_get_uor(emul, &out));
+	zassert_equal(out.swap_to_ufp, 1);
+	zassert_equal(out.swap_to_dfp, 0);
+	zassert_equal(out.accept_dr_swap, 1);
+
+	in.swap_to_ufp = 0;
+	in.swap_to_dfp = 1;
+	memcpy(&control->command_specific, &in.raw_value, sizeof(in.raw_value));
+	zassert_ok(pdc_execute_ucsi_cmd(dev, UCSI_SET_UOR, sizeof(uint32_t),
+					control->command_specific,
+					ucsi_data.message_in, NULL));
+	k_sleep(K_MSEC(SLEEP_MS));
+
+	/* Verify UOR has swap_to_dfp set. */
+	zassert_ok(emul_pdc_get_uor(emul, &out));
+	zassert_equal(out.swap_to_ufp, 0);
+	zassert_equal(out.swap_to_dfp, 1);
+	zassert_equal(out.accept_dr_swap, 1);
+}
+
+ZTEST_USER(tps6699x, test_ap_mode_override_off)
+{
+	struct capability_t caps_in, caps_out;
+	struct ucsi_memory_region ucsi_data;
+	struct ucsi_control_t *control = &ucsi_data.control;
+
+	access = ACCESS_OK;
+	RESET_FAKE(tps_rw_port_control);
+	tps_rw_port_control_fake.custom_fake = custom_fake_tps_rw_port_control;
+
+	/* Set alt mode override to 1 in emulator */
+	caps_in.bmOptionalFeatures.alt_mode_override = 1;
+	emul_pdc_set_capability(emul, &caps_in);
+	k_sleep(K_MSEC(SLEEP_MS));
+
+	/* Use UCSI command to get capabilities */
+	zassert_ok(pdc_execute_ucsi_cmd(
+		dev, UCSI_GET_CAPABILITY, sizeof(struct capability_t),
+		control->command_specific, ucsi_data.message_in, NULL));
+	k_sleep(K_MSEC(SLEEP_MS));
+
+	/* Verify alt mode override is cleared when AP mode entry is disabled */
+	memcpy(&caps_out, &ucsi_data.message_in, sizeof(struct capability_t));
+	if (IS_ENABLED(CONFIG_USBC_PDC_DISABLE_AP_MODE_ENTRY))
+		zassert_false(caps_out.bmOptionalFeatures.alt_mode_override);
+	else
+		zassert_true(caps_out.bmOptionalFeatures.alt_mode_override);
+}
+
+ZTEST_USER(tps6699x, test_usb_comm_capable_as_device_config)
+{
+	struct pdc_info_t info;
+
+	/* usb_comm_capable_as_device should be false as it is not supported */
+	zassert_ok(pdc_get_info(dev, &info, true));
+	k_sleep(K_MSEC(SLEEP_MS));
+	zassert_false(info.usb_comm_capable_as_device);
+
+	zassert_ok(pdc_get_info(dev2, &info, true));
+	k_sleep(K_MSEC(SLEEP_MS));
+	zassert_false(info.usb_comm_capable_as_device);
+}
+
+ZTEST_USER(tps6699x, test_set_battery_capability)
+{
+	struct pdc_callback callback;
+	union battery_capability_t bc = { 0 };
+
+	callback.handler = test_cc_cb;
+	pdc_set_cc_callback(dev, &callback);
+	emul_pdc_fail_reg_write(emul, REG_TX_BATTERY_CAPABILITIES);
+	test_cc_cb_cci.raw_value = 0;
+	test_cc_cb_called = false;
+	pdc_set_battery_capability(dev, &bc);
+	k_sleep(K_MSEC(SLEEP_MS));
+	zassert_true(test_cc_cb_called);
+	zassert_true(test_cc_cb_cci.command_completed);
+	zassert_true(test_cc_cb_cci.error);
+	pdc_set_cc_callback(dev, NULL);
+}
+
+ZTEST_USER(tps6699x, test_set_battery_status)
+{
+	struct pdc_callback callback;
+	union battery_status_t bs = { 0 };
+
+	callback.handler = test_cc_cb;
+	pdc_set_cc_callback(dev, &callback);
+	emul_pdc_fail_reg_write(emul,
+				REG_TRANSMITTED_BATTERY_STATUS_DATA_OBJECT);
+	test_cc_cb_cci.raw_value = 0;
+	test_cc_cb_called = false;
+	pdc_set_battery_status(dev, &bs);
+	k_sleep(K_MSEC(SLEEP_MS));
+	zassert_true(test_cc_cb_called);
+	zassert_true(test_cc_cb_cci.command_completed);
+	zassert_true(test_cc_cb_cci.error);
+}
+
+ZTEST_USER(tps6699x, test_update_retimer_enable)
+{
+	struct pdc_callback callback;
+
+	callback.handler = test_cc_cb;
+	pdc_set_cc_callback(dev, &callback);
+	test_cc_cb_called = false;
+	test_cc_cb_cci.raw_value = 0;
+
+	zassert_ok(pdc_update_retimer_fw(dev, true));
+	k_sleep(K_MSEC(SLEEP_MS));
+
+	zassert_true(test_cc_cb_called);
+	zassert_true(test_cc_cb_cci.command_completed);
+	zassert_false(test_cc_cb_cci.error);
+
+	pdc_set_cc_callback(dev, NULL);
+}
+
+ZTEST_USER(tps6699x, test_update_retimer_disable)
+{
+	struct pdc_callback callback;
+
+	callback.handler = test_cc_cb;
+	pdc_set_cc_callback(dev, &callback);
+	test_cc_cb_called = false;
+	test_cc_cb_cci.raw_value = 0;
+
+	zassert_ok(pdc_update_retimer_fw(dev, false));
+	k_sleep(K_MSEC(SLEEP_MS));
+
+	zassert_true(test_cc_cb_called);
+	zassert_true(test_cc_cb_cci.command_completed);
+	zassert_false(test_cc_cb_cci.error);
+
+	pdc_set_cc_callback(dev, NULL);
+}
+
+ZTEST_USER(tps6699x, test_update_retimer_fail)
+{
+	struct pdc_callback callback;
+
+	callback.handler = test_cc_cb;
+	pdc_set_cc_callback(dev, &callback);
+
+	emul_pdc_fail_reg_write(emul, REG_COMMAND_FOR_I2C1);
+	test_cc_cb_called = false;
+	test_cc_cb_cci.raw_value = 0;
+
+	zassert_ok(pdc_update_retimer_fw(dev, true));
+	k_sleep(K_MSEC(SLEEP_MS));
+
+	zassert_true(test_cc_cb_called);
+	zassert_true(test_cc_cb_cci.command_completed);
+	zassert_true(test_cc_cb_cci.error);
+
+	pdc_set_cc_callback(dev, NULL);
+}
+
+ZTEST_USER(tps6699x, test_st_disable_on_init_failure)
+{
+	/* NULL argument checks. */
+	zassert_equal(-EINVAL, pdc_get_connector_status(dev, NULL));
+	zassert_equal(-EINVAL, pdc_get_error_status(dev, NULL));
+
+	zassert_true(pdc_is_init_done(dev));
+
+	/* Fail the next REG_VERSION read so the next init attempt fails in
+	 * st_init_run() and the port transitions to ST_DISABLE. Use a
+	 * persistent failure so init exhausts TPS6699X_INIT_RETRY_MAX.
+	 */
+	i2c_common_emul_set_read_fail_reg(
+		emul_tps6699x_get_i2c_common_data(emul), REG_VERSION);
+
+	/* Restart init on all ports via the patch_loaded IRQ. */
+	zassert_ok(emul_pdc_set_interrupt_patch_loaded(emul));
+	zassert_ok(emul_pdc_pulse_irq(emul));
+
+	wait_for_st_disable();
+	zassert_equal(PDC_DRIVER_INIT_STATE_FAILED, pdc_is_init_done(dev));
+	verify_st_disable_behavior();
+	i2c_common_emul_set_read_fail_reg(
+		emul_tps6699x_get_i2c_common_data(emul),
+		I2C_COMMON_EMUL_NO_FAIL_REG);
+	recover_from_st_disable();
+}
+
+/* Cover NULL / range / state validation paths and simple success paths for
+ * API wrapper functions that are not exercised by other test cases.
+ */
+ZTEST_USER(tps6699x, test_api_validation)
+{
+	uint16_t ucsi_ver;
+	union connector_status_t cs = { 0 };
+	struct pdc_info_t info;
+	struct pdc_hw_config_t hw_cfg;
+
+	/* --- tps_read_power_level with power_direction == 0 --- */
+	cs.power_direction = 0;
+	zassert_ok(emul_pdc_set_connector_status(emul, &cs));
+	k_sleep(K_MSEC(SLEEP_MS));
+	zassert_equal(-ENOSYS, pdc_read_power_level(dev));
+
+	/* --- tps_get_info live=false cached read --- */
+	zassert_ok(pdc_get_info(dev, &info, false));
+
+	/* --- tps_get_info live=false with no cached value --- */
+	/* Force a fresh init to clear the cached event by failing one init
+	 * step, entering ST_DISABLE. In ST_DISABLE, PDC_CHIP_INFO_AVAIL_EVENT
+	 * is still set (it is not in PDC_ALL_THREAD_WAKE_EVENTS), so
+	 * live=false still returns cached info successfully. Use a persistent
+	 * failure so init exhausts TPS6699X_INIT_RETRY_MAX.
+	 */
+	i2c_common_emul_set_read_fail_reg(
+		emul_tps6699x_get_i2c_common_data(emul), REG_VERSION);
+	zassert_ok(emul_pdc_set_interrupt_patch_loaded(emul));
+	zassert_ok(emul_pdc_pulse_irq(emul));
+	wait_for_st_disable();
+	zassert_ok(pdc_get_info(dev, &info, false));
+	i2c_common_emul_set_read_fail_reg(
+		emul_tps6699x_get_i2c_common_data(emul),
+		I2C_COMMON_EMUL_NO_FAIL_REG);
+	recover_from_st_disable();
+
+	/* --- tps_set_comms_state(false) suspend path --- */
+	zassert_ok(pdc_set_comms_state(dev, false));
+	/* Driver is now suspended. Verify suspend then resume. */
+	zassert_ok(pdc_set_comms_state(dev, true));
+	k_sleep(K_MSEC(SLEEP_MS));
+	zassert_true(pdc_is_init_done(dev));
+
+	/* --- Simple success paths for API wrappers --- */
+	/* Set connector status to power_direction=1 for read_power_level. */
+	cs.power_direction = 1;
+	cs.connect_status = 1;
+	zassert_ok(emul_pdc_set_connector_status(emul, &cs));
+	k_sleep(K_MSEC(SLEEP_MS));
+	emul_pdc_pulse_irq(emul);
+	k_sleep(K_MSEC(SLEEP_MS));
+
+	/* Synchronous API wrappers */
+	zassert_ok(pdc_get_ucsi_version(dev, &ucsi_ver));
+	zassert_equal(ucsi_ver, UCSI_VERSION);
+	zassert_ok(pdc_get_hw_config(dev, &hw_cfg));
+	zassert_equal(hw_cfg.bus_type, PDC_BUS_TYPE_I2C);
+}
+
+/* Cover tps_ack_cc_ci and tps_set_battery_capability/status when not in
+ * ST_IDLE (driver is suspended).
+ */
+ZTEST_USER(tps6699x, test_busy_state_rejections)
+{
+	union conn_status_change_bits_t ci = { 0 };
+	union battery_capability_t bc = { 0 };
+	union battery_status_t bs = { 0 };
+
+	/* Suspend the driver so it's not in ST_IDLE */
+	zassert_ok(pdc_set_comms_state(dev, false));
+
+	/* These should all return -EBUSY because state != ST_IDLE */
+	zassert_equal(-EBUSY, pdc_ack_cc_ci(dev, ci, false, 0));
+	zassert_equal(-EBUSY, pdc_set_battery_capability(dev, &bc));
+	zassert_equal(-EBUSY, pdc_set_battery_status(dev, &bs));
+
+	/* Resume */
+	zassert_ok(pdc_set_comms_state(dev, true));
+	k_sleep(K_MSEC(SLEEP_MS));
+	zassert_true(pdc_is_init_done(dev));
+}
+
+/* Cover tps_check_data_ready by setting a response delay so the driver
+ * polls the command register while the emulator hasn't completed it yet.
+ */
+ZTEST_USER(tps6699x, test_delayed_response)
+{
+	union error_status_t es;
+
+	/* Set a small response delay so the command isn't immediately complete
+	 */
+	emul_pdc_set_response_delay(emul, 50);
+
+	zassert_ok(pdc_get_error_status(dev, &es));
+	k_sleep(K_MSEC(SLEEP_MS));
+
+	/* Reset delay for subsequent tests */
+	emul_pdc_set_response_delay(emul, 0);
+	zassert_true(pdc_is_init_done(dev));
 }
