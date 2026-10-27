@@ -24,6 +24,10 @@
 
 #include <stdint.h>
 
+#ifdef CONFIG_ZEPHYR
+#include <zephyr/kernel.h>
+#endif
+
 #define CPRINTF(format, args...) cprintf(CC_USBPD, format, ##args)
 #define CPRINTS(format, args...) cprints(CC_USBPD, format, ##args)
 
@@ -31,6 +35,7 @@
 #define PD_PROCESS_INTERRUPT BIT(0)
 
 #define ALERT_STORM_INTERVAL SECOND
+#define ALERT_BURST_YIELD_THRESHOLD 10
 
 static uint8_t pd_int_task_id[CONFIG_USB_PD_PORT_MAX_COUNT];
 
@@ -45,12 +50,12 @@ test_mockable void schedule_deferred_pd_interrupt(const int port)
 		task_set_event(pd_int_task_id[port], PD_PROCESS_INTERRUPT);
 }
 
-static struct {
+test_export_static struct storm_tracker_t {
 	int count;
 	timestamp_t time;
 } storm_tracker[CONFIG_USB_PD_PORT_MAX_COUNT];
 
-static void service_one_port(int port)
+test_export_static void service_one_port(int port)
 {
 	timestamp_t now;
 
@@ -73,6 +78,13 @@ static void service_one_port(int port)
 
 		pd_set_suspend(port, 1);
 		pd_deferred_resume(port);
+	} else if ((storm_tracker[port].count % ALERT_BURST_YIELD_THRESHOLD) ==
+		   0) {
+#ifdef CONFIG_ZEPHYR
+		k_usleep(MSEC);
+#else
+		crec_usleep(MSEC);
+#endif
 	}
 }
 
