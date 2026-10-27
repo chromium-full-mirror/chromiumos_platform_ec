@@ -9,3 +9,5 @@ if(DEFINED CONFIG_BOARD_BANDIT)
 	project(dougie)
 	add_subdirectory(bandit)
 endif()
+
+zephyr_library_sources("src/chipset.c")
