@@ -596,6 +596,7 @@ test_mockable_static void jump_to_image(uintptr_t init_addr)
 	watchdog_reload();
 
 	chip_pre_system_jump();
+	arch_pre_system_jump();
 
 	/* Jump to the reset vector */
 	resetvec = (void (*)(void))init_addr;
@@ -2100,6 +2101,10 @@ __overridable int board_write_poweron_conf(const uint8_t *poweron_conf)
 #endif /* CONFIG_POWERON_CONF_LEN */
 
 __overridable void chip_pre_system_jump(void)
+{
+}
+
+__overridable void arch_pre_system_jump(void)
 {
 }
 
