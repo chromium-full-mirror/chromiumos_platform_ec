@@ -28,7 +28,7 @@ static const struct gpio_dt_spec power_good_gpio =
 static const struct gpio_dt_spec ap_rst_gpio =
 	GPIO_DT_SPEC_GET(AP_PWRSEQ_NODE, ap_rst_gpios);
 static const struct gpio_dt_spec pmic_kpd_pwr_gpio =
-	GPIO_DT_SPEC_GET(AP_PWRSEQ_NODE, pmic_kpd_pwr_odl_gpios);
+	GPIO_DT_SPEC_GET(AP_PWRSEQ_NODE, pmic_kpd_pwr_gpios);
 static const struct gpio_dt_spec pmic_resin_gpio =
 	GPIO_DT_SPEC_GET(AP_PWRSEQ_NODE, pmic_resin_gpios);
 
