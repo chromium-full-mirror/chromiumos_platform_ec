@@ -348,6 +348,8 @@ if(CONFIG_TEST_NISSA_TELIKS)
             src/teliks.c
             ${PLATFORM_EC_PROGRAM_DIR}/nissa/teliks/src/board.c
             ${PLATFORM_EC_PROGRAM_DIR}/nissa/src/keyboard_customization.c
+            ${PLATFORM_EC_PROGRAM_DIR}/nissa/src/anraggar_sub_board.c
+            ${PLATFORM_EC_PROGRAM_DIR}/nissa/src/teliks_usbc.c
     )
 endif()
 
