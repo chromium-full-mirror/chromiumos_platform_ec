@@ -698,6 +698,17 @@ static int charge_manager_get_ceil(int port)
 	return ceil;
 }
 
+static bool is_battery_disconnected(void)
+{
+	if (!IS_ENABLED(CONFIG_BATTERY)) {
+		return false;
+	}
+	enum battery_present bp = charger_current_battery_params()->is_present;
+	return (bp == BP_NO || bp == BP_NOT_SURE ||
+		(bp == BP_YES &&
+		 battery_is_cut_off() != BATTERY_CUTOFF_STATE_NORMAL));
+}
+
 /**
  * Select the best charge port or the override port, as defined by the supplier
  * hierarchy and the available power.
@@ -801,19 +812,15 @@ static void charge_manager_get_best_port(int *new_port, int *new_supplier)
 		}
 	}
 
-#ifdef CONFIG_BATTERY
 	/*
 	 * if no battery present then retain same charge port
 	 * and charge supplier to avoid the port switching
 	 */
 	if (charge_port != CHARGE_PORT_NONE && charge_port != port &&
-	    (battery_is_present() == BP_NO ||
-	     (battery_is_present() == BP_YES &&
-	      battery_is_cut_off() != BATTERY_CUTOFF_STATE_NORMAL))) {
+	    is_battery_disconnected()) {
 		port = charge_port;
 		supplier = charge_supplier;
 	}
-#endif
 
 	*new_port = port;
 	*new_supplier = supplier;
