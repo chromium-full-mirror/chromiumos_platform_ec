@@ -20,11 +20,14 @@
 #include "usb_sm.h"
 #include "usb_tc_sm.h"
 
+#include <zephyr/fff.h>
 #include <zephyr/kernel.h>
 #include <zephyr/ztest.h>
 
 #define TEST_PORT 0
 #define DEFAULT_VBUS_MV 5000
+
+FAKE_VALUE_FUNC(int, mock_debug_detach, int);
 
 struct usb_tc_fixture {
 	const struct emul *tcpci_emul;
@@ -32,6 +35,8 @@ struct usb_tc_fixture {
 	struct tcpci_partner_data partner_emul;
 	struct tcpci_snk_emul_data snk_ext;
 	struct tcpci_src_emul_data src_ext;
+	const struct tcpm_drv *saved_tcpm_drv;
+	struct tcpm_drv mock_tcpm_drv;
 };
 
 static void *usb_tc_setup(void)
@@ -47,6 +52,8 @@ static void *usb_tc_setup(void)
 static void usb_tc_before(void *fixture_data)
 {
 	struct usb_tc_fixture *fixture = (struct usb_tc_fixture *)fixture_data;
+
+	RESET_FAKE(mock_debug_detach);
 
 	/* Reset partner emulator */
 	tcpci_partner_init(&fixture->partner_emul, PD_REV20);
@@ -64,6 +71,11 @@ static void usb_tc_before(void *fixture_data)
 static void usb_tc_after(void *fixture_data)
 {
 	struct usb_tc_fixture *fixture = (struct usb_tc_fixture *)fixture_data;
+
+	if (fixture->saved_tcpm_drv != NULL) {
+		tcpc_config[TEST_PORT].drv = fixture->saved_tcpm_drv;
+		fixture->saved_tcpm_drv = NULL;
+	}
 
 	tcpci_emul_disconnect_partner(fixture->tcpci_emul);
 	isl923x_emul_set_adc_vbus(fixture->charger_emul, 0);
@@ -302,6 +314,53 @@ ZTEST_F(usb_tc, test_tc_attach_wait_bounce_no_disconnect_hook)
 	k_sleep(K_SECONDS(1));
 	zassert_false(tc_is_attached_snk(TEST_PORT));
 	zassert_equal(1, tc_disconnect_hook_count);
+}
+
+ZTEST_F(usb_tc, test_tc_unattached_no_debug_detach)
+{
+	/*
+	 * Hook debug_detach in the TCPM driver to count invocations.
+	 */
+	fixture->saved_tcpm_drv = tcpc_config[TEST_PORT].drv;
+	fixture->mock_tcpm_drv = *fixture->saved_tcpm_drv;
+	fixture->mock_tcpm_drv.debug_detach = mock_debug_detach;
+	tcpc_config[TEST_PORT].drv = &fixture->mock_tcpm_drv;
+
+	RESET_FAKE(mock_debug_detach);
+
+	tcpci_partner_init(&fixture->partner_emul, PD_REV20);
+	fixture->partner_emul.extensions = tcpci_src_emul_init(
+		&fixture->src_ext, &fixture->partner_emul, NULL);
+
+	/*
+	 * Switching between Unattached.SNK and Unattached.SRC should NOT call
+	 * debug_detach because no partner was attached.
+	 */
+	pd_set_dual_role(TEST_PORT, PD_DRP_FORCE_SINK);
+	k_sleep(K_MSEC(100));
+	RESET_FAKE(mock_debug_detach);
+
+	pd_set_dual_role(TEST_PORT, PD_DRP_FORCE_SOURCE);
+	k_sleep(K_MSEC(100));
+	pd_set_dual_role(TEST_PORT, PD_DRP_FORCE_SINK);
+	k_sleep(K_MSEC(100));
+	zassert_equal(0, mock_debug_detach_fake.call_count);
+
+	/*
+	 * Connect partner to enter AttachWait.SNK, then disconnect before
+	 * debounce expires and an attach occurs. Transition back to
+	 * Unattached.SNK SHOULD call debug_detach.
+	 */
+	zassert_ok(tcpci_partner_connect_to_tcpci(&fixture->partner_emul,
+						  fixture->tcpci_emul));
+	k_sleep(K_MSEC(50));
+	zassert_equal(0, strcmp(tc_get_current_state(TEST_PORT),
+				"AttachWait.SNK"));
+
+	zassert_ok(tcpci_emul_disconnect_partner(fixture->tcpci_emul));
+	k_sleep(K_MSEC(50));
+	zassert_false(tc_is_attached_snk(TEST_PORT));
+	zassert_equal(1, mock_debug_detach_fake.call_count);
 }
 
 ZTEST_F(usb_tc, test_tc_dts_debug_accessory_cc1)
