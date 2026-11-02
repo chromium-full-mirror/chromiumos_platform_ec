@@ -23,8 +23,15 @@
 	};
 };
 
+/* Entering and exiting heavy sleep on RTS5912/RTS5915 requires enabling and
+ * locking the 100 MHz PLL and switching system clocks with interrupts masked,
+ * and the RTMR driver subtracts 7 cycles (~213 us) on every timer reload. Set
+ * min-residency-us to 2000 us so short 1 ms sleeps (k_msleep(1)) do not enter
+ * heavy sleep and delay sysworkq/watchdog reloads, while preserving deep sleep
+ * residency across longer idle intervals during S0ix.
+ */
 &idle {
-	min-residency-us = <500>;
+	min-residency-us = <2000>;
 };
 
 &uart0 {
