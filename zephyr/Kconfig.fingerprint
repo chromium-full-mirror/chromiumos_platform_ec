@@ -115,3 +115,40 @@ config PLATFORM_EC_FP_LED_DURATION_MATCH_NOK_MS
 	  milliseconds.
 
 endif # PLATFORM_EC_FP_LED
+
+DT_NODELABEL_FP_SENSOR_VENDOR_DATA := fingerprint_sensor_vendor_data
+
+config PLATFORM_EC_FP_VENDOR_DATA
+	bool "Enable fingerprint sensor vendor data storage"
+	# Only needed by the RW image, where the fingerprint subsystem lives.
+	# Tests without PLATFORM_EC_FINGERPRINT enable it explicitly.
+	default y if PLATFORM_EC_FINGERPRINT
+	depends on $(dt_nodelabel_enabled,$(DT_NODELABEL_FP_SENSOR_VENDOR_DATA))
+	# Zephyr flash API for reads, cros_flash for erase/write (it also
+	# provides CONFIG_FLASH_ERASE_SIZE).
+	depends on FLASH && PLATFORM_EC_FLASH_CROS
+	# The cache is implemented in C++20 (std::bitset, std::ranges).
+	depends on CPP && STD_CPP20
+	depends on FULL_LIBCPP_SUPPORTED
+	help
+	  Enables a write-back RAM cache for vendor specific fingerprint sensor
+	  data (e.g. calibration) kept in a dedicated flash partition. The
+	  partition is loaded into RAM by the fingerprint task at start-up and
+	  modified sectors are written back only when fp_vendor_data_sync() is
+	  called.
+
+	  The flash partition must be labelled fingerprint_sensor_vendor_data
+	  in the devicetree and its size must be a multiple of the flash erase
+	  size.
+
+config PLATFORM_EC_FP_VENDOR_DATA_ALIGNMENT
+	int "Vendor data buffer alignment"
+	default DCACHE_LINE_SIZE if DCACHE_LINE_SIZE > 0
+	default 4
+	depends on PLATFORM_EC_FP_VENDOR_DATA
+	help
+	  Alignment, in bytes, of the RAM buffer that mirrors the vendor data
+	  partition. Flash drivers may require the source buffer of a write
+	  to be aligned, e.g. to a word or, when the transfer is done by DMA
+	  with cache maintenance, to a data cache line. Must be a power of
+	  two.
