@@ -43,7 +43,9 @@ static void drive_one_col_gpio(const struct device *col_dev,
 	if (state != data->state) {
 		gpio_pin_set_dt(&cfg->gpio, state);
 		data->state = state;
-		k_busy_wait(cfg->settle_time_us);
+		if (cfg->settle_time_us > 0) {
+			k_busy_wait(cfg->settle_time_us);
+		}
 	}
 }
 
