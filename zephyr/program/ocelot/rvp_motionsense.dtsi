@@ -61,7 +61,8 @@
 			mutex = <&mutex_bma4xx_lid>;
 			port = <&i2c_ish_sensor>;
 			rot-standard-ref = <&lid_rot_ref>;
-			default-range = <2>;
+			/* +/-4g range (min required by the sensor HAL/CTS) */
+			default-range = <4>;
 			drv-data = <&lid_data>;
 			i2c-spi-addr-flags = "BMA4_I2C_ADDR_SECONDARY";
 			configs {
@@ -86,7 +87,7 @@
 			mutex = <&mutex_bmi323_base>;
 			port = <&i2c_ish_sensor>;
 			rot-standard-ref = <&base_rot_ref>;
-			default-range = <2>;
+			default-range = <4>;
 			drv-data = <&base_data>;
 			i2c-spi-addr-flags = "BMI3_ADDR_I2C_SEC";
 			configs {
