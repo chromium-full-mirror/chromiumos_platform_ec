@@ -38,15 +38,10 @@ static void drive_one_col_gpio(const struct device *col_dev,
 		return;
 	}
 
-	if (col == INPUT_KBD_MATRIX_COLUMN_DRIVE_ALL || col == cfg->col) {
-		gpio_pin_set_dt(&cfg->gpio, 1);
-		state = true;
-	} else {
-		gpio_pin_set_dt(&cfg->gpio, 0);
-		state = false;
-	}
+	state = (col == INPUT_KBD_MATRIX_COLUMN_DRIVE_ALL || col == cfg->col);
 
 	if (state != data->state) {
+		gpio_pin_set_dt(&cfg->gpio, state);
 		data->state = state;
 		k_busy_wait(cfg->settle_time_us);
 	}
