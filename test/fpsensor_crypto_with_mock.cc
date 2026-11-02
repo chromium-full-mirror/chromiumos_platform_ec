@@ -365,6 +365,30 @@ test_static int test_derive_encryption_key_failure_rollback_fail(void)
 	return EC_SUCCESS;
 }
 
+test_static int test_derive_encryption_key_failure_hkdf_fail(void)
+{
+	FpEncryptionKey unused_key{};
+	constexpr std::array<uint8_t, FP_CONTEXT_ENCRYPTION_SALT_BYTES>
+		unused_salt{};
+	std::array<uint8_t, FP_CONTEXT_USERID_BYTES> userid{};
+
+	/* GIVEN that HKDF-SHA256 will fail. */
+	mock_ctrl_fpsensor_crypto.output_type =
+		MOCK_CTRL_FPSENSOR_CRYPTO_HKDF_SHA256_TYPE_FAIL;
+	/* THEN the derivation will fail. */
+	TEST_ASSERT(derive_encryption_key(unused_key, unused_salt, userid,
+					  default_fake_tpm_seed) ==
+		    EC_ERROR_UNKNOWN);
+
+	/* GIVEN that HKDF-SHA256 will succeed after resetting the mock. */
+	mock_ctrl_fpsensor_crypto = MOCK_CTRL_DEFAULT_FPSENSOR_CRYPTO;
+	/* THEN the derivation will succeed. */
+	TEST_ASSERT(derive_encryption_key(unused_key, unused_salt, userid,
+					  default_fake_tpm_seed) == EC_SUCCESS);
+
+	return EC_SUCCESS;
+}
+
 test_static int test_derive_positive_match_secret_fail_seed_not_set(void)
 {
 	std::array<uint8_t, FP_POSITIVE_MATCH_SECRET_BYTES> output;
@@ -761,6 +785,7 @@ void run_test(int argc, const char **argv)
 	RUN_TEST(test_derive_positive_match_secret_fail_trivial_key_0xff);
 	RUN_TEST(test_derive_encryption_key);
 	RUN_TEST(test_derive_encryption_key_failure_rollback_fail);
+	RUN_TEST(test_derive_encryption_key_failure_hkdf_fail);
 	/*
 	 * Set the TPM seed here because it can only be set once and cannot be
 	 * cleared.
