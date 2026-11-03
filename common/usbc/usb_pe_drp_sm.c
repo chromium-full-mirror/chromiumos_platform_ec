@@ -4423,7 +4423,7 @@ static void pe_send_soft_reset_run(int port)
 	/*
 	 * Handle discarded message
 	 */
-	if (msg_check == PE_MSG_DISCARDED) {
+	if (msg_check & PE_MSG_DISCARDED) {
 		pe_set_ready_state(port);
 		return;
 	}
@@ -4433,7 +4433,7 @@ static void pe_send_soft_reset_run(int port)
 	 * PE_SRC_Send_Capabilities state when:
 	 *   1) An Accept Message has been received.
 	 */
-	if (msg_check == PE_MSG_SENT &&
+	if ((msg_check & PE_MSG_SENT) &&
 	    PE_CHK_FLAG(port, PE_FLAGS_MSG_RECEIVED)) {
 		PE_CLR_FLAG(port, PE_FLAGS_MSG_RECEIVED);
 

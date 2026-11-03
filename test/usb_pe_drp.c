@@ -320,6 +320,134 @@ test_static int test_interrupting_pr_swap(void)
 	return EC_SUCCESS;
 }
 
+/*
+ * Verify Soft Reset recovery when an active DPM request is interrupted by
+ * invalid partner traffic and the initial Soft_Reset transmit is discarded
+ * (b/573715362).
+ */
+test_static int test_send_soft_reset_discard_with_dpm_request(void)
+{
+	const uint32_t updated_pdo = PDO_FIXED(5000, 1500, 0);
+
+	/* Enable PE as source, expect SOURCE_CAP. */
+	mock_tc_port[PORT0].power_role = PD_ROLE_SOURCE;
+	mock_tc_port[PORT0].pd_enable = 1;
+	mock_tc_port[PORT0].vconn_src = true;
+	TEST_EQ(mock_prl_wait_for_tx_msg(PORT0, TCPCI_MSG_SOP, 0,
+					 PD_DATA_SOURCE_CAP, 10 * MSEC),
+		EC_SUCCESS, "%d");
+	mock_prl_message_sent(PORT0);
+	task_wait_event(10 * MSEC);
+
+	/* REQUEST 5V, expect ACCEPT, PS_RDY. */
+	rx_message(TCPCI_MSG_SOP, 0, PD_DATA_REQUEST, PD_ROLE_SINK, PD_ROLE_UFP,
+		   RDO_FIXED(1, 500, 500, 0));
+	TEST_EQ(mock_prl_wait_for_tx_msg(PORT0, TCPCI_MSG_SOP, PD_CTRL_ACCEPT,
+					 0, 10 * MSEC),
+		EC_SUCCESS, "%d");
+	mock_prl_message_sent(PORT0);
+	TEST_EQ(mock_prl_wait_for_tx_msg(PORT0, TCPCI_MSG_SOP, PD_CTRL_PS_RDY,
+					 0, 35 * MSEC),
+		EC_SUCCESS, "%d");
+	mock_prl_message_sent(PORT0);
+
+	TEST_EQ(finish_src_discovery(0), EC_SUCCESS, "%d");
+
+	task_wait_event(5 * SECOND);
+
+	/* Verify EC is connected as SOURCE in PE_SRC_READY */
+	TEST_EQ(get_state_pe(PORT0), PE_SRC_READY, "%d");
+
+	/* 1. Initial DPM request interrupted by invalid Wait */
+	pd_dpm_request(PORT0, DPM_REQUEST_GET_SNK_CAPS);
+	TEST_EQ(mock_prl_wait_for_tx_msg(PORT0, TCPCI_MSG_SOP,
+					 PD_CTRL_GET_SINK_CAP, 0, 10 * MSEC),
+		EC_SUCCESS, "%d");
+	mock_prl_message_sent(PORT0);
+	task_wait_event(10 * MSEC);
+	rx_message(TCPCI_MSG_SOP, PD_CTRL_WAIT, 0, PD_ROLE_SINK, PD_ROLE_UFP,
+		   0);
+	TEST_EQ(mock_prl_wait_for_tx_msg(PORT0, TCPCI_MSG_SOP,
+					 PD_CTRL_SOFT_RESET, 0, 20 * MSEC),
+		EC_SUCCESS, "%d");
+
+	/*
+	 * 2. First Soft_Reset discarded on collision, then retried.
+	 * Queue both discard and colliding Wait before yielding so PE handles
+	 * PE_MSG_DPM_DISCARDED -> PE_SRC_Ready and then processes the
+	 * colliding Wait by retrying Soft_Reset.
+	 */
+	pe_report_discard(PORT0);
+	rx_message(TCPCI_MSG_SOP, PD_CTRL_WAIT, 0, PD_ROLE_SINK, PD_ROLE_UFP,
+		   0);
+	TEST_EQ(mock_prl_wait_for_tx_msg(PORT0, TCPCI_MSG_SOP,
+					 PD_CTRL_SOFT_RESET, 0, 20 * MSEC),
+		EC_SUCCESS, "%d");
+	TEST_EQ(get_state_pe(PORT0), PE_SEND_SOFT_RESET, "%d");
+
+	mock_prl_message_sent(PORT0);
+	rx_message(TCPCI_MSG_SOP, PD_CTRL_ACCEPT, 0, PD_ROLE_SINK, PD_ROLE_UFP,
+		   0);
+	TEST_EQ(mock_prl_wait_for_tx_msg(PORT0, TCPCI_MSG_SOP, 0,
+					 PD_DATA_SOURCE_CAP, 20 * MSEC),
+		EC_SUCCESS, "%d");
+	mock_prl_message_sent(PORT0);
+	task_wait_event(10 * MSEC);
+
+	rx_message(TCPCI_MSG_SOP, 0, PD_DATA_REQUEST, PD_ROLE_SINK, PD_ROLE_UFP,
+		   RDO_FIXED(1, 500, 500, 0));
+	TEST_EQ(mock_prl_wait_for_tx_msg(PORT0, TCPCI_MSG_SOP, PD_CTRL_ACCEPT,
+					 0, 10 * MSEC),
+		EC_SUCCESS, "%d");
+	mock_prl_message_sent(PORT0);
+	TEST_EQ(mock_prl_wait_for_tx_msg(PORT0, TCPCI_MSG_SOP, PD_CTRL_PS_RDY,
+					 0, 35 * MSEC),
+		EC_SUCCESS, "%d");
+	mock_prl_message_sent(PORT0);
+
+	/* 3. Interrupted Get_Sink_Cap DPM request resumes */
+	TEST_EQ(mock_prl_wait_for_tx_msg(PORT0, TCPCI_MSG_SOP,
+					 PD_CTRL_GET_SINK_CAP, 0, 20 * MSEC),
+		EC_SUCCESS, "%d");
+	mock_prl_message_sent(PORT0);
+	task_wait_event(10 * MSEC);
+	rx_message(TCPCI_MSG_SOP, 0, PD_DATA_SINK_CAP, PD_ROLE_SINK,
+		   PD_ROLE_UFP, updated_pdo);
+	task_wait_event(10 * MSEC);
+	TEST_EQ(pd_get_snk_cap_cnt(PORT0), 1, "%d");
+	TEST_EQ(pd_get_snk_caps(PORT0)[0], updated_pdo, "0x%x");
+
+	/*
+	 * 4. Verify PE returned to PE_SRC_Ready and continues to service new
+	 * partner requests rather than remaining wedged after the
+	 * PE_MSG_DPM_DISCARDED collision and DPM recovery.
+	 */
+	TEST_EQ(get_state_pe(PORT0), PE_SRC_READY, "%d");
+	rx_message(TCPCI_MSG_SOP, PD_CTRL_GET_SOURCE_CAP, 0, PD_ROLE_SINK,
+		   PD_ROLE_UFP, 0);
+	TEST_EQ(mock_prl_wait_for_tx_msg(PORT0, TCPCI_MSG_SOP, 0,
+					 PD_DATA_SOURCE_CAP, 10 * MSEC),
+		EC_SUCCESS, "%d");
+	mock_prl_message_sent(PORT0);
+	task_wait_event(10 * MSEC);
+
+	rx_message(TCPCI_MSG_SOP, 0, PD_DATA_REQUEST, PD_ROLE_SINK, PD_ROLE_UFP,
+		   RDO_FIXED(1, 500, 500, 0));
+	TEST_EQ(mock_prl_wait_for_tx_msg(PORT0, TCPCI_MSG_SOP, PD_CTRL_ACCEPT,
+					 0, 10 * MSEC),
+		EC_SUCCESS, "%d");
+	mock_prl_message_sent(PORT0);
+	TEST_EQ(mock_prl_wait_for_tx_msg(PORT0, TCPCI_MSG_SOP, PD_CTRL_PS_RDY,
+					 0, 35 * MSEC),
+		EC_SUCCESS, "%d");
+	mock_prl_message_sent(PORT0);
+	task_wait_event(10 * MSEC);
+
+	TEST_EQ(get_state_pe(PORT0), PE_SRC_READY, "%d");
+
+	return EC_SUCCESS;
+}
+
 void run_test(int argc, const char **argv)
 {
 	test_reset();
@@ -327,6 +455,7 @@ void run_test(int argc, const char **argv)
 	RUN_TEST(test_send_caps_error_before_connected);
 	RUN_TEST(test_send_caps_error_when_connected);
 	RUN_TEST(test_interrupting_pr_swap);
+	RUN_TEST(test_send_soft_reset_discard_with_dpm_request);
 
 	/* Do basic state machine validity checks last. */
 	RUN_TEST(test_pe_no_parent_cycles);
