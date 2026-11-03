@@ -183,5 +183,11 @@ int watchdog_init(void)
 	/* Lock access to watchdog registers, but not the ETWCFG reg itself. */
 	IT83XX_ETWD_ETWCFG = 0x3e;
 
+	/*
+	 * Ensure the watchdog counter is reloaded on sysjump even when an
+	 * older RO image locked ETWCFG and lacked HOOK_SYSJUMP watchdog_reload.
+	 */
+	watchdog_reload();
+
 	return EC_SUCCESS;
 }
