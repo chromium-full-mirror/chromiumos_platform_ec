@@ -7,11 +7,11 @@
 #include <cros/integrated_fwid.dtsi>
 #include "../ite_hibernate.dtsi"
 #include "../rvp_usba.dtsi"
-#include "../rvp_battery.dtsi"
 #include "../rvp_keyboard.dtsi"
 #include "../rvp_temp_sensors.dtsi"
 
 /* coolum board-specific DTS includes */
+#include "battery.dtsi"
 #include "binman.dtsi"
 #include "gpio.dtsi"
 #include "i2c.dtsi"
