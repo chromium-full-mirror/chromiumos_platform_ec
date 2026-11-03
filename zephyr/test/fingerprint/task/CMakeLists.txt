@@ -45,6 +45,8 @@ target_sources_ifdef(CONFIG_LINK_TEST_SUITE_FINGERPRINT_LED app PRIVATE
 	src/fpsensor_led.cc)
 target_sources_ifdef(CONFIG_LINK_TEST_SUITE_FINGERPRINT_AUTH_COMMANDS app PRIVATE
 	src/fpsensor_auth_commands.cc)
+target_sources_ifdef(CONFIG_LINK_TEST_SUITE_FINGERPRINT_VENDOR_DATA app PRIVATE
+	src/fpsensor_vendor_data.cc)
 target_sources_ifdef(CONFIG_NPCX_OTP_KEY app PRIVATE
 	${PLATFORM_EC}/zephyr/shim/chip/npcx/otp_key.c
 	${PLATFORM_EC}/zephyr/mock/otpi_mock.c)

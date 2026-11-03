@@ -152,3 +152,14 @@ config PLATFORM_EC_FP_VENDOR_DATA_ALIGNMENT
 	  to be aligned, e.g. to a word or, when the transfer is done by DMA
 	  with cache maintenance, to a data cache line. Must be a power of
 	  two.
+
+config PLATFORM_EC_FP_VENDOR_DATA_SYNC_DELAY_MS
+	int "Delay before writing back vendor data to flash (ms)"
+	default 1000
+	depends on PLATFORM_EC_FP_VENDOR_DATA
+	help
+	  The fingerprint task writes modified vendor data back to flash
+	  only after it has been idle for this long. The timer restarts on
+	  every fingerprint task activity (finger processing, template
+	  encryption, mode changes), so the flash access does not delay the
+	  usual match/enroll flow with the host.

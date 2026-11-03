@@ -145,3 +145,12 @@ tests:
     extra_conf_files:
     - prj.conf
 
+  fingerprint.task.vendor_data:
+    extra_configs:
+    - CONFIG_LINK_TEST_SUITE_FINGERPRINT_VENDOR_DATA=y
+    - CONFIG_PLATFORM_EC_FP_VENDOR_DATA=y
+    extra_conf_files:
+    - prj.conf
+    extra_dtc_overlay_files:
+    - vendor_data.dtsi
+

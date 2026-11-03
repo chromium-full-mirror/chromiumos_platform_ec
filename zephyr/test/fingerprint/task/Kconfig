@@ -106,6 +106,12 @@ config LINK_TEST_SUITE_FINGERPRINT_AUTH_COMMANDS
 	  Link and execute fingerprint subsystem tests that focus
 	  on fingerprint auth commands.
 
+config LINK_TEST_SUITE_FINGERPRINT_VENDOR_DATA
+	bool "Link fingerprint vendor data tests"
+	help
+	  Link and execute fingerprint subsystem tests that focus
+	  on the deferred write back of sensor vendor data.
+
 config EC_HOST_CMD_HANDLER_TX_BUFFER_SIZE
 	int "HC TX buffer size"
 	default 544

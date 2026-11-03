@@ -21,6 +21,7 @@
 #include "fpsensor/fpsensor_modes.h"
 #include "fpsensor/fpsensor_state.h"
 #include "fpsensor/fpsensor_utils.h"
+#include "fpsensor/fpsensor_vendor_data.h"
 #include "gpio.h"
 #include "host_command.h"
 #include "link_defs.h"
@@ -41,6 +42,7 @@
 #include <variant>
 
 #ifdef CONFIG_ZEPHYR
+#include <zephyr/kernel.h>
 #include <zephyr/pm/policy.h>
 #include <zephyr/shell/shell.h>
 #endif
@@ -104,6 +106,59 @@ static void send_mkbp_event(uint32_t event)
  * updated by the host.
  */
 static uint32_t enroll_session;
+
+#ifdef CONFIG_PLATFORM_EC_FP_VENDOR_DATA
+/*
+ * Vendor data (e.g. APNS calibration) modified by the sensor library is
+ * written back to flash by fp_task once it has been idle for a while, so the
+ * flash access does not delay the match/enroll flow with the host (MKBP
+ * event, template encryption and download). The timer only posts an event;
+ * the sync itself runs on fp_task, which is the only user of the cache.
+ */
+static void vendor_data_sync_handler(struct k_work *work)
+{
+	ARG_UNUSED(work);
+	task_set_event(TASK_ID_FPSENSOR, TASK_EVENT_VENDOR_DATA_SYNC);
+}
+
+static K_WORK_DELAYABLE_DEFINE(vendor_data_sync_dwork,
+			       vendor_data_sync_handler);
+
+static void vendor_data_sync_schedule(void)
+{
+	if (!fp_vendor_data_pending())
+		return;
+
+	/*
+	 * Restart the countdown on every fp_task activity and discard any sync
+	 * event that may have fired while fp_task was busy.
+	 */
+	k_work_reschedule(
+		&vendor_data_sync_dwork,
+		K_MSEC(CONFIG_PLATFORM_EC_FP_VENDOR_DATA_SYNC_DELAY_MS));
+	task_wait_event_mask(TASK_EVENT_VENDOR_DATA_SYNC, 0);
+}
+
+static void vendor_data_sync_cancel(void)
+{
+	k_work_cancel_delayable(&vendor_data_sync_dwork);
+	task_wait_event_mask(TASK_EVENT_VENDOR_DATA_SYNC, 0);
+}
+
+static void vendor_data_sync(void)
+{
+	int res;
+
+	/*
+	 * On failure the data stays dirty in the cache, but the timer is not
+	 * re-armed here, so a persistent flash problem does not turn into a
+	 * retry loop. The next fp_task activity re-arms it and retries.
+	 */
+	res = fp_vendor_data_sync();
+	if (res != 0)
+		CPRINTS("Vendor data sync failed: %d", res);
+}
+#endif /* CONFIG_PLATFORM_EC_FP_VENDOR_DATA */
 
 static uint32_t fp_process_enroll(void)
 {
@@ -289,6 +344,18 @@ extern "C" void fp_task(void)
 		fp_sensor_type_to_str(fpsensor_detect_get_type()));
 
 #ifdef HAVE_FP_PRIVATE_DRIVER
+#ifdef CONFIG_PLATFORM_EC_FP_VENDOR_DATA
+	/*
+	 * Load the vendor data before the sensor library is initialized, it
+	 * may read its data (e.g. calibration) during init. On failure the
+	 * vendor data accessors return errors and the library falls back to
+	 * running without it.
+	 */
+	int res = fp_vendor_data_init();
+	if (res != 0)
+		CPRINTS("Vendor data init failed: %d", res);
+#endif
+
 	/* Reset and initialize the sensor IC */
 	fp_sensor_init();
 
@@ -497,6 +564,30 @@ extern "C" void fp_task(void)
 		}
 		fp_btn_ign_out::update(global_context.sensor_mode);
 		fp_led::update_mode(global_context.sensor_mode);
+
+#ifdef CONFIG_PLATFORM_EC_FP_VENDOR_DATA
+		/*
+		 * Write back vendor data only when the sensor is idle, so the
+		 * flash access can't delay a finger event or a host request,
+		 * and only when it was the only thing requested in this
+		 * iteration. Once fp_task has processed a mode, the only bit
+		 * that can stay set is FP_MODE_DEEPSLEEP; any other bit means
+		 * the sensor is waiting for a finger, enrolling, or a host
+		 * request is pending (HOSTCMD may have changed the mode after
+		 * this iteration's events were read), so cancel any pending
+		 * write back. Any other event means fp_task is not idle: treat
+		 * it as activity and (re)arm the deferred write back instead,
+		 * so it fires only after fp_task has been idle for a while.
+		 */
+		if (!(global_context.sensor_mode & ~FP_MODE_DEEPSLEEP)) {
+			if (evt == TASK_EVENT_VENDOR_DATA_SYNC)
+				vendor_data_sync();
+			else
+				vendor_data_sync_schedule();
+		} else {
+			vendor_data_sync_cancel();
+		}
+#endif
 	}
 #else /* !HAVE_FP_PRIVATE_DRIVER */
 	while (1) {
