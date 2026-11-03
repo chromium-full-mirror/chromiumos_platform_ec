@@ -70,6 +70,11 @@ config BOARD_COOLUM
 	bool "Google Ocelot with ITE (it82002) EC"
 	help
 	  Build Google Coolum reference board.
+
+config BOARD_LIBRA
+	bool "Google Ocelot with ITE (it82002) EC"
+	help
+	  Build Google Libra reference board.
 	  This board uses an Intel WCL SoC and ITE EC.
 
 module = Oceolot
