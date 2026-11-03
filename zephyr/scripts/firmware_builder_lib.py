@@ -23,6 +23,24 @@ if _ZMAKE_DIR not in sys.path:
     sys.path.insert(1, _ZMAKE_DIR)
 
 
+def should_report_coverage_metrics(opts: argparse.Namespace) -> bool:
+    """Returns True if test() should extract and emit coverage metrics.
+
+    Worker shards (shard_count > 1 and shard_index > 0) only run a subset of
+    tests, so their local lcov summaries reflect partial single-shard coverage
+    and should not be emitted; aggregate metrics are computed by merge-shards.
+    """
+    if not getattr(opts, "code_coverage", False):
+        return False
+    if (
+        getattr(opts, "shard_count", None)
+        and opts.shard_count > 1
+        and getattr(opts, "shard_index", None)
+    ):
+        return False
+    return True
+
+
 def get_safe_lcov_workers(requested_cpus):
     """Dynamically calculate the number of safe lcov/genhtml workers to avoid OOM.
 

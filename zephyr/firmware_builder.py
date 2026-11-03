@@ -53,6 +53,7 @@ from scripts.firmware_builder_lib import export_configs
 from scripts.firmware_builder_lib import merge_shard_coverage_reports
 from scripts.firmware_builder_lib import save_or_load_shard_info
 from scripts.firmware_builder_lib import shard_projects
+from scripts.firmware_builder_lib import should_report_coverage_metrics
 from scripts.firmware_builder_lib import summarize_merged_lcov
 
 
@@ -830,7 +831,10 @@ def test(opts):
     twister_out_dir = platform_ec / "twister-out-llvm"
     twister_out_dir_gcc = platform_ec / "twister-out-host"
 
-    if opts.code_coverage:
+    # For sharded coverage runs, worker shards generate local lcov.info and
+    # lcov_no_tests.info for bundle_coverage, but do not emit partial single-shard
+    # coverage metrics to opts.metrics. Aggregate metrics are computed by merge-shards.
+    if should_report_coverage_metrics(opts):
         build_dir = platform_ec / "build" / "zephyr"
 
         # Prepare the list of tasks (name, filename)

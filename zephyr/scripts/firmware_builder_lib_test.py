@@ -270,5 +270,52 @@ class TestExportConfigs(unittest.TestCase):
         )
 
 
+class TestShouldReportCoverageMetrics(unittest.TestCase):
+    """Tests for should_report_coverage_metrics function."""
+
+    def test_coverage_disabled(self) -> None:
+        """Test reporting is disabled when code_coverage is False."""
+        opts = argparse.Namespace(code_coverage=False)
+        self.assertFalse(
+            firmware_builder_lib.should_report_coverage_metrics(opts)
+        )
+
+    def test_unsharded_coverage(self) -> None:
+        """Test reporting is enabled for unsharded coverage runs."""
+        opts = argparse.Namespace(
+            code_coverage=True, shard_count=None, shard_index=None
+        )
+        self.assertTrue(
+            firmware_builder_lib.should_report_coverage_metrics(opts)
+        )
+
+    def test_single_shard_count(self) -> None:
+        """Test reporting is enabled when total shard_count is 1."""
+        opts = argparse.Namespace(
+            code_coverage=True, shard_count=1, shard_index=1
+        )
+        self.assertTrue(
+            firmware_builder_lib.should_report_coverage_metrics(opts)
+        )
+
+    def test_parent_orchestrator(self) -> None:
+        """Test reporting is enabled for the parent orchestrator build."""
+        opts = argparse.Namespace(
+            code_coverage=True, shard_count=5, shard_index=0
+        )
+        self.assertTrue(
+            firmware_builder_lib.should_report_coverage_metrics(opts)
+        )
+
+    def test_worker_shard_suppressed(self) -> None:
+        """Test reporting is suppressed for non-zero worker shards."""
+        opts = argparse.Namespace(
+            code_coverage=True, shard_count=5, shard_index=1
+        )
+        self.assertFalse(
+            firmware_builder_lib.should_report_coverage_metrics(opts)
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
