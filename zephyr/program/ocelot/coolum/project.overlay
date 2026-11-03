@@ -14,7 +14,6 @@
 #include <cros/integrated_fwid.dtsi>
 #include "../ite_hibernate.dtsi"
 #include "../rvp_usba.dtsi"
-#include "../rvp_keyboard.dtsi"
 
 /* coolum board-specific DTS includes */
 #include "battery.dtsi"
