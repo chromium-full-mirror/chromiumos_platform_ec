@@ -261,6 +261,10 @@ ZTEST(keyboard_input, test_kbpress)
 	zassert_equal(last_evt.touch, 1);
 	zassert_equal(last_evt.count, 3);
 
+	zassert_true(test_drive_column_fake.call_count > 0, "call_count = %d",
+		     test_drive_column_fake.call_count);
+	zassert_equal(kbd_cfg.matrix_stable_state[3], BIT(5));
+
 	shell_backend_dummy_clear_output(shell_zephyr);
 	zassert_ok(shell_execute_cmd(shell_zephyr, "kbpress"));
 	outbuffer = shell_backend_dummy_get_output(shell_zephyr, &buffer_size);
@@ -269,6 +273,8 @@ ZTEST(keyboard_input, test_kbpress)
 		   "outbuffer = '%s'", outbuffer);
 
 	zassert_ok(shell_execute_cmd(shell_zephyr, "kbpress clear"));
+
+	zassert_equal(kbd_cfg.matrix_stable_state[3], 0);
 
 	shell_backend_dummy_clear_output(shell_zephyr);
 	zassert_ok(shell_execute_cmd(shell_zephyr, "kbpress"));
@@ -419,10 +425,13 @@ static void reset(void *fixture)
 	RESET_FAKE(keyboard_state_changed);
 	RESET_FAKE(mkbp_keyboard_add);
 	RESET_FAKE(system_is_locked);
+	RESET_FAKE(test_drive_column);
+
+	input_kbd_matrix_drive_column_hook(fake_dev,
+					   INPUT_KBD_MATRIX_COLUMN_DRIVE_ALL);
 
 	memset(kbd_cfg.matrix_new_state, 0,
 	       kbd_cfg.col_size * sizeof(kbd_row_t));
-
 	memset(&last_evt, 0, sizeof(last_evt));
 }
 

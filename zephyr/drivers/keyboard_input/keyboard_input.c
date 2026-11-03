@@ -22,6 +22,7 @@
 #include <zephyr/pm/device_runtime.h>
 #include <zephyr/shell/shell.h>
 #include <zephyr/sys/atomic.h>
+#include <zephyr/sys/util.h>
 
 LOG_MODULE_REGISTER(kbd_input, CONFIG_INPUT_LOG_LEVEL);
 
@@ -166,13 +167,19 @@ static uint8_t simulated_key[KEYBOARD_COLS_MAX];
 
 static void simulate_key(int row, int col, int pressed)
 {
-	simulated_key[col] &= ~BIT(row);
-	if (pressed)
-		simulated_key[col] |= BIT(row);
+	const struct input_kbd_matrix_common_config *cfg = kbd_dev->config;
+
+	WRITE_BIT(simulated_key[col], row, pressed);
+	/* TODO(b/581421386): Use upstream input_kbd_matrix key simulation */
+	WRITE_BIT(cfg->matrix_stable_state[col], row, pressed);
 
 	input_report_abs(kbd_dev, INPUT_ABS_X, col, false, K_FOREVER);
 	input_report_abs(kbd_dev, INPUT_ABS_Y, row, false, K_FOREVER);
 	input_report_key(kbd_dev, INPUT_BTN_TOUCH, pressed, true, K_FOREVER);
+
+	if (pressed) {
+		input_kbd_matrix_poll_start(kbd_dev);
+	}
 }
 
 static int cmd_kbpress(const struct shell *sh, size_t argc, char **argv)
