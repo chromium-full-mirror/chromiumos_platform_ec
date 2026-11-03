@@ -3,28 +3,85 @@
  * found in the LICENSE file.
  */
 
-/{
+#include <cros/thermistor/thermistor.dtsi>
+
+/ {
 	named-adc-channels {
 		compatible = "named-adc-channels";
 		adc_charger_amon_bmon: charger_amon_bmon {
 			enum-name = "ADC_AMON_BMON";
 			io-channels = <&adc0 1>;
 		};
-		adc_temp_ambient: temp_ambient {
+		adc_temp_charger: temp_charger {
 			enum-name = "ADC_TEMP_SENSOR_2_AMBIENT";
-			io-channels = <&adc0 5>;
+			io-channels = <&adc0 2>;
 		};
-		adc_temp_skin: temp_skin {
+		adc_temp_pd: temp_pd {
 			enum-name = "ADC_TEMP_SENSOR_4";
-			io-channels = <&adc0 3>;
+			io-channels = <&adc0 5>;
 		};
 		adc_temp_vr: temp_vr {
 			enum-name = "ADC_TEMP_SENSOR_PP3300_REGULATOR";
-			io-channels = <&adc0 2>;
-		};
-		adc_temp_ddr_soc: temp_ddr_soc {
-			enum-name = "ADC_TEMP_SENSOR_1_DDR_SOC";
 			io-channels = <&adc0 4>;
+		};
+		adc_temp_cpu: temp_cpu {
+			enum-name = "ADC_TEMP_SENSOR_1_DDR_SOC";
+			io-channels = <&adc0 3>;
+		};
+		adc_temp_dboard: temp_dboard {
+			enum-name = "ADC_TEMP_SENSOR_5";
+			io-channels = <&adc0 6>;
+		};
+	};
+
+	temp_charger: charger-thermistor {
+		compatible = "cros-ec,temp-sensor-thermistor";
+		thermistor = <&thermistor_3V3_47K_100K_4250B>;
+		adc = <&adc_temp_charger>;
+	};
+	temp_pd: pd-thermistor {
+		compatible = "cros-ec,temp-sensor-thermistor";
+		thermistor = <&thermistor_3V3_47K_100K_4250B>;
+		adc = <&adc_temp_pd>;
+	};
+	temp_vr: vr-thermistor {
+		compatible = "cros-ec,temp-sensor-thermistor";
+		thermistor = <&thermistor_3V3_47K_100K_4250B>;
+		adc = <&adc_temp_vr>;
+	};
+	temp_cpu: cpu-thermistor {
+		compatible = "cros-ec,temp-sensor-thermistor";
+		thermistor = <&thermistor_3V3_47K_100K_4250B>;
+		adc = <&adc_temp_cpu>;
+	};
+	temp_dboard: dboard-thermistor {
+		compatible = "cros-ec,temp-sensor-thermistor";
+		thermistor = <&thermistor_3V3_47K_100K_4250B>;
+		adc = <&adc_temp_dboard>;
+	};
+
+	named-temp-sensors {
+		compatible = "cros-ec,temp-sensors";
+
+		temp_sensor_charger: charger-sensor {
+			power-good-pin = <&gpio_pg_pp1250_soc_s5_od>;
+			sensor = <&temp_charger>;
+		};
+		temp_sensor_pd: pd-sensor {
+			power-good-pin = <&gpio_pg_pp1250_soc_s5_od>;
+			sensor = <&temp_pd>;
+		};
+		temp_sensor_vr: vr-sensor {
+			power-good-pin = <&gpio_pg_pp1250_soc_s5_od>;
+			sensor = <&temp_vr>;
+		};
+		temp_sensor_cpu: cpu-sensor {
+			power-good-pin = <&gpio_pg_pp1250_soc_s5_od>;
+			sensor = <&temp_cpu>;
+		};
+		temp_sensor_dboard: dboard-sensor {
+			power-good-pin = <&gpio_pg_pp1250_soc_s5_od>;
+			sensor = <&temp_dboard>;
 		};
 	};
 
@@ -49,8 +106,13 @@
 		&adc0_ch2_gpi2_default
 		&adc0_ch3_gpi3_default
 		&adc0_ch4_gpi4_default
-		&adc0_ch5_gpi5_default>;
+		&adc0_ch5_gpi5_default
+		&adc0_ch6_gpi6_default>;
 	pinctrl-names = "default";
+};
+
+&thermistor_3V3_47K_100K_4250B {
+	status = "okay";
 };
 
 &pwm5 {

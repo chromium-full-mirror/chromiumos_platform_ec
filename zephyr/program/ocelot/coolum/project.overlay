@@ -15,7 +15,6 @@
 #include "../ite_hibernate.dtsi"
 #include "../rvp_usba.dtsi"
 #include "../rvp_keyboard.dtsi"
-#include "../rvp_temp_sensors.dtsi"
 
 /* coolum board-specific DTS includes */
 #include "battery.dtsi"
@@ -28,11 +27,6 @@
 #include "power_signals.dtsi"
 #include "thermal.dtsi"
 #include "usbc.dtsi"
-
-/*
- * Map GPIOs used for interrupts to common names
- */
-gpio_temp_sensor_power_good: &gpio_en_s5_rails {};
 
 /* Power sequencing */
 gpio_ec_pch_wake_odl: &gpio_ec_soc_wake_odl {};
