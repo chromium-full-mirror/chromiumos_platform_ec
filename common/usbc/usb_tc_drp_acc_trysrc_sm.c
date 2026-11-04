@@ -770,6 +770,9 @@ static void tc_detached(int port)
 	if (IS_ENABLED(CONFIG_USBC_SS_MUX))
 		usb_mux_set(port, USB_PD_MUX_NONE, USB_SWITCH_DISCONNECT,
 			    tc[port].polarity);
+
+	if (IS_ENABLED(CONFIG_CHARGE_MANAGER))
+		charge_manager_update_dualrole(port, CAP_UNKNOWN);
 }
 
 static inline void pd_set_dual_role_and_event(int port,
@@ -2298,9 +2301,6 @@ static void tc_unattached_snk_entry(const int port)
 	 */
 	bc12_role_change_handler(port, prev_data_role, tc[port].data_role);
 
-	if (IS_ENABLED(CONFIG_CHARGE_MANAGER))
-		charge_manager_update_dualrole(port, CAP_UNKNOWN);
-
 	tc_set_partner_role(port, PPC_DEV_DISCONNECTED, OCP_CLEAR);
 
 	/*
@@ -2920,9 +2920,6 @@ static void tc_unattached_src_entry(const int port)
 	bc12_role_change_handler(port, prev_data_role, tc[port].data_role);
 
 	tc_set_partner_role(port, PPC_DEV_DISCONNECTED, OCP_CLEAR);
-
-	if (IS_ENABLED(CONFIG_CHARGE_MANAGER))
-		charge_manager_update_dualrole(port, CAP_UNKNOWN);
 
 #ifdef CONFIG_USB_PE_SM
 	CLR_FLAGS_ON_DISCONNECT(port);
