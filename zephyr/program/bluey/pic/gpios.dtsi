@@ -139,22 +139,12 @@
 		gpio_ec_close_lcd_n: ec_close_lcd_n {
 			gpios = <&gpiob 5 (GPIO_INPUT)>;
 		};
-		/* GPIOB6/PWM4: charge LED green (EC_LED3). */
-		gpio_ec_led3_odl: ec_led3_odl {
-			gpios = <&gpiob 6 (GPIO_OUTPUT)>;
-		};
 		gpio_ec_en_vph_pwr_1a: ec_en_vph_pwr_1a {
 			gpios = <&gpioc 0 (GPIO_OUTPUT)>;
 		};
 		gpio_ec_pmic_pwr_btn: ec_pmic_pwr_btn {
 			gpios = <&gpioc 1 (GPIO_OUTPUT | GPIO_OUTPUT_INIT_LOW)>;
 			enum-name = "GPIO_PMIC_KPD_PWR";
-		};
-		gpio_ec_led2_odl: ec_led2_odl {
-			gpios = <&gpioc 2 (GPIO_OUTPUT)>;
-		};
-		gpio_ec_led1_odl: ec_led1_odl {
-			gpios = <&gpioc 3 (GPIO_OUTPUT)>;
 		};
 		gpio_ec_batt_i2c_en_odl: ec_batt_i2c_en_odl {
 			gpios = <&gpioc 5 (GPIO_OUTPUT)>;
@@ -199,6 +189,9 @@
 		compatible = "unused-gpios";
 
 		unused-gpios =
+			<&gpiob 6 0>,
+			<&gpioc 2 0>,
+			<&gpioc 3 0>,
 			<&gpioe 0 0>,
 			<&gpiof 0 0>;
 	};
