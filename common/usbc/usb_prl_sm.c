@@ -57,13 +57,13 @@ __maybe_unused static void print_flag(const char *group, int set_or_clear,
 #define CLR_FLAG(group, flags, flag)                \
 	do {                                        \
 		int before = *flags;                \
-		atomic_clear_bits(flags, (flag));   \
+		atomic_and(flags, ~(flag));         \
 		if (*flags != before)               \
 			print_flag(group, 0, flag); \
 	} while (0)
 #else
 #define SET_FLAG(group, flags, flag) atomic_or(flags, (flag))
-#define CLR_FLAG(group, flags, flag) atomic_clear_bits(flags, (flag))
+#define CLR_FLAG(group, flags, flag) atomic_and(flags, ~(flag))
 #endif
 
 #define RCH_SET_FLAG(port, flag) SET_FLAG("RCH", &rch[port].flags, (flag))
@@ -115,17 +115,26 @@ __maybe_unused static void print_flag(const char *group, int set_or_clear,
  * when we send the message to the TCPC layer.
  */
 #define PRL_FLAGS_MSG_XMIT BIT(7)
-/* Flag to note a message was received */
+/*
+ * Flag to note a message was received.
+ *
+ * RCH: a buffer-ownership token. Set by prl_rx when it writes a message for
+ * RCH into rx_chk_buf, and by tch_message_received_entry when TCH hands one
+ * over. While set, prl_rx must not overwrite rx_chk_buf or rx_emsg.header.
+ * RCH clears it only in the function that consumes or discards rx_chk_buf,
+ * in the same pass, so that "flag clear" always means "buffer free".
+ *
+ * TCH: a notification only; prl_rx does not wait on it. TCH either handles
+ * the message as a chunk request or forwards it to RCH.
+ */
 #define PRL_FLAGS_MSG_RECEIVED BIT(8)
 /* Flag to note aborting current TX message, not currently set */
 #define PRL_FLAGS_ABORT BIT(9)
-/* Flag to note current TX message uses chunking */
-#define PRL_FLAGS_CHUNKING BIT(10)
 /* Flag to disable checking data role on incoming messages. */
-#define PRL_FLAGS_IGNORE_DATA_ROLE BIT(11)
+#define PRL_FLAGS_IGNORE_DATA_ROLE BIT(10)
 
 /* For checking flag_bit_names[] */
-#define PRL_FLAGS_COUNT 12
+#define PRL_FLAGS_COUNT 11
 
 struct bit_name {
 	int value;
@@ -144,7 +153,6 @@ static __const_data const struct bit_name flag_bit_names[] = {
 	{ PRL_FLAGS_MSG_XMIT, "PRL_FLAGS_MSG_XMIT" },
 	{ PRL_FLAGS_MSG_RECEIVED, "PRL_FLAGS_MSG_RECEIVED" },
 	{ PRL_FLAGS_ABORT, "PRL_FLAGS_ABORT" },
-	{ PRL_FLAGS_CHUNKING, "PRL_FLAGS_CHUNKING" },
 	{ PRL_FLAGS_IGNORE_DATA_ROLE, "PRL_FLAGS_IGNORE_DATA_ROLE" },
 };
 BUILD_ASSERT(ARRAY_SIZE(flag_bit_names) == PRL_FLAGS_COUNT);
@@ -1495,81 +1503,61 @@ static void rch_wait_for_message_from_protocol_layer_entry(const int port)
 	/* Clear Abort flag */
 	PDMSG_CLR_FLAG(port, PRL_FLAGS_ABORT);
 
-	/* All Messages are chunked */
-	rch[port].flags = PRL_FLAGS_CHUNKING;
+	rch[port].flags = 0;
 }
 
 static void rch_wait_for_message_from_protocol_layer_run(const int port)
 {
-	if (RCH_CHK_FLAG(port, PRL_FLAGS_MSG_RECEIVED)) {
-		RCH_CLR_FLAG(port, PRL_FLAGS_MSG_RECEIVED);
-		/*
-		 * Are we communicating with a PD3.0 device and is
-		 * this an extended message?
-		 */
-		if (pdmsg_xmit_type_is_rev30(port) &&
-		    PD_HEADER_EXT(rx_emsg[port].header)) {
-			uint16_t exhdr =
-				GET_EXT_HEADER(*pdmsg[port].rx_chk_buf);
-			uint8_t chunked = PD_EXT_HEADER_CHUNKED(exhdr);
+	bool ext;
 
-			/*
-			 * Received Extended Message &
-			 * (Chunking = 1 & Chunked = 1)
-			 */
-			if ((RCH_CHK_FLAG(port, PRL_FLAGS_CHUNKING)) &&
-			    chunked) {
-				/*
-				 * RCH_Processing_Extended_Message first chunk
-				 * entry processing embedded here
-				 *
-				 * This is the first chunk:
-				 * Set Chunk_number_expected = 0 and
-				 * Num_Bytes_Received = 0
-				 */
-				pdmsg[port].chunk_number_expected = 0;
-				pdmsg[port].num_bytes_received = 0;
-				pdmsg[port].msg_type =
-					PD_HEADER_TYPE(rx_emsg[port].header);
+	if (!RCH_CHK_FLAG(port, PRL_FLAGS_MSG_RECEIVED))
+		return;
 
-				set_state_rch(port,
-					      RCH_PROCESSING_EXTENDED_MESSAGE);
-			}
-			/*
-			 * (Received Extended Message &
-			 * (Chunking = 0 & Chunked = 0))
-			 */
-			else if (!RCH_CHK_FLAG(port, PRL_FLAGS_CHUNKING) &&
-				 !chunked) {
-				/* Copy chunk to extended buffer */
-				copy_chunk_to_ext(port);
-				set_state_rch(port, RCH_PASS_UP_MESSAGE);
-			}
-			/*
-			 * Chunked != Chunking
-			 */
-			else {
-				rch[port].error = ERR_RCH_CHUNKED;
-				set_state_rch(port, RCH_REPORT_ERROR);
-			}
-		}
+	/* Extended messages are only valid from a PD3.0 partner. */
+	ext = pdmsg_xmit_type_is_rev30(port) &&
+	      PD_HEADER_EXT(rx_emsg[port].header);
+
+	/*
+	 * Received Extended Message & Chunked = 1: the first chunk.
+	 *
+	 * Chunking is always 1 here: unchunked extended messages are not
+	 * supported. Refer to b/573313604.
+	 *
+	 * Leave PRL_FLAGS_MSG_RECEIVED set. rx_chk_buf is consumed by
+	 * RCH_PROCESSING_EXTENDED_MESSAGE on the next pass, and prl_rx must
+	 * not overwrite it until then.
+	 */
+	if (ext &&
+	    PD_EXT_HEADER_CHUNKED(GET_EXT_HEADER(pdmsg[port].rx_chk_buf[0]))) {
 		/*
-		 * Received Non-Extended Message
+		 * RCH_Processing_Extended_Message first chunk entry processing
+		 * embedded here: Set Chunk_number_expected = 0 and
+		 * Num_Bytes_Received = 0
 		 */
-		else if (!PD_HEADER_EXT(rx_emsg[port].header)) {
-			/* Copy chunk to extended buffer */
-			copy_chunk_to_ext(port);
-			set_state_rch(port, RCH_PASS_UP_MESSAGE);
-		}
-		/*
-		 * Received an Extended Message while communicating at a
-		 * revision lower than PD3.0
-		 */
-		else {
-			rch[port].error = ERR_RCH_CHUNKED;
-			set_state_rch(port, RCH_REPORT_ERROR);
-		}
+		pdmsg[port].chunk_number_expected = 0;
+		pdmsg[port].num_bytes_received = 0;
+		pdmsg[port].msg_type = PD_HEADER_TYPE(rx_emsg[port].header);
+
+		set_state_rch(port, RCH_PROCESSING_EXTENDED_MESSAGE);
+		return;
 	}
+
+	/* Every remaining path consumes or discards rx_chk_buf below. */
+	RCH_CLR_FLAG(port, PRL_FLAGS_MSG_RECEIVED);
+
+	/* Received Non-Extended Message */
+	if (!PD_HEADER_EXT(rx_emsg[port].header)) {
+		copy_chunk_to_ext(port);
+		set_state_rch(port, RCH_PASS_UP_MESSAGE);
+		return;
+	}
+
+	/*
+	 * Extended Message that cannot be received: Chunked = 0 (Chunked !=
+	 * Chunking), or any extended message from a partner below PD3.0.
+	 */
+	rch[port].error = ERR_RCH_CHUNKED;
+	set_state_rch(port, RCH_REPORT_ERROR);
 }
 
 /*
@@ -1598,6 +1586,16 @@ static void rch_processing_extended_message_run(const int port)
 	uint8_t chunk_num = PD_EXT_HEADER_CHUNK_NUM(exhdr);
 	uint32_t data_size = PD_EXT_HEADER_DATA_SIZE(exhdr);
 	uint32_t byte_num;
+
+	/*
+	 * rx_chk_buf is consumed (appended) or discarded (error, abort) in
+	 * this pass, so release it to prl_rx now.
+	 *
+	 * Clear before the error paths: with the flag set, RCH_REPORT_ERROR
+	 * would pass rx_chk_buf to the Policy Engine as a complete message,
+	 * and here it holds a chunk.
+	 */
+	RCH_CLR_FLAG(port, PRL_FLAGS_MSG_RECEIVED);
 
 	/*
 	 * Abort Flag Set
@@ -1719,6 +1717,23 @@ static void rch_waiting_chunk_entry(const int port)
 			PD_T_CHUNK_SENDER_RESPONSE);
 }
 
+/*
+ * Is the message in rx_chk_buf a chunk of an extended message, as opposed to
+ * a chunk request or a non-extended message? The extended header in
+ * rx_chk_buf[0] only exists when the message header's Extended bit is set,
+ * so test that before interpreting it.
+ */
+static bool rx_msg_is_chunk_response(const int port)
+{
+	uint16_t exhdr;
+
+	if (!PD_HEADER_EXT(rx_emsg[port].header))
+		return false;
+
+	exhdr = GET_EXT_HEADER(pdmsg[port].rx_chk_buf[0]);
+	return PD_EXT_HEADER_CHUNKED(exhdr) && !PD_EXT_HEADER_REQ_CHUNK(exhdr);
+}
+
 static void rch_waiting_chunk_run(const int port)
 {
 	if (RCH_CHK_FLAG(port, PRL_FLAGS_MSG_RECEIVED)) {
@@ -1733,34 +1748,22 @@ static void rch_waiting_chunk_run(const int port)
 			PDMSG_CLR_FLAG(port, PRL_FLAGS_TX_COMPLETE);
 
 		/*
-		 * Leave PRL_FLAGS_MSG_RECEIVED flag set just in case an error
-		 * is detected. If an error is detected, PRL_FLAGS_MSG_RECEIVED
-		 * will be cleared in rch_report_error state.
+		 * PRL_FLAGS_MSG_RECEIVED stays set on both paths below: the
+		 * state entered next consumes rx_chk_buf and clears it.
+		 *
+		 * Chunk response Received from Protocol Layer
 		 */
-
-		if (PD_HEADER_EXT(rx_emsg[port].header)) {
-			uint16_t exhdr =
-				GET_EXT_HEADER(pdmsg[port].rx_chk_buf[0]);
-			/*
-			 * Other Message Received from Protocol Layer
-			 */
-			if (PD_EXT_HEADER_REQ_CHUNK(exhdr) ||
-			    !PD_EXT_HEADER_CHUNKED(exhdr)) {
-				rch[port].error = ERR_RCH_CHUNKED;
-				set_state_rch(port, RCH_REPORT_ERROR);
-			}
-			/*
-			 * Chunk response Received from Protocol Layer
-			 */
-			else {
-				/*
-				 * No error was detected, so clear
-				 * PRL_FLAGS_MSG_RECEIVED flag.
-				 */
-				RCH_CLR_FLAG(port, PRL_FLAGS_MSG_RECEIVED);
-				set_state_rch(port,
-					      RCH_PROCESSING_EXTENDED_MESSAGE);
-			}
+		if (rx_msg_is_chunk_response(port)) {
+			set_state_rch(port, RCH_PROCESSING_EXTENDED_MESSAGE);
+		}
+		/*
+		 * Other Message Received from Protocol Layer, including a
+		 * non-extended message. RCH_REPORT_ERROR passes the message to
+		 * the Policy Engine.
+		 */
+		else {
+			rch[port].error = ERR_RCH_CHUNKED;
+			set_state_rch(port, RCH_REPORT_ERROR);
 		}
 	}
 	/*
@@ -1820,9 +1823,6 @@ static void tch_wait_for_message_request_from_pe_entry(const int port)
 
 	/* Clear Abort flag */
 	PDMSG_CLR_FLAG(port, PRL_FLAGS_ABORT);
-
-	/* All Messages are chunked */
-	TCH_SET_FLAG(port, PRL_FLAGS_CHUNKING);
 }
 
 static void tch_wait_for_message_request_from_pe_run(const int port)
@@ -1848,9 +1848,11 @@ static void tch_wait_for_message_request_from_pe_run(const int port)
 		} else {
 			/*
 			 * Extended Message Request & Chunking
+			 *
+			 * Chunking is always 1: unchunked extended messages
+			 * are not supported. Refer to b/573313604.
 			 */
-			if (pdmsg_xmit_type_is_rev30(port) && pdmsg[port].ext &&
-			    TCH_CHK_FLAG(port, PRL_FLAGS_CHUNKING)) {
+			if (pdmsg_xmit_type_is_rev30(port) && pdmsg[port].ext) {
 				/*
 				 * NOTE: TCH_Prepare_To_Send_Chunked_Message
 				 * embedded here.
@@ -1951,6 +1953,8 @@ static void tch_construct_chunked_message_entry(const int port)
 	if (num > PD_MAX_EXTENDED_MSG_CHUNK_LEN)
 		num = PD_MAX_EXTENDED_MSG_CHUNK_LEN;
 
+	memset(pdmsg[port].tx_chk_buf, 0, sizeof(pdmsg[port].tx_chk_buf));
+
 	/* Set the chunks extended header */
 	*ext_hdr = PD_EXT_HEADER(pdmsg[port].chunk_number_to_send, 0, /* Chunk
 									 Request
@@ -1958,7 +1962,6 @@ static void tch_construct_chunked_message_entry(const int port)
 				 tx_emsg[port].len);
 
 	/* Copy the message chunk into chk_buf */
-	memset(data, 0, 28);
 	memcpy(data, tx_emsg[port].buf + pdmsg[port].send_offset, num);
 	pdmsg[port].send_offset += num;
 

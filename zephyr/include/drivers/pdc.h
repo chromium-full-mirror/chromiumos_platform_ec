@@ -51,9 +51,9 @@ extern "C" {
 
 #define NODE_MATCHES(node1, node2) IS_EQ(DT_DEP_ORD(node1), DT_DEP_ORD(node2))
 
-#define COMPARE_PDC_ARRAY_MEMBER(usbc_id, prop, idx, target)                  \
-	COND_CODE_1(NODE_MATCHES(DT_PROP_BY_IDX(usbc_id, prop, idx), target), \
-		    (USBC_PORT_NEW(usbc_id)), ())
+#define COMPARE_PDC_ARRAY_MEMBER(usbc_id, prop, idx, target)                 \
+	IF_ENABLED(NODE_MATCHES(DT_PROP_BY_IDX(usbc_id, prop, idx), target), \
+		   (USBC_PORT_NEW(usbc_id)))
 
 #define GET_USBC_PORT_IF_PDC_IN_LIST(usbc_id, target)                      \
 	DT_FOREACH_PROP_ELEM_VARGS(usbc_id, pdc, COMPARE_PDC_ARRAY_MEMBER, \
@@ -211,6 +211,19 @@ enum max_pdp_t {
 	MAX_PDP_15W,
 };
 
+/**
+ * Used to determine when the PDC driver layer is ready for operation through
+ * the pdc_is_init_done() API function.
+ */
+enum pdc_driver_init_state_t {
+	/** Driver is still initializing. Query again later. */
+	PDC_DRIVER_INIT_STATE_WAIT = 0,
+	/** Driver initialized successfully and is ready for normal operation */
+	PDC_DRIVER_INIT_STATE_SUCCESS = 1,
+	/** Driver initialization failed and will not be retried. */
+	PDC_DRIVER_INIT_STATE_FAILED = 2,
+};
+
 /** Helper macro to set the policy to sink and allow or disallow external swaps
  *  based on a boolean argument.
  */
@@ -275,7 +288,8 @@ typedef int (*pdc_set_power_level_t)(const struct device *dev,
 				     enum usb_typec_current_t tcc);
 typedef int (*pdc_reconnect_t)(const struct device *dev);
 typedef int (*pdc_update_retimer_fw_t)(const struct device *dev, bool enable);
-typedef bool (*pdc_is_init_done_t)(const struct device *dev);
+typedef enum pdc_driver_init_state_t (*pdc_is_init_done_t)(
+	const struct device *dev);
 typedef int (*pdc_get_cable_property_t)(const struct device *dev,
 					union cable_property_t *cable_prop);
 typedef int (*pdc_get_vdo_t)(const struct device *dev, union get_vdo_t req,
@@ -401,9 +415,11 @@ static inline void pdc_start_thread(const struct device *dev)
  *
  * @param dev PDC device structure pointer
  *
- * @retval true if PDC driver init process is complete, else false
+ * @retval An enum pdc_driver_init_state_t value describing current
+ *         initialization status.
  */
-static inline bool pdc_is_init_done(const struct device *dev)
+static inline enum pdc_driver_init_state_t
+pdc_is_init_done(const struct device *dev)
 {
 	__ASSERT(DEVICE_API_GET(pdc, dev)->is_init_done != NULL,
 		 "IS_INIT_DONE is not optional");

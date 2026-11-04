@@ -6,7 +6,11 @@
 #include "accelgyro.h"
 #include "body_detection.h"
 #include "console.h"
+#include "ec_cmd_api.h"
+#include "hooks.h"
+#include "hwtimer.h"
 #include "math_util.h"
+#include "motion_sense_fifo.h"
 #include "test/drivers/test_state.h"
 #include "test/drivers/utils.h"
 
@@ -311,6 +315,106 @@ ZTEST_USER(bodydetectinit, test_change_sensor_index)
 		      motion_sense_get_on_body_sensor_index());
 }
 
+ZTEST_USER(bodydetectinit, test_fifo_activity_sensor_bounds)
+{
+	const uint32_t now = __hw_clock_source_read();
+	struct ec_response_motion_sensor_data data[CONFIG_ACCEL_FIFO_SIZE] = {
+		0
+	};
+	uint8_t fifo_info_buffer
+		[sizeof(struct ec_response_motion_sense_fifo_info) +
+		 sizeof(uint16_t) * MAX_MOTION_SENSORS];
+	struct ec_response_motion_sense_fifo_info *fifo_info =
+		(void *)fifo_info_buffer;
+	uint16_t data_bytes_read;
+	uint16_t orig_oversampling = motion_sensors[0].oversampling_ratio;
+	int read_count;
+
+	motion_sense_fifo_reset();
+	motion_sense_fifo_reset_needed_flags();
+
+	/*
+	 * Activity events (e.g. double-tap, body detection, orientation) use
+	 * MOTION_SENSE_ACTIVITY_SENSOR_ID (== motion_sensor_count), which is
+	 * one past the end of the motion_sensors[] array.
+	 */
+	zassert_equal(MOTION_SENSE_ACTIVITY_SENSOR_ID, motion_sensor_count);
+	data[0].flags = MOTIONSENSE_SENSOR_FLAG_WAKEUP;
+	data[0].activity_data.activity = MOTIONSENSE_ACTIVITY_BODY_DETECTION;
+	data[0].activity_data.state = 1;
+	data[0].sensor_num = MOTION_SENSE_ACTIVITY_SENSOR_ID;
+
+	motion_sense_fifo_stage_data(&data[0], NULL, 0, now);
+	motion_sense_fifo_commit_data();
+
+	read_count =
+		motion_sense_fifo_read(sizeof(data), 4, data, &data_bytes_read);
+	zassert_equal(read_count, 2);
+	zassert_true(data[0].flags & MOTIONSENSE_SENSOR_FLAG_TIMESTAMP);
+	zassert_equal(data[1].sensor_num, MOTION_SENSE_ACTIVITY_SENSOR_ID);
+	zassert_equal(data[1].activity_data.activity,
+		      MOTIONSENSE_ACTIVITY_BODY_DETECTION);
+
+	/*
+	 * Also verify overflowing the staged FIFO when the head entry is an
+	 * activity sensor event (exercises fifo_pop() bounds check).
+	 */
+	motion_sensors[0].oversampling_ratio = 1;
+	data[0].flags = 0;
+	data[0].sensor_num = MOTION_SENSE_ACTIVITY_SENSOR_ID;
+	motion_sense_fifo_stage_data(&data[0], NULL, 0, now);
+
+	data[0].sensor_num = 0;
+	for (int i = 0; i < CONFIG_ACCEL_FIFO_SIZE; i++) {
+		motion_sense_fifo_stage_data(&data[0], &motion_sensors[0], 1,
+					     now + i * 10);
+	}
+	motion_sense_fifo_commit_data();
+
+	/* The activity event is the oldest entry, so it is evicted first. */
+	motion_sense_fifo_get_info(fifo_info, false);
+	zassert_equal(fifo_info->lost[MOTION_SENSE_ACTIVITY_SENSOR_ID], 1);
+	zassert_true(fifo_info->total_lost >= 2);
+
+	motion_sensors[0].oversampling_ratio = orig_oversampling;
+	motion_sense_fifo_reset();
+	motion_sense_fifo_reset_needed_flags();
+}
+
+ZTEST_USER(bodydetectinit, test_activity_null_drv_callbacks)
+{
+	struct ec_params_motion_sense params;
+	struct ec_response_motion_sense response;
+
+	/*
+	 * body_sensor->drv is set to mock_drv where list_activities and
+	 * manage_activity are NULL. Verify that host commands and chipset
+	 * shutdown do not dereference NULL function pointers.
+	 */
+	memset(&params, 0, sizeof(params));
+	params.cmd = MOTIONSENSE_CMD_LIST_ACTIVITIES;
+	zassert_equal(ec_cmd_motion_sense_cmd_v1(NULL, &params, &response),
+		      EC_RES_SUCCESS);
+
+	memset(&params, 0, sizeof(params));
+	params.cmd = MOTIONSENSE_CMD_SET_ACTIVITY;
+	params.set_activity.activity = MOTIONSENSE_ACTIVITY_BODY_DETECTION;
+	params.set_activity.enable = 1;
+	zassert_equal(ec_cmd_motion_sense_cmd_v1(NULL, &params, &response),
+		      EC_RES_SUCCESS);
+
+	hook_notify(HOOK_CHIPSET_SHUTDOWN);
+	k_sleep(K_MSEC(100));
+
+	/*
+	 * Back to S0 so the following tests do not run in S5. The resume path
+	 * initializes the sensor again, which the mock driver cannot do.
+	 */
+	body_sensor->drv = old_drv;
+	hook_notify(HOOK_CHIPSET_RESUME);
+	k_sleep(K_MSEC(100));
+}
+
 ZTEST_SUITE(bodydetectinit, drivers_predicate_post_main, NULL,
 	    body_detect_init_before, body_detect_init_after, NULL);
 
@@ -329,11 +433,15 @@ static timestamp_t get_time_fake(void)
 
 static void body_detect_sample_before(void *state)
 {
-	struct body_detect_params params;
+	static struct body_detect_params params;
 
 	ARG_UNUSED(state);
 	get_time_ptr_old = get_time_ptr;
 	get_time_ptr = get_time_fake;
+	time_fake_value = 0;
+
+	/* Reset body detection to make sure body_sensor is valid */
+	body_detect_reset();
 
 	old_drv = body_sensor->drv;
 	body_sensor->drv = &mock_drv;
@@ -508,6 +616,156 @@ ZTEST_USER(bodydetectsample, test_reallife_data)
 	zassert_equal(BODY_DETECTION_ON_BODY, body_detect_get_state());
 #endif
 }
+
+/* Note: ALOGIRTHM spelling matches Kconfig.body_detection */
+#if defined(CONFIG_BODY_DETECTION_ALOGIRTHM_V2)
+static int body_detect_change_cnt;
+
+static void body_detect_change_hook(void)
+{
+	body_detect_change_cnt++;
+}
+DECLARE_HOOK(HOOK_BODY_DETECT_CHANGE, body_detect_change_hook,
+	     HOOK_PRIO_DEFAULT);
+
+/**
+ * @brief TestPurpose: verify ON_BODY hysteresis uses OFF_BODY_CON (10%) rather
+ * than ON_BODY_CON (90%), so moderate motion (~35% confidence) keeps the
+ * device ON_BODY, and verify body_detect_reset() clears filter state without
+ * emitting a duplicate ON_BODY state transition.
+ */
+ZTEST_USER(bodydetectsample, test_on_body_hysteresis)
+{
+	int i, cnt;
+	float fs = 50.0f;
+	int G_1 = 16384;
+
+	cnt = 2 * 60 * fs;
+
+	/*
+	 * 0.25Hz signal with amplitude G_1 / 250 (~4 mG) yields peak
+	 * var ~= 3100 uG (motion_confidence ~= 35%, which is >= OFF_BODY_CON
+	 * (10%) but < ON_BODY_CON (90%)). While already ON_BODY, this must
+	 * keep the state in BODY_DETECTION_ON_BODY.
+	 */
+	for (i = 0; i < cnt; i++) {
+		time_fake_value = (1000000 / fs * i);
+		body_sensor->xyz[X] = 0;
+		body_sensor->xyz[Y] = 0;
+		body_sensor->xyz[Z] =
+			G_1 + sin(0.25f * 2 * 3.14f / fs * i) * (G_1 / 250);
+		body_detect();
+	}
+	zassert_equal(BODY_DETECTION_ON_BODY, body_detect_get_state(),
+		      "expected ON_BODY to be maintained by hysteresis");
+
+	/*
+	 * Resetting while already ON_BODY must reinitialize filters cleanly
+	 * without emitting a redundant ON_BODY hook on reset or first sample.
+	 */
+	body_detect_change_cnt = 0;
+	time_fake_value = 0;
+	body_detect_reset();
+	zassert_equal(0, body_detect_change_cnt);
+	for (i = 0; i < cnt; i++) {
+		time_fake_value = (1000000 / fs * i);
+		body_sensor->xyz[X] = 0;
+		body_sensor->xyz[Y] = 0;
+		body_sensor->xyz[Z] = G_1;
+		body_detect();
+		if (i == 0) {
+			zassert_equal(0, body_detect_change_cnt);
+		}
+	}
+	zassert_equal(BODY_DETECTION_OFF_BODY, body_detect_get_state());
+	zassert_equal(1, body_detect_change_cnt);
+}
+#else
+/**
+ * @brief TestPurpose: verify calculate_motion_confidence does not underflow
+ * uint64_t when confidence_delta_scaled > var_threshold_scaled.
+ */
+ZTEST_USER(bodydetectsample, test_confidence_delta_underflow)
+{
+	static const struct body_detect_params params = {
+		.var_threshold = 1000,
+		.confidence_delta = 3000,
+	};
+	int i, cnt;
+	float fs = 50.0f;
+	int G_1 = 16384;
+
+	body_sensor->bd_params = &params;
+	body_detect_reset();
+	zassert_true(confidence_delta_scaled > var_threshold_scaled);
+
+	/* Transition to OFF_BODY first */
+	cnt = 2 * 60 * fs;
+	for (i = 0; i < cnt; i++) {
+		body_sensor->xyz[X] = 0;
+		body_sensor->xyz[Y] = 0;
+		body_sensor->xyz[Z] = G_1;
+		body_detect();
+	}
+	zassert_equal(BODY_DETECTION_OFF_BODY, body_detect_get_state());
+
+	/* Large X-axis motion must transition back to ON_BODY */
+	for (i = 0; i < 50; i++) {
+		body_sensor->xyz[X] = (i % 2 == 0) ? G_1 : -G_1;
+		body_detect();
+	}
+	zassert_equal(BODY_DETECTION_ON_BODY, body_detect_get_state());
+}
+
+/**
+ * @brief TestPurpose: verify a single-sample impulse (desk bump) while
+ * OFF_BODY does not falsely trigger ON_BODY, while multi-sample motion does.
+ */
+ZTEST_USER(bodydetectsample, test_single_sample_impulse_rejection)
+{
+	int i, cnt;
+	float fs = 50.0f;
+	int G_1 = 16384;
+
+	/* Settle into OFF_BODY */
+	cnt = 2 * 60 * fs;
+	for (i = 0; i < cnt; i++) {
+		body_sensor->xyz[X] = 0;
+		body_sensor->xyz[Y] = 0;
+		body_sensor->xyz[Z] = G_1;
+		body_detect();
+	}
+	zassert_equal(BODY_DETECTION_OFF_BODY, body_detect_get_state());
+
+	/* Inject a positive 1-sample desk bump spike (+0.25G) then rest */
+	body_sensor->xyz[X] = G_1 / 4;
+	body_detect();
+	for (i = 0; i < 50; i++) {
+		body_sensor->xyz[X] = 0;
+		body_detect();
+		zassert_equal(BODY_DETECTION_OFF_BODY, body_detect_get_state(),
+			      "positive 1-sample spike triggered ON_BODY at %d",
+			      i);
+	}
+
+	/* Inject a negative 1-sample desk bump spike (-0.25G) then rest */
+	body_sensor->xyz[X] = -G_1 / 4;
+	body_detect();
+	for (i = 0; i < 50; i++) {
+		body_sensor->xyz[X] = 0;
+		body_detect();
+		zassert_equal(BODY_DETECTION_OFF_BODY, body_detect_get_state(),
+			      "negative 1-sample spike triggered ON_BODY at %d",
+			      i);
+	}
+
+	/* Sustained multi-sample motion must still transition to ON_BODY */
+	body_sensor->xyz[X] = G_1 / 4;
+	body_detect();
+	body_detect();
+	zassert_equal(BODY_DETECTION_ON_BODY, body_detect_get_state());
+}
+#endif
 
 ZTEST_SUITE(bodydetectsample, drivers_predicate_post_main, NULL,
 	    body_detect_sample_before, body_detect_sample_after, NULL);

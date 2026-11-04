@@ -34,7 +34,7 @@ static void hci_rx_thread_entry(void *p1, void *p2, void *p3)
 
 		if (buf && buf->len > 0) {
 			uint8_t h4_type = buf->data[0];
-			LOG_INF("RX from BT Controller: H:4 Type 0x%02X, Size %d bytes",
+			LOG_DBG("RX from BT Controller: H:4 Type 0x%02X, Size %d bytes",
 				h4_type, buf->len);
 
 			pw::span<const uint8_t> rx_payload(buf->data, buf->len);
@@ -66,6 +66,11 @@ static int bt_passthru_init(void)
 		return err;
 	}
 
+	g_host_transport.SetResetHandler([]() {
+		LOG_INF("Resetting BT Passthru state");
+		g_bt_interceptor.notifyReset();
+	});
+
 	/*
 	 * Register the TX callback. When the AP sends an HCI Command down via
 	 * Host Commands, it is passed to the interceptor or forwarded to the
@@ -80,7 +85,7 @@ static int bt_passthru_init(void)
 				return pw::OkStatus();
 			}
 
-			LOG_INF("TX to BT Controller: Size %zu bytes",
+			LOG_DBG("TX to BT Controller: Size %zu bytes",
 				data.size());
 			g_bt_sender.sendH4HciPacketToController(data.data(),
 								data.size());

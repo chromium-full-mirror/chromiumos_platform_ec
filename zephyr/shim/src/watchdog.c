@@ -230,17 +230,12 @@ __maybe_unused static void wdt_warning_handler(const struct device *wdt_dev,
 {
 	uint32_t exception_address = 0;
 	const char *thread_name;
-	if (IS_ENABLED(CONFIG_THREAD_NAME)) {
-		thread_name = k_thread_name_get(k_current_get());
-	} else {
-		thread_name = "unknown";
-	}
 	struct k_thread *thread = k_current_get();
 
 #ifdef CONFIG_RISCV
-	exception_address = csr_read(mepc);
-	printk("WDT pre-warning MEPC:%p THREAD:%p THREAD_NAME:%s\n",
-	       (void *)exception_address, (void *)thread, thread_name);
+	struct arch_esf *esf = (struct arch_esf *)get_stack_ptr(thread);
+
+	exception_address = esf->mepc;
 #elif CONFIG_CPU_CORTEX_M
 	struct arch_esf *esf;
 	/*
@@ -248,10 +243,30 @@ __maybe_unused static void wdt_warning_handler(const struct device *wdt_dev,
 	 * context, thus PSP will point to esf.
 	 */
 	__asm__ volatile("mrs %0, psp" : "=r"(esf));
+	exception_address = esf->basic.pc;
+#endif
+
+	/* Save the current task id in panic info before any printk or thread
+	 * dumping calls, ensuring panic info is recorded even if subsequent
+	 * logging or thread dumping fails or gets interrupted by reset.
+	 * The PANIC_SW_WATCHDOG_WARN reason will be changed to a regular
+	 * PANIC_SW_WATCHDOG in panic_data_init if a watchdog reset occurs.
+	 */
+	panic_data_write_watchdog_warning(exception_address, thread);
+
+	if (IS_ENABLED(CONFIG_THREAD_NAME)) {
+		thread_name = k_thread_name_get(thread);
+	} else {
+		thread_name = "unknown";
+	}
+
+#ifdef CONFIG_RISCV
+	printk("WDT pre-warning MEPC:%p RA:%p THREAD:%p THREAD_NAME:%s\n",
+	       (void *)esf->mepc, (void *)esf->ra, (void *)thread, thread_name);
+#elif CONFIG_CPU_CORTEX_M
 	printk("WDT pre-warning PC:%p LR:%p THREAD:%p THREAD_NAME:%s\n",
 	       (void *)esf->basic.pc, (void *)esf->basic.lr, (void *)thread,
 	       thread_name);
-	exception_address = esf->basic.pc;
 #else
 	/* TODO(b/176523207): watchdog warning message */
 	printk("Watchdog deadline is close! THREAD:%p THREAD_NAME:%s\n",
@@ -269,13 +284,6 @@ __maybe_unused static void wdt_warning_handler(const struct device *wdt_dev,
 	if (IS_ENABLED(CONFIG_THREAD_MONITOR)) {
 		k_thread_foreach_unlocked(log_thread_info, NULL);
 	}
-
-	/* Save the current task id in panic info.
-	 * The PANIC_SW_WATCHDOG_WARN reason will be changed to a regular
-	 * PANIC_SW_WATCHDOG in system_common_pre_init if a watchdog reset
-	 * occurs.
-	 */
-	panic_data_write_watchdog_warning(exception_address, thread);
 }
 
 __maybe_unused static void
@@ -299,13 +307,14 @@ __maybe_unused static void reset_watchdog_stats(void)
 
 #if defined(CONFIG_PLATFORM_EC_HOSTCMD_WATCHDOG_INFO)
 
-static enum ec_status hostcmd_watchdog_info(struct host_cmd_handler_args *args)
+static enum ec_host_cmd_status
+hostcmd_watchdog_info(struct ec_host_cmd_handler_args *args)
 {
-	const struct ec_params_hostcmd_watchdog_info *p = args->params;
-	struct ec_response_hostcmd_watchdog_info *r = args->response;
+	const struct ec_params_hostcmd_watchdog_info *p = args->input_buf;
+	struct ec_response_hostcmd_watchdog_info *r = args->output_buf;
 
-	if (args->params_size < sizeof(*p))
-		return EC_RES_INVALID_PARAM;
+	if (args->input_buf_size < sizeof(*p))
+		return EC_HOST_CMD_INVALID_PARAM;
 
 	r->watchdog_period_ms = CONFIG_WATCHDOG_PERIOD_MS;
 	r->watchdog_warning_period_ms = CONFIG_AUX_TIMER_PERIOD_MS;
@@ -325,12 +334,13 @@ static enum ec_status hostcmd_watchdog_info(struct host_cmd_handler_args *args)
 		reset_watchdog_stats();
 	}
 
-	args->response_size = sizeof(*r);
-	return EC_RES_SUCCESS;
+	args->output_buf_size = sizeof(*r);
+	return EC_HOST_CMD_SUCCESS;
 }
 
-DECLARE_HOST_COMMAND(EC_CMD_HOSTCMD_WATCHDOG_INFO, hostcmd_watchdog_info,
-		     EC_VER_MASK(0));
+EC_HOST_CMD_HANDLER(EC_CMD_HOSTCMD_WATCHDOG_INFO, hostcmd_watchdog_info,
+		    EC_VER_MASK(0), struct ec_params_hostcmd_watchdog_info,
+		    struct ec_response_hostcmd_watchdog_info);
 
 #endif
 

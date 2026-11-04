@@ -85,7 +85,7 @@ static int set_data_rate(const struct motion_sensor_t *s, int rate, int rnd)
 			bmi_enable_fifo(s, 0);
 		/* disable sensor */
 		ret = enable_sensor(s, 0);
-		crec_msleep(3);
+		k_msleep(3);
 		data->odr = 0;
 		return ret;
 	} else if (data->odr == 0) {
@@ -94,7 +94,7 @@ static int set_data_rate(const struct motion_sensor_t *s, int rate, int rnd)
 		if (ret)
 			return ret;
 		/* Wait for accel/gyro to wake up */
-		crec_msleep(wakeup_time[s->type]);
+		k_msleep(wakeup_time[s->type]);
 	}
 
 	ret = bmi_get_normalized_rate(s, rate, rnd, &normalized_rate, &reg_val);
@@ -105,7 +105,7 @@ static int set_data_rate(const struct motion_sensor_t *s, int rate, int rnd)
 	 * Lock accel resource to prevent another task from attempting
 	 * to write accel parameters until we are done.
 	 */
-	mutex_lock(s->mutex);
+	k_mutex_lock(s->mutex, K_FOREVER);
 
 	ret = bmi_set_reg8(s, BMI_CONF_REG(s->type), reg_val, BMI_ODR_MASK);
 	if (ret != EC_SUCCESS)
@@ -121,7 +121,7 @@ static int set_data_rate(const struct motion_sensor_t *s, int rate, int rnd)
 	if (IS_ENABLED(ACCELGYRO_BMI260_INT_ENABLE))
 		bmi_enable_fifo(s, 1);
 accel_cleanup:
-	mutex_unlock(s->mutex);
+	k_mutex_unlock(s->mutex);
 	return ret;
 }
 
@@ -181,7 +181,7 @@ static int wait_and_read_data(const struct motion_sensor_t *s, intv3_t v,
 
 	/* Check if data is ready */
 	while (try_cnt && !(status & BMI260_DRDY_ACC)) {
-		crec_msleep(msec);
+		k_msleep(msec);
 		ret = bmi_read8(s->port, s->i2c_spi_addr_flags, BMI260_STATUS,
 				&status);
 		if (ret)
@@ -314,7 +314,7 @@ static __maybe_unused int config_interrupt(const struct motion_sensor_t *s)
 {
 	int ret;
 
-	mutex_lock(s->mutex);
+	k_mutex_lock(s->mutex, K_FOREVER);
 
 	/* configure int1 as an interrupt */
 	ret = bmi_write8(s->port, s->i2c_spi_addr_flags, BMI260_INT1_IO_CTRL,
@@ -350,7 +350,7 @@ static __maybe_unused int config_interrupt(const struct motion_sensor_t *s)
 	/* disable FIFO sensortime frame */
 	ret = bmi_write8(s->port, s->i2c_spi_addr_flags, BMI260_FIFO_CONFIG_0,
 			 0);
-	mutex_unlock(s->mutex);
+	k_mutex_unlock(s->mutex);
 	return ret;
 }
 
@@ -436,12 +436,12 @@ static int bmi260_enable_interrupt(const struct motion_sensor_t *s, bool enable)
 	if (s->type != MOTIONSENSE_TYPE_ACCEL)
 		return EC_SUCCESS;
 
-	mutex_lock(s->mutex);
+	k_mutex_lock(s->mutex, K_FOREVER);
 
 	/* Manage Data interrupt mapping for both INT pins */
 	ret = enable_interrupt(s, enable);
 
-	mutex_unlock(s->mutex);
+	k_mutex_unlock(s->mutex);
 	return ret;
 }
 #endif /* ACCELGYRO_BMI260_INT_ENABLE */
@@ -598,7 +598,7 @@ static int init_config(const struct motion_sensor_t *s)
 
 	/* disable advance power save but remain fifo self wakeup*/
 	bmi_write8(s->port, s->i2c_spi_addr_flags, BMI260_PWR_CONF, 2);
-	crec_msleep(1);
+	k_msleep(1);
 	/* prepare for config load */
 	bmi_write8(s->port, s->i2c_spi_addr_flags, BMI260_INIT_CTRL, 0);
 
@@ -612,7 +612,7 @@ static int init_config(const struct motion_sensor_t *s)
 		return ret;
 	/* wait INTERNAL_STATUS.message to be 0x1 which take at most 150ms */
 	for (i = 0; i < 15; ++i) {
-		crec_msleep(10);
+		k_msleep(10);
 		ret = bmi_read8(s->port, s->i2c_spi_addr_flags,
 				BMI260_INTERNAL_STATUS, &init_status);
 		if (ret)
@@ -656,7 +656,7 @@ static int init(struct motion_sensor_t *s)
 		/* Reset the chip to be in a good state */
 		bmi_write8(s->port, s->i2c_spi_addr_flags, BMI260_CMD_REG,
 			   BMI260_CMD_SOFT_RESET);
-		crec_msleep(2);
+		k_msleep(2);
 		if (init_config(s))
 			return EC_ERROR_INVALID_CONFIG;
 

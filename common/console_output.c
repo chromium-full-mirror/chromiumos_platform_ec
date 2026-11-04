@@ -74,88 +74,6 @@ bool console_channel_is_disabled(int channel)
 	return false;
 }
 
-#ifndef CONFIG_ZEPHYR
-/*****************************************************************************/
-/* Channel-based console output */
-
-int cputs(enum console_channel channel, const char *outstr)
-{
-	int rv1, rv2;
-
-	/* Filter out inactive channels */
-	if (console_channel_is_disabled(channel))
-		return EC_SUCCESS;
-
-	rv1 = usb_puts(outstr);
-	rv2 = uart_puts(outstr);
-
-	return rv1 == EC_SUCCESS ? rv2 : rv1;
-}
-
-int cvprintf(enum console_channel channel, const char *format, va_list args)
-{
-	int rv1, rv2;
-	va_list temp_args;
-
-	/* Filter out inactive channels */
-	if (console_channel_is_disabled(channel))
-		return EC_SUCCESS;
-
-	va_copy(temp_args, args);
-	rv1 = usb_vprintf(format, temp_args);
-	va_end(temp_args);
-
-	va_copy(temp_args, args);
-	rv2 = uart_vprintf(format, temp_args);
-	va_end(temp_args);
-
-	return rv1 == EC_SUCCESS ? rv2 : rv1;
-}
-
-int cprintf(enum console_channel channel, const char *format, ...)
-{
-	int rv;
-	va_list args;
-
-	va_start(args, format);
-	rv = cvprintf(channel, format, args);
-	va_end(args);
-
-	return rv;
-}
-
-int cvprints(enum console_channel channel, const char *format, va_list args)
-{
-	int r, rv;
-	char ts_str[PRINTF_TIMESTAMP_BUF_SIZE];
-
-	/* Filter out inactive channels */
-	if (console_channel_is_disabled(channel))
-		return EC_SUCCESS;
-
-	snprintf_timestamp_now(ts_str, sizeof(ts_str));
-	rv = cprintf(channel, "[%s ", ts_str);
-
-	r = cvprintf(channel, format, args);
-	rv = r ? r : rv;
-
-	r = cputs(channel, "]\n");
-	return r ? r : rv;
-}
-
-int cprints(enum console_channel channel, const char *format, ...)
-{
-	int rv;
-	va_list args;
-
-	va_start(args, format);
-	rv = cvprints(channel, format, args);
-	va_end(args);
-
-	return rv;
-}
-#endif /* CONFIG_ZEPHYR */
-
 void cflush(void)
 {
 	uart_flush_output();
@@ -219,21 +137,21 @@ DECLARE_SAFE_CONSOLE_COMMAND(chan, command_ch,
 			     "Save, restore, get or set console channel mask");
 
 #ifdef CONFIG_HOSTCMD_CONSOLE_PRINT
-static enum ec_status
-host_command_console_print(struct host_cmd_handler_args *args)
+static enum ec_host_cmd_status
+host_command_console_print(struct ec_host_cmd_handler_args *args)
 {
-	char *msg = (char *)args->params;
+	char *msg = (char *)(uintptr_t)args->input_buf;
 
-	if (args->params_size <= 0)
-		return EC_RES_INVALID_PARAM;
+	if (args->input_buf_size <= 0)
+		return EC_HOST_CMD_INVALID_PARAM;
 	/* Ensure message is null terminated */
-	msg[args->params_size - 1] = '\0';
+	msg[args->input_buf_size - 1] = '\0';
 	/* No response */
-	args->response_size = 0;
+	args->output_buf_size = 0;
 	/* Print message to console */
 	ccprints("Host: %s", msg);
-	return EC_RES_SUCCESS;
+	return EC_HOST_CMD_SUCCESS;
 }
-DECLARE_HOST_COMMAND(EC_CMD_CONSOLE_PRINT, host_command_console_print,
-		     EC_VER_MASK(0));
+EC_HOST_CMD_HANDLER_UNBOUND(EC_CMD_CONSOLE_PRINT, host_command_console_print,
+			    EC_VER_MASK(0));
 #endif

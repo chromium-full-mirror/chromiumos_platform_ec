@@ -3,7 +3,6 @@
  * found in the LICENSE file.
  */
 
-#include "atomic.h"
 #include "cec.h"
 #include "clock.h"
 #include "console.h"
@@ -12,22 +11,32 @@
 #include "hooks.h"
 #include "printf.h"
 #include "registers.h"
+#include "system.h"
 #include "task.h"
 #include "util.h"
-#ifdef CONFIG_ZEPHYR
-#include "system.h"
 
 #include <zephyr/device.h>
 #include <zephyr/irq.h>
+#include <zephyr/sys/atomic.h>
 #ifndef CONFIG_TEST
 #include <zephyr/drivers/pinctrl.h>
 
 #include <chip_chipregs.h>
 #endif
-#endif
+#include <soc.h>
 
 #define CPRINTF(format, args...) cprintf(CC_CEC, format, ##args)
 #define CPRINTS(format, args...) cprints(CC_CEC, format, ##args)
+
+/* Clear a pending CEC interrupt in the ITE interrupt controller. */
+static inline void cec_clear_pending_irq(void)
+{
+#ifdef CONFIG_HAS_ITE_INTC
+	/* LCOV_EXCL_START */
+	ite_intc_isr_clear(IT83XX_IRQ_CEC);
+	/* LCOV_EXCL_STOP */
+#endif
+}
 
 #ifdef CONFIG_CEC_DEBUG
 #define DEBUG_CPRINTF(format, args...) cprintf(CC_CEC, format, ##args)
@@ -37,7 +46,6 @@
 #define DEBUG_CPRINTS(...)
 #endif
 
-#ifdef CONFIG_ZEPHYR
 #define IT8XXX2_CEC_NODE DT_INST(0, ite_it8xxx2_cec_raw)
 #if DT_NODE_EXISTS(IT8XXX2_CEC_NODE)
 PINCTRL_DT_DEFINE(IT8XXX2_CEC_NODE);
@@ -72,7 +80,6 @@ test_mockable_static void it8xxx2_cec_clock_enable_peripheral(int enable)
 		*reg |= reg_mask;
 	}
 }
-#endif
 
 enum cec_state {
 	CEC_STATE_DISABLED = 0,
@@ -480,10 +487,10 @@ void cec_interrupt(void)
 	/* Write 1 to clear */
 	IT83XX_CEC_CECSTS = status;
 
-	task_clear_pending_irq(IT83XX_IRQ_CEC);
+	cec_clear_pending_irq();
 }
 
-#if defined(CONFIG_ZEPHYR) && !defined(CONFIG_TEST)
+#ifndef CONFIG_TEST
 static void it83xx_cec_isr(const void *user)
 {
 	cec_interrupt();
@@ -514,20 +521,9 @@ static int it83xx_cec_set_enable(int port, uint8_t enable)
 		return EC_SUCCESS;
 
 	if (enable) {
-#ifndef CONFIG_ZEPHYR
-		/* Enable CEC clock */
-		clock_enable_peripheral(CGC_OFFSET_CEC, 0, 0);
-
-		/* Set CECEN to select CEC alternate function */
-		IT83XX_GPIO_GRC8 |= BIT(5);
-
-		/* Enable alternate function */
-		gpio_config_module(MODULE_CEC, 1);
-#else
 		it8xxx2_cec_clock_enable_peripheral(1);
 		it8xxx2_cec_alt_func_enable(1);
 		disable_sleep(SLEEP_MASK_FORCE_NO_DSLEEP);
-#endif
 
 		/* Set logical address to unregistered (default is 0 = TV) */
 		IT83XX_CEC_CECDLA = CEC_UNREGISTERED_ADDR &
@@ -539,33 +535,24 @@ static int it83xx_cec_set_enable(int port, uint8_t enable)
 		IT83XX_CEC_CECIE |= CEC_ALL_INTERRUPTS;
 
 		/* Enable CEC interrupt */
-		task_clear_pending_irq(IT83XX_IRQ_CEC);
-#if defined(CONFIG_ZEPHYR) && !defined(CONFIG_TEST)
+		cec_clear_pending_irq();
+#ifndef CONFIG_TEST
 		IRQ_CONNECT(IT83XX_IRQ_CEC, 0, it83xx_cec_isr, 0, 0);
 #endif
-		task_enable_irq(IT83XX_IRQ_CEC);
+		irq_enable(IT83XX_IRQ_CEC);
 
 		CPRINTS("CEC%d enabled", port);
 	} else {
 		/* Disable CEC interrupt */
-		task_disable_irq(IT83XX_IRQ_CEC);
-		task_clear_pending_irq(IT83XX_IRQ_CEC);
+		irq_disable(IT83XX_IRQ_CEC);
+		cec_clear_pending_irq();
 
 		/* Disable all interrupts in interrupt enable register */
 		IT83XX_CEC_CECIE &= ~CEC_ALL_INTERRUPTS;
 
-#ifndef CONFIG_ZEPHYR
-		/* Configure pin back to GPIO */
-		gpio_config_module(MODULE_CEC, 0);
-		IT83XX_GPIO_GRC8 &= ~BIT(5);
-
-		/* Disable CEC clock */
-		clock_disable_peripheral(CGC_OFFSET_CEC, 0, 0);
-#else
 		it8xxx2_cec_alt_func_enable(0);
 		it8xxx2_cec_clock_enable_peripheral(0);
 		enable_sleep(SLEEP_MASK_FORCE_NO_DSLEEP);
-#endif
 
 		cec_state = CEC_STATE_DISABLED;
 

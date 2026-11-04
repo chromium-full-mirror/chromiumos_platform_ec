@@ -90,6 +90,7 @@ if(DEFINED CONFIG_PLATFORM_EC)
   # with Zephyr builds only.
   zephyr_compile_definitions("CONFIG_ZEPHYR")
 
+
   include(fpu.cmake)
 
   include(malloc.cmake)
@@ -226,6 +227,11 @@ zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC
 
 # Now include files that depend on or relate to other CONFIG options, sorted by
 # CONFIG
+# debugger_is_connected() and debugger_was_connected() are test-only helpers
+# used by zephyr/test/hwtest/src/system_is_locked.c (shim overrides in
+# zephyr/shim/core/cortex-m and zephyr/shim/chip/stm32 are likewise test-only).
+zephyr_library_sources_ifdef(CONFIG_HW_TEST_ON
+                                                "${PLATFORM_EC}/common/debug.c")
 zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_POWER_BUTTON_X86
                                                 "${PLATFORM_EC}/common/power_button_x86.c")
 zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_ACCEL_BMA255
@@ -334,6 +340,8 @@ zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_CHARGER_SM5803
                                                 "${PLATFORM_EC}/driver/charger/sm5803.c")
 zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_CHARGESPLASH
                                                 "${PLATFORM_EC}/common/chargesplash.c")
+zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_CHARGE_CONTROL
+                                                "${PLATFORM_EC}/common/charge_control.c")
 zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_CHARGER
 						"${PLATFORM_EC}/common/charger.c"
 						"${PLATFORM_EC}/common/charge_state.c")
@@ -408,7 +416,7 @@ zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_FINGERPRINT
 						"${PLATFORM_EC}/common/fpsensor/fpsensor_detect_strings.cc"
 						"${PLATFORM_EC}/common/fpsensor/fpsensor_utils.cc"
 						"${PLATFORM_EC}/common/fpsensor/fpsensor_vendor_command.cc"
-            "${PLATFORM_EC}/common/fpsensor/fpsensor_frame_size.cc"
+            "${PLATFORM_EC}/common/fpsensor/fpsensor_image_frame_params.cc"
 						"${PLATFORM_EC}/crypto/elliptic_curve_key.cc")
 zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_FINGERPRINT_AUTH_METHOD_HANDSHAKE
 						"${PLATFORM_EC}/common/fpsensor/fpsensor_auth_handshake.cc")
@@ -495,12 +503,8 @@ zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_POWER_BUTTON
                                                 "${PLATFORM_EC}/common/power_button.c")
 zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_POWERSEQ
                                                 "${PLATFORM_EC}/power/common.c")
-zephyr_library_sources_ifdef(CONFIG_CHIPSET_ALDERLAKE_SLG4BD44540
-                                                "${PLATFORM_EC}/power/alderlake_slg4bd44540.c")
 zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_POWERSEQ_AMD
                                                 "${PLATFORM_EC}/power/amd_x86.c")
-zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_POWERSEQ_COMETLAKE
-                                                "${PLATFORM_EC}/power/cometlake.c")
 zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_POWERSEQ_ICELAKE
                                                 "${PLATFORM_EC}/power/icelake.c")
 zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_POWERSEQ_INTEL
@@ -516,8 +520,6 @@ zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_POWERSEQ_MT8189
                                                 "${PLATFORM_EC}/power/mt8186.c")
 zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_POWERSEQ_MT8196
                                                 "${PLATFORM_EC}/power/mt8186.c")
-zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_POWERSEQ_MT8192
-                                                "${PLATFORM_EC}/power/mt8192.c")
 zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_POWERSEQ_SC7180
                                                 "${PLATFORM_EC}/power/qcom.c")
 zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_POWERSEQ_SC7280
@@ -541,7 +543,7 @@ zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_RWSIG_VERIFY
 zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_ROLLBACK
                                                 "${PLATFORM_EC}/common/rollback.c")
 zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_SBRK
-                                                "${PLATFORM_EC}/libc/sbrk.c")
+                                                "${PLATFORM_EC}/common/sbrk.c")
 zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_SHA256_SW
                                                 "${PLATFORM_EC}/common/sha256.c")
 if (NOT DEFINED CONFIG_PLATFORM_EC_SHA256_HW_ZEPHYR)
@@ -710,8 +712,6 @@ zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_USB_PD_TCPM_TCPCI
                                                 "${PLATFORM_EC}/driver/tcpm/tcpci.c")
 zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_USB_PD_TCPM_ITE_ON_CHIP
                                                 "${PLATFORM_EC}/driver/tcpm/ite_pd_intc.c")
-zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_USB_PD_TCPM_DRIVER_IT83XX
-                                                "${PLATFORM_EC}/driver/tcpm/it83xx.c")
 zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_USB_PD_TCPM_DRIVER_IT8XXX2
                                                 "${PLATFORM_EC}/driver/tcpm/it8xxx2.c")
 zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_USB_PD_TCPM_FUSB302
@@ -802,7 +802,9 @@ add_dependencies(app ec_version_header)
 # Include the directory containing the generated header.
 zephyr_include_directories("${CMAKE_CURRENT_BINARY_DIR}/include")
 
-if (DEFINED CONFIG_PIGWEED_LOG_TOKENIZED_LIB)
+if (DEFINED CONFIG_PIGWEED_LOG_TOKENIZED_LIB AND
+    NOT DEFINED CONFIG_BOARD_NATIVE_POSIX AND
+    NOT DEFINED CONFIG_BOARD_NATIVE_SIM)
   # Using -m pw_tokenizer.database generates a runpy warning
   # https://pwbug.dev/269622559
   set_property(GLOBAL APPEND PROPERTY extra_post_build_commands

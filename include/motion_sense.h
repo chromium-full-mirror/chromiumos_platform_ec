@@ -9,7 +9,6 @@
 #define PLATFORM_EC_INCLUDE_MOTION_SENSE_H_
 
 #include "accelgyro.h"
-#include "atomic.h"
 #include "body_detection.h"
 #include "chipset.h"
 #include "common.h"
@@ -20,6 +19,8 @@
 #include "task.h"
 #include "timer.h"
 #include "util.h"
+
+#include <zephyr/sys/atomic.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -160,7 +161,7 @@ struct motion_sensor_t {
 	enum motionsensor_location location;
 	const struct accelgyro_drv *drv;
 	/* One mutex per physical chip. */
-	mutex_t *mutex;
+	struct k_mutex *mutex;
 	void *drv_data;
 
 	/* Minimum number of samples in batch to trigger spreading */
@@ -253,7 +254,7 @@ struct motion_sensor_t {
  * When we process CMD_DUMP, we want to be sure the motion sense
  * task is not updating the sensor values at the same time.
  */
-extern mutex_t g_sensor_mutex;
+extern struct k_mutex g_sensor_mutex;
 
 /* Defined at board level. */
 extern struct motion_sensor_t motion_sensors[];
@@ -288,7 +289,7 @@ int sensor_init_done(struct motion_sensor_t *sensor);
  * Board specific function that is called when a double_tap event is detected.
  *
  */
-void sensor_board_proc_double_tap(void);
+__override_proto void sensor_board_proc_double_tap(void);
 
 /**
  * Board specific function to double check lid angle calculation is possible.
@@ -395,8 +396,6 @@ enum sensor_config motion_sense_get_ec_config(void);
 }
 #endif
 
-#ifdef CONFIG_ZEPHYR
 #include "motionsense_sensors.h"
-#endif
 
 #endif /* PLATFORM_EC_INCLUDE_MOTION_SENSE_H_ */

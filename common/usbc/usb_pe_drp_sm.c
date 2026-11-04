@@ -3,7 +3,6 @@
  * found in the LICENSE file.
  */
 
-#include "atomic.h"
 #include "battery.h"
 #include "battery_smart.h"
 #include "builtin/assert.h"
@@ -41,6 +40,8 @@
 #include "usbc_ppc.h"
 #include "util.h"
 
+#include <zephyr/sys/atomic.h>
+
 /*
  * USB Policy Engine Sink / Source module
  *
@@ -76,9 +77,8 @@
 
 #define PE_SET_FN(port, _fn) \
 	atomic_or(ATOMIC_ELEM(pe[port].flags_a, (_fn)), ATOMIC_MASK(_fn))
-#define PE_CLR_FN(port, _fn)                                    \
-	atomic_clear_bits(ATOMIC_ELEM(pe[port].flags_a, (_fn)), \
-			  ATOMIC_MASK(_fn))
+#define PE_CLR_FN(port, _fn) \
+	atomic_and(ATOMIC_ELEM(pe[port].flags_a, (_fn)), ~ATOMIC_MASK(_fn))
 #define PE_CHK_FN(port, _fn) \
 	(pe[port].flags_a[ATOMIC_ELEM(0, (_fn))] & ATOMIC_MASK(_fn))
 
@@ -90,15 +90,14 @@
  * TODO(b/229655319): support more than 32 bits
  */
 #define PE_SET_MASK(port, mask) atomic_or(&pe[port].flags_a[0], (mask))
-#define PE_CLR_MASK(port, mask) atomic_clear_bits(&pe[port].flags_a[0], (mask))
+#define PE_CLR_MASK(port, mask) atomic_and(&pe[port].flags_a[0], ~(mask))
 
 /*
  * These macros SET, CLEAR, and CHECK, a DPM (Device Policy Manager)
  * Request. The Requests are listed in usb_pe_sm.h.
  */
 #define PE_SET_DPM_REQUEST(port, req) atomic_or(&pe[port].dpm_request, (req))
-#define PE_CLR_DPM_REQUEST(port, req) \
-	atomic_clear_bits(&pe[port].dpm_request, (req))
+#define PE_CLR_DPM_REQUEST(port, req) atomic_and(&pe[port].dpm_request, ~(req))
 #define PE_CHK_DPM_REQUEST(port, req) (pe[port].dpm_request & (req))
 
 /* Message flags which should not persist on returning to ready state */
@@ -614,7 +613,7 @@ static struct policy_engine {
 
 	/* ADO - Used to store information about alert messages */
 	uint32_t ado;
-	mutex_t ado_lock;
+	struct k_mutex ado_lock;
 
 	/*
 	 * Flag to indicate that the timeout of the current VDM request should
@@ -810,7 +809,6 @@ static void pe_init(int port)
 		set_state_pe(port, PE_SNK_STARTUP);
 }
 
-#ifdef CONFIG_ZEPHYR
 static int init_pe_drp_sm_mutexes(void)
 {
 	int port;
@@ -822,7 +820,6 @@ static int init_pe_drp_sm_mutexes(void)
 	return 0;
 }
 SYS_INIT(init_pe_drp_sm_mutexes, POST_KERNEL, 50);
-#endif /* CONFIG_ZEPHYR */
 
 int pe_is_running(int port)
 {
@@ -964,10 +961,16 @@ void pe_got_hard_reset(int port)
 	/* Exit BIST Test mode, in case the TCPC entered it. */
 	tcpc_set_bist_test_mode(port, false);
 
-	if (pe[port].power_role == PD_ROLE_SOURCE)
+	if (pe[port].power_role == PD_ROLE_SOURCE) {
 		set_state_pe(port, PE_SRC_HARD_RESET_RECEIVED);
-	else
+	} else {
+		/*
+		 * The partner indicated PD support by sending Hard Reset, so
+		 * prepare for it to drop VBUS.
+		 */
+		tc_snk_prepare_hard_reset(port);
 		set_state_pe(port, PE_SNK_TRANSITION_TO_DEFAULT);
+	}
 }
 
 #ifdef CONFIG_USB_PD_REV30
@@ -1074,7 +1077,7 @@ void pd_notify_event(int port, uint32_t event_mask)
 
 void pd_clear_events(int port, uint32_t clear_mask)
 {
-	atomic_clear_bits(&pe[port].events, clear_mask);
+	atomic_and(&pe[port].events, ~clear_mask);
 }
 
 uint32_t pd_get_events(int port)
@@ -1084,6 +1087,14 @@ uint32_t pd_get_events(int port)
 
 void pe_set_snk_caps(int port, int cnt, uint32_t *snk_caps)
 {
+	const int limit = ARRAY_SIZE(pe[port].snk_caps);
+
+	if (cnt > limit) {
+		CPRINTS("C%d: Trim sink PDOs (%d) exceeding limit (%d)", port,
+			cnt, limit);
+		cnt = limit;
+	}
+
 	pe[port].snk_cap_cnt = cnt;
 
 	memcpy(pe[port].snk_caps, snk_caps, sizeof(uint32_t) * cnt);
@@ -1194,7 +1205,8 @@ static const uint32_t pd_get_fixed_pdo(int port)
 
 bool pe_snk_in_epr_mode(int port)
 {
-	return PE_CHK_FLAG(port, PE_FLAGS_IN_EPR);
+	return IS_ENABLED(CONFIG_USB_PD_EPR) &&
+	       PE_CHK_FLAG(port, PE_FLAGS_IN_EPR);
 }
 
 void pe_snk_epr_explicit_exit(int port)
@@ -1559,21 +1571,21 @@ int pe_set_ado(int port, uint32_t data)
 	/* return busy error if unable to set ado */
 	int ret = EC_ERROR_BUSY;
 
-	mutex_lock(&pe[port].ado_lock);
+	k_mutex_lock(&pe[port].ado_lock, K_FOREVER);
 	if (pe[port].ado == 0x0) {
 		pe[port].ado = data;
 		ret = EC_SUCCESS;
 	}
 
-	mutex_unlock(&pe[port].ado_lock);
+	k_mutex_unlock(&pe[port].ado_lock);
 	return ret;
 }
 
 void pe_clear_ado(int port)
 {
-	mutex_lock(&pe[port].ado_lock);
+	k_mutex_lock(&pe[port].ado_lock, K_FOREVER);
 	pe[port].ado = 0x0;
-	mutex_unlock(&pe[port].ado_lock);
+	k_mutex_unlock(&pe[port].ado_lock);
 }
 
 struct rmdo pd_get_partner_rmdo(int port)
@@ -3912,8 +3924,6 @@ static void pe_snk_transition_sink_run(int port)
 	 */
 	if (pd_timer_is_expired(port, PE_TIMER_PS_TRANSITION) &&
 	    pe[port].hard_reset_counter <= N_HARD_RESET_COUNT) {
-		PE_SET_FLAG(port, PE_FLAGS_PS_TRANSITION_TIMEOUT);
-
 		pe_set_hard_reset(port);
 	}
 }
@@ -4295,27 +4305,19 @@ static void pe_snk_hard_reset_entry(int port)
 	PE_CLR_MASK(port, BIT(PE_FLAGS_SNK_WAIT_CAP_TIMEOUT_FN) |
 				  BIT(PE_FLAGS_PROTOCOL_ERROR_FN));
 
+	/*
+	 * Stop sinking VBUS before sending Hard Reset, if the partner
+	 * previously indicated PD support. If the partner does not support PD,
+	 * the Hard Reset will ultimately be a no-op.
+	 */
+	if (pd_capable(port))
+		tc_snk_prepare_hard_reset(port);
+
 	/* Request the generation of Hard Reset Signaling by the PHY Layer */
 	prl_execute_hard_reset(port);
 
 	/* Increment the HardResetCounter */
 	pe[port].hard_reset_counter++;
-
-	/*
-	 * Transition the Sink’s power supply to the new power level if
-	 * PSTransistionTimer timeout occurred.
-	 */
-	if (PE_CHK_FLAG(port, PE_FLAGS_PS_TRANSITION_TIMEOUT)) {
-		PE_CLR_FLAG(port, PE_FLAGS_PS_TRANSITION_TIMEOUT);
-
-		/* Transition Sink's power supply to the new power level */
-		pd_set_input_current_limit(port, pe[port].curr_limit,
-					   pe[port].supply_voltage);
-		if (IS_ENABLED(CONFIG_CHARGE_MANAGER))
-			/* Set ceiling based on what's negotiated */
-			charge_manager_set_ceil(port, CEIL_REQUESTOR_PD,
-						pe[port].curr_limit);
-	}
 }
 
 static void pe_snk_hard_reset_run(int port)
@@ -4855,9 +4857,7 @@ __maybe_unused static void pe_give_sink_cap_ext_entry(int port)
 
 	skedb.vid = USB_VID_GOOGLE;
 	skedb.pid = CONFIG_USB_PID;
-#ifdef CONFIG_ZEPHYR /* USB_PD_XID is not defined in CrosEC */
 	skedb.xid = CONFIG_USB_PD_XID;
-#endif
 	skedb.fw_version = 0;
 	skedb.hw_version = 0;
 	skedb.skedb_version = 1; /* version 1.0 */
@@ -4923,10 +4923,10 @@ static void pe_send_alert_entry(int port)
 		pe_set_ready_state(port);
 	} else {
 		/* Get ADO from PE state, the ADO is a uint32_t */
-		mutex_lock(&pe[port].ado_lock);
+		k_mutex_lock(&pe[port].ado_lock, K_FOREVER);
 		*msg = pe[port].ado;
 		*len = sizeof(pe[port].ado);
-		mutex_unlock(&pe[port].ado_lock);
+		k_mutex_unlock(&pe[port].ado_lock);
 	}
 
 	/* Request the Protocol Layer to send Alert Message. */
@@ -8690,7 +8690,7 @@ __maybe_unused void pd_discovery_access_clear(int port,
 	if (!IS_ENABLED(CONFIG_USB_PD_ALT_MODE_DFP))
 		assert(0);
 
-	atomic_clear_bits(&task_access[port][type], 0xFFFFFFFF);
+	atomic_clear(&task_access[port][type]);
 }
 
 __maybe_unused bool pd_discovery_access_validate(int port,

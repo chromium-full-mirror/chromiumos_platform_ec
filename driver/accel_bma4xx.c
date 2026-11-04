@@ -50,12 +50,6 @@ static inline int bma4_read8(const struct motion_sensor_t *s, const int reg,
 	return i2c_read8(s->port, s->i2c_spi_addr_flags, reg, data_ptr);
 }
 
-__maybe_unused static inline int bma4_read16(const struct motion_sensor_t *s,
-					     const int reg, int *data_ptr)
-{
-	return i2c_read16(s->port, s->i2c_spi_addr_flags, reg, data_ptr);
-}
-
 /**
  * Write 8bit register to accelerometer.
  */
@@ -72,7 +66,7 @@ static inline int bma4_write8(const struct motion_sensor_t *s, const int reg,
 	 * the sensor. Given we are only doing write during init, add
 	 * the delay unconditionally.
 	 */
-	crec_usleep(450);
+	k_usleep(450);
 
 	return ret;
 }
@@ -152,7 +146,7 @@ static int wait_and_read_data(struct motion_sensor_t *s, intv3_t v)
 	/* Check if data is ready */
 	while (try_cnt && (!(reg_data[0] & BMA4_STAT_DATA_RDY_ACCEL_MSK))) {
 		/* 20ms delay for 50Hz ODR */
-		crec_msleep(20);
+		k_msleep(20);
 
 		/* Read the status register */
 		RETURN_ERROR(i2c_read_block(s->port, s->i2c_spi_addr_flags,
@@ -280,7 +274,7 @@ static int set_range(struct motion_sensor_t *s, int range, int round)
 	if ((BMA4_REG_TO_RANGE(range_reg_val) < range) && round)
 		range_reg_val = BMA4_RANGE_TO_REG(range * 2);
 
-	mutex_lock(s->mutex);
+	k_mutex_lock(s->mutex, K_FOREVER);
 
 	/* Determine the new value of control reg and attempt to write it. */
 	ret = bma4_set_reg8(s, BMA4_ACCEL_RANGE_ADDR,
@@ -291,7 +285,7 @@ static int set_range(struct motion_sensor_t *s, int range, int round)
 	if (ret == EC_SUCCESS)
 		s->current_range = BMA4_REG_TO_RANGE(range_reg_val);
 
-	mutex_unlock(s->mutex);
+	k_mutex_unlock(s->mutex);
 
 	return ret;
 }
@@ -376,7 +370,7 @@ static int set_data_rate(const struct motion_sensor_t *s, int rate, int round)
 	int ret = 0;
 	struct accelgyro_saved_data_t *data = s->drv_data;
 
-	mutex_lock(s->mutex);
+	k_mutex_lock(s->mutex, K_FOREVER);
 
 	if (rate == 0) {
 		/* Disable accel */
@@ -419,7 +413,7 @@ static int set_data_rate(const struct motion_sensor_t *s, int rate, int round)
 	}
 
 out:
-	mutex_unlock(s->mutex);
+	k_mutex_unlock(s->mutex);
 
 	return ret;
 }
@@ -437,7 +431,7 @@ static int set_offset(const struct motion_sensor_t *s, const int16_t *offset,
 	int ret;
 	intv3_t v = { offset[X], offset[Y], offset[Z] };
 
-	mutex_lock(s->mutex);
+	k_mutex_lock(s->mutex, K_FOREVER);
 
 	ret = write_accel_offset(s, v);
 
@@ -448,7 +442,7 @@ static int set_offset(const struct motion_sensor_t *s, const int16_t *offset,
 				    BMA4_NV_ACCEL_OFFSET_MSK);
 	}
 
-	mutex_unlock(s->mutex);
+	k_mutex_unlock(s->mutex);
 
 	return ret;
 }
@@ -459,12 +453,12 @@ static int get_offset(const struct motion_sensor_t *s, int16_t *offset,
 	int i, val, ret;
 	intv3_t v;
 
-	mutex_lock(s->mutex);
+	k_mutex_lock(s->mutex, K_FOREVER);
 
 	for (i = X; i <= Z; i++) {
 		ret = bma4_read8(s, BMA4_OFFSET_0_ADDR + i, &val);
 		if (ret) {
-			mutex_unlock(s->mutex);
+			k_mutex_unlock(s->mutex);
 			return ret;
 		}
 
@@ -475,7 +469,7 @@ static int get_offset(const struct motion_sensor_t *s, int16_t *offset,
 				    BMA4_OFFSET_ACC_DIV_MG);
 	}
 
-	mutex_unlock(s->mutex);
+	k_mutex_unlock(s->mutex);
 
 	/* Offset is in milli-g */
 	rotate(v, *s->rot_standard_ref, v);
@@ -517,13 +511,13 @@ static int read(const struct motion_sensor_t *s, intv3_t v)
 	uint8_t acc[6];
 	int ret;
 
-	mutex_lock(s->mutex);
+	k_mutex_lock(s->mutex, K_FOREVER);
 
 	/* Read 6 bytes starting at X_AXIS_LSB. */
 	ret = i2c_read_block(s->port, s->i2c_spi_addr_flags, BMA4_DATA_8_ADDR,
 			     acc, 6);
 
-	mutex_unlock(s->mutex);
+	k_mutex_unlock(s->mutex);
 
 	if (ret)
 		return ret;
@@ -547,7 +541,7 @@ static int init(struct motion_sensor_t *s)
 	if (s->chip != MOTIONSENSE_CHIP_BMA422 || reg_val != BMA422_CHIP_ID)
 		return EC_ERROR_HW_INTERNAL;
 
-	mutex_lock(s->mutex);
+	k_mutex_lock(s->mutex, K_FOREVER);
 
 	/*
 	 * Disable accelerometer by default, set ODR to match. This avoids
@@ -574,7 +568,7 @@ static int init(struct motion_sensor_t *s)
 	}
 
 out:
-	mutex_unlock(s->mutex);
+	k_mutex_unlock(s->mutex);
 
 	if (ret)
 		return ret;
@@ -590,7 +584,7 @@ static int bma4xx_enable_interrupt(const struct motion_sensor_t *s, bool enable)
 	int ret;
 	int interrupt_status_reg;
 
-	mutex_lock(s->mutex);
+	k_mutex_lock(s->mutex, K_FOREVER);
 
 	/* Flush the FIFO */
 	GOTO_ON_ERROR(out, bma4_write8(s, BMA4_CMD_ADDR, BMA4_FIFO_FLUSH));
@@ -606,7 +600,7 @@ static int bma4xx_enable_interrupt(const struct motion_sensor_t *s, bool enable)
 	GOTO_ON_ERROR(out,
 		      bma4_read8(s, BMA4_INT_STATUS_1, &interrupt_status_reg));
 out:
-	mutex_unlock(s->mutex);
+	k_mutex_unlock(s->mutex);
 	return ret;
 }
 
@@ -652,12 +646,28 @@ static void process_fifo_data(struct motion_sensor_t *s, uint8_t *data,
 	}
 }
 
+/*
+ * Burst read from INT_STATUS_1 (0x1D) to FIFO_DATA (0x26):
+ * registers 0x1D..0x25, then one 6-byte headerless accel frame from
+ * FIFO_DATA (which does not auto-increment).
+ */
+struct bma4_irq_burst {
+	uint8_t int_status;
+	uint8_t unused[BMA4_FIFO_LENGTH_0_ADDR - BMA4_INT_STATUS_1 - 1];
+	uint8_t fifo_len[2];
+	uint8_t fifo[6];
+};
+BUILD_ASSERT(FIFO_BUFFER_SIZE % sizeof(((struct bma4_irq_burst *)0)->fifo) ==
+	     0);
+BUILD_ASSERT(sizeof(struct bma4_irq_burst) <= 64);
+
 /* Handle interrupt in task context */
 static int irq_handler(struct motion_sensor_t *s, uint32_t *event)
 {
 	uint32_t irq_timestamp = last_irq_timestamp;
 	bool read_any_data = false;
-	int interrupt_status_reg, fifo_depth;
+	struct bma4_irq_burst burst;
+	int fifo_depth;
 
 	if ((!(*event & CONFIG_ACCEL_BMA4XX_INT_EVENT)) ||
 	    motion_sensor_in_forced_mode(s)) {
@@ -677,10 +687,11 @@ static int irq_handler(struct motion_sensor_t *s, uint32_t *event)
 	 */
 	for (int i = 0; i < 200; i++) {
 		/* Read interrupt status, also clears pending IRQs */
-		RETURN_ERROR(bma4_read8(s, BMA4_INT_STATUS_1,
-					&interrupt_status_reg));
-		if ((interrupt_status_reg & (BMA4_FFULL_INT | BMA4_FWM_INT |
-					     BMA4_ACC_DRDY_INT)) == 0) {
+		RETURN_ERROR(i2c_read_block(s->port, s->i2c_spi_addr_flags,
+					    BMA4_INT_STATUS_1,
+					    (uint8_t *)&burst, sizeof(burst)));
+		if ((burst.int_status & (BMA4_FFULL_INT | BMA4_FWM_INT |
+					 BMA4_ACC_DRDY_INT)) == 0) {
 			if (!read_any_data)
 				return EC_ERROR_NOT_HANDLED;
 			if (IS_ENABLED(CONFIG_ACCEL_FIFO))
@@ -688,19 +699,33 @@ static int irq_handler(struct motion_sensor_t *s, uint32_t *event)
 			return EC_SUCCESS;
 		}
 
-		RETURN_ERROR(
-			bma4_read16(s, BMA4_FIFO_LENGTH_0_ADDR, &fifo_depth));
+		fifo_depth =
+			burst.fifo_len[0] |
+			((burst.fifo_len[1] & BMA4_FIFO_LENGTH_MSB_MSK) << 8);
+
+		/*
+		 * Process the frame from the burst. If the FIFO was empty, it
+		 * reads as 0x8000, which process_fifo_data() skips.
+		 */
+		if (fifo_depth > 0) {
+			process_fifo_data(s, burst.fifo, sizeof(burst.fifo),
+					  irq_timestamp);
+			fifo_depth -= sizeof(burst.fifo);
+			read_any_data = true;
+		}
+
+		/* Read whatever did not fit in the burst. */
 		while (fifo_depth > 0) {
 			uint8_t fifo_data[FIFO_BUFFER_SIZE];
 			int fifo_read = min(ARRAY_SIZE(fifo_data), fifo_depth);
 			int ret;
 
-			mutex_lock(s->mutex);
+			k_mutex_lock(s->mutex, K_FOREVER);
 			ret = i2c_read_block(s->port, s->i2c_spi_addr_flags,
 					     BMA4_FIFO_DATA_ADDR, fifo_data,
 					     fifo_read);
 			fifo_depth -= fifo_read;
-			mutex_unlock(s->mutex);
+			k_mutex_unlock(s->mutex);
 			if (ret)
 				return ret;
 
@@ -709,7 +734,7 @@ static int irq_handler(struct motion_sensor_t *s, uint32_t *event)
 			read_any_data = true;
 		}
 	}
-	CPRINTF("BMA4xx: irq 0x%04x stuck\n", interrupt_status_reg);
+	CPRINTF("BMA4xx: irq 0x%04x stuck\n", burst.int_status);
 	return EC_ERROR_HW_INTERNAL;
 }
 #endif /* BMA4XX_USE_INTERRUPTS */

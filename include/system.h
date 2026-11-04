@@ -8,18 +8,17 @@
 #ifndef PLATFORM_EC_INCLUDE_SYSTEM_H_
 #define PLATFORM_EC_INCLUDE_SYSTEM_H_
 
-#include "atomic.h"
 #include "common.h"
 #include "compile_time_macros.h"
 #include "console.h"
 #include "ec_commands.h"
 #include "timer.h"
 
+#include <zephyr/sys/atomic.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#ifdef CONFIG_ZEPHYR
 
 #include <drivers/cros_system.h>
 
@@ -36,9 +35,6 @@ void ztest_interrupt_disable_all(void);
 #else /* !CONFIG_CPU_CORTEX_M */
 #define interrupt_disable_all() irq_lock()
 #endif
-#else /* !CONFIG_ZEPHYR */
-#define interrupt_disable_all() interrupt_disable()
-#endif /* CONFIG_ZEPHYR */
 
 /* Per chip implementation to save/read raw EC_RESET_FLAG_ flags. */
 void chip_save_reset_flags(uint32_t flags);
@@ -505,6 +501,11 @@ enum system_bbram_idx {
 	SYSTEM_BBRAM_IDX_PD1,
 	SYSTEM_BBRAM_IDX_PD2,
 	SYSTEM_BBRAM_IDX_TRY_SLOT,
+	/* Battery charge control sustainer limit settings (1 byte each) */
+	SYSTEM_BBRAM_IDX_CHG_LIMIT_LOWER,
+	SYSTEM_BBRAM_IDX_CHG_LIMIT_UPPER,
+	SYSTEM_BBRAM_IDX_CHG_LIMIT_FLAGS,
+	SYSTEM_BBRAM_IDX_MAX,
 };
 
 /* Maximum number of bbram indexes allotted for PD port state data */
@@ -520,7 +521,6 @@ enum system_bbram_idx {
 int system_get_bbram(enum system_bbram_idx idx, uint8_t *value);
 int system_set_bbram(enum system_bbram_idx idx, uint8_t value);
 
-#ifdef CONFIG_ZEPHYR
 /**
  * Get hibernate wake source.
  *
@@ -530,7 +530,6 @@ int system_set_bbram(enum system_bbram_idx idx, uint8_t value);
  * @return Negative errno code if failure.
  */
 int system_get_hibernate_wake_source(enum hibernate_wake_source *source);
-#endif
 
 /**
  * Put the EC in hibernate (lowest EC power state).
@@ -550,10 +549,16 @@ int system_get_hibernate_wake_source(enum hibernate_wake_source *source);
 void system_hibernate(uint32_t seconds, uint32_t microseconds);
 
 /**
- * Optional board-level callback functions called before and after initiating
- * chip-level hibernate sequence. These function may or may not return,
- * depending if the board implements an alternate hibernate method.  The _late
- * version is called after interrupts are disabled.
+ * Optional board-level callback functions called before and during the
+ * chip-level hibernate sequence.
+ *
+ * board_hibernate() is called while interrupts, tasks, and the watchdog are
+ * still active (e.g. for I2C transactions to put external ICs into low-power
+ * mode) and before EC_RESET_FLAG_HIBERNATE is saved. It must return.
+ *
+ * board_hibernate_late() is called after EC_RESET_FLAG_HIBERNATE is saved and
+ * interrupts and the watchdog are disabled. It may not return if the board
+ * implements an alternate hibernate method that cuts EC power directly.
  */
 void board_hibernate(void) __attribute__((weak));
 void board_hibernate_late(void) __attribute__((weak));
@@ -647,7 +652,7 @@ extern atomic_t sleep_mask;
  */
 static inline void enable_sleep(uint32_t mask)
 {
-	atomic_clear_bits(&sleep_mask, mask);
+	atomic_and(&sleep_mask, ~mask);
 }
 
 /**
@@ -695,7 +700,7 @@ static inline void disable_idle(void)
 
 static inline void enable_idle(void)
 {
-	atomic_clear_bits(&idle_disabled, 1);
+	atomic_and(&idle_disabled, ~1);
 }
 #endif
 
@@ -786,19 +791,36 @@ uintptr_t system_get_fw_reset_vector(uintptr_t base);
  * Chip-specific pre-system jump configuration.
  *
  * This callback is invoked during a system jump (e.g., from RO to RW or
- * vice versa) immediately after interrupts have been globally disabled
- * in jump_to_image().
+ * vice versa) after interrupts have been globally disabled in
+ * jump_to_image(), and before arch_pre_system_jump().
  *
- * It allows the chip-specific shim to perform critical hardware cleanup or
- * configurations (such as disabling memory mappings or caching) that must
- * execute in a strictly synchronous, interrupt-free context just before
- * the actual jump.
+ * It is intended for SoC- or program-level shims (zephyr/shim/chip/ or
+ * zephyr/program/) to tear down chip peripherals and mappings (such as
+ * resetting timers/UARTs, disabling SoC caches/ILM mappings, or stopping
+ * the system clock) while CPU memory protection is still active.
  *
  * Since interrupts are guaranteed to be disabled when this is called,
  * implementations must not attempt to lock/unlock interrupts or rely on
  * any asynchronous operations.
  */
 void chip_pre_system_jump(void);
+
+/**
+ * Architecture-specific pre-system jump configuration.
+ *
+ * This callback is invoked during a system jump (e.g., from RO to RW or
+ * vice versa) after interrupts have been globally disabled and after
+ * chip_pre_system_jump() has completed in jump_to_image().
+ *
+ * It is intended for CPU architecture shims (zephyr/shim/core/) to tear
+ * down core-level state (such as disabling ARM MPU or clearing RISC-V
+ * PMP regions) immediately before jumping to the target image.
+ *
+ * Since interrupts are guaranteed to be disabled when this is called,
+ * implementations must not attempt to lock/unlock interrupts or rely on
+ * any asynchronous operations.
+ */
+void arch_pre_system_jump(void);
 
 /**
  * Check if the EC is warm booting.

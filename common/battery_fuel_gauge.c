@@ -15,6 +15,8 @@
 #include "timer.h"
 #include "util.h"
 
+#include <zephyr/kernel.h>
+
 #define CPRINTS(format, args...) cprints(CC_CHARGER, format, ##args)
 #define BCFGPRT(format, args...) cprints(CC_CHARGER, "BCFG " format, ##args)
 
@@ -203,7 +205,7 @@ void init_battery_type(void)
 		}
 		CPRINTS("Manuf name not found, wait 100ms then retry (attempt %d)",
 			i);
-		crec_msleep(100);
+		k_msleep(100);
 		ret = battery_manufacturer_name(batt_manuf_name,
 						sizeof(batt_manuf_name));
 	}
@@ -237,7 +239,7 @@ void init_battery_type(void)
 		}
 		CPRINTS("Device name not found, wait 100ms then retry (attempt %d)",
 			i);
-		crec_msleep(100);
+		k_msleep(100);
 		ret = battery_device_name(batt_device_name,
 					  sizeof(batt_device_name));
 	}
@@ -361,6 +363,44 @@ int board_cut_off_battery(void)
 
 	return rv ? EC_RES_ERROR : EC_RES_SUCCESS;
 }
+
+#ifdef CONFIG_PLATFORM_EC_BATTERY_WAKEUP_CUT_OFF
+/**
+ * Battery wakeup cut off command via SMBus write word.
+ *
+ * @param wakeup_ship_mode		Battery wakeup ship mode information
+ * @return non-zero if error
+ */
+static int wakeup_cut_off_battery_sb_write(
+	const struct wakeup_ship_mode_info *wakeup_ship_mode)
+{
+	int rv;
+
+	/* wakeup ship mode command requires writing 2 data values */
+	rv = sb_write(wakeup_ship_mode->reg_addr,
+		      wakeup_ship_mode->reg_data[0]);
+	if (rv)
+		return rv;
+
+	return sb_write(wakeup_ship_mode->reg_addr,
+			wakeup_ship_mode->reg_data[1]);
+}
+
+test_export_static int board_wakeup_cutoff_battery(void)
+{
+	const struct board_batt_params *params = get_batt_params();
+	int rv;
+
+	/* If battery is unknown can't send wakeup ship mode command */
+	if (!params)
+		return EC_RES_ERROR;
+
+	rv = wakeup_cut_off_battery_sb_write(
+		&params->fuel_gauge.wakeup_ship_mode);
+
+	return rv ? EC_RES_ERROR : EC_RES_SUCCESS;
+}
+#endif /* CONFIG_PLATFORM_EC_BATTERY_WAKEUP_CUT_OFF */
 #endif /* !CONFIG_FUEL_GAUGE */
 
 #ifndef TEST_BATTERY_CONFIG
@@ -445,6 +485,19 @@ test_mockable int battery_is_charge_fet_disabled(void)
  * the battery is able to provide power and thus prevent a brownout when the
  * AP is powered on by the EC.
  */
+
+#ifdef CONFIG_PLATFORM_EC_BATTERY_WAKEUP_CUT_OFF
+/*
+ * Wakeup commands are sent while the battery stays in the disconnect state.
+ * This function is called from many places (charge state machine, PD,
+ * charger/PPC drivers, ...), so the wakeup command is sent at most once per
+ * call, and only within CONFIG_PLATFORM_EC_BATTERY_WAKEUP_CUT_OFF_TIMEOUT_MSEC
+ * after the disconnect state was first detected.
+ */
+static k_timepoint_t wakeup_cutoff_deadline;
+static bool wakeup_cutoff_active;
+#endif
+
 enum battery_disconnect_state battery_get_disconnect_state(void)
 {
 	const struct board_batt_params *params = get_batt_params();
@@ -465,8 +518,25 @@ enum battery_disconnect_state battery_get_disconnect_state(void)
 			params->fuel_gauge.fet.reg_addr, reg,
 			params->fuel_gauge.fet.reg_mask,
 			params->fuel_gauge.fet.disconnect_val);
+
+#ifdef CONFIG_PLATFORM_EC_BATTERY_WAKEUP_CUT_OFF
+		if (!wakeup_cutoff_active) {
+			/* Disconnect just detected: start window */
+			wakeup_cutoff_active = true;
+			wakeup_cutoff_deadline = sys_timepoint_calc(K_MSEC(
+				CONFIG_PLATFORM_EC_BATTERY_WAKEUP_CUT_OFF_TIMEOUT_MSEC));
+		}
+		if (!sys_timepoint_expired(wakeup_cutoff_deadline))
+			board_wakeup_cutoff_battery();
+#endif
+
 		return BATTERY_DISCONNECTED;
 	}
+
+#ifdef CONFIG_PLATFORM_EC_BATTERY_WAKEUP_CUT_OFF
+	/* Battery is awake again, allow a new wakeup window */
+	wakeup_cutoff_active = false;
+#endif
 
 	return BATTERY_NOT_DISCONNECTED;
 }
@@ -488,20 +558,28 @@ hc_battery_config(struct ec_host_cmd_handler_args *args)
 {
 	struct batt_conf_header *r = args->output_buf;
 	const struct batt_conf_embed *batt = get_batt_conf();
+	size_t manuf_name_size = strlen(batt->manuf_name);
+	size_t device_name_size =
+		batt->device_name ? strlen(batt->device_name) : 0;
+	size_t resp_size = sizeof(*r) + manuf_name_size + device_name_size +
+			   sizeof(batt->config);
 	uint8_t *p = (void *)r;
 
+	if (resp_size > args->output_buf_max)
+		return EC_HOST_CMD_OVERFLOW;
+
 	r->struct_version = EC_BATTERY_CONFIG_STRUCT_VERSION;
-	r->manuf_name_size = strlen(batt->manuf_name);
-	r->device_name_size = batt->device_name ? strlen(batt->device_name) : 0;
+	r->manuf_name_size = manuf_name_size;
+	r->device_name_size = device_name_size;
 	p += sizeof(*r);
-	memcpy(p, batt->manuf_name, r->manuf_name_size);
-	p += r->manuf_name_size;
-	memcpy(p, batt->device_name, r->device_name_size);
-	p += r->device_name_size;
+	memcpy(p, batt->manuf_name, manuf_name_size);
+	p += manuf_name_size;
+	if (device_name_size > 0)
+		memcpy(p, batt->device_name, device_name_size);
+	p += device_name_size;
 	memcpy(p, &batt->config, sizeof(batt->config));
 
-	args->output_buf_size = sizeof(*r) + r->manuf_name_size +
-				r->device_name_size + sizeof(batt->config);
+	args->output_buf_size = resp_size;
 
 	return EC_HOST_CMD_SUCCESS;
 }

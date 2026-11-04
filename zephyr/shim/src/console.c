@@ -34,6 +34,8 @@
 #include <zephyr/sys/printk.h>
 #include <zephyr/sys/ring_buffer.h>
 
+#include <subsys/shell/shell_ops.h>
+
 #if !defined(CONFIG_SHELL_BACKEND_SERIAL) && \
 	!defined(CONFIG_SHELL_BACKEND_DUMMY) /* nocheck */
 #error Must select either CONFIG_SHELL_BACKEND_SERIAL or \
@@ -46,6 +48,13 @@
 
 BUILD_ASSERT(EC_TASK_PRIORITY(EC_SHELL_PRIO) == CONFIG_SHELL_THREAD_PRIORITY,
 	     "EC_SHELL_PRIO does not match CONFIG_SHELL_THREAD_PRIORITY.");
+
+#ifdef CONFIG_SHELL_BACKEND_SERIAL_API_INTERRUPT_DRIVEN
+BUILD_ASSERT(CONFIG_SHELL_BACKEND_SERIAL_TX_RING_BUFFER_SIZE >=
+		     CONFIG_SHELL_PRINTF_BUFF_SIZE,
+	     "SHELL_BACKEND_SERIAL_TX_RING_BUFFER_SIZE must be >= "
+	     "SHELL_PRINTF_BUFF_SIZE to fit a full print message.");
+#endif
 
 #ifdef CONFIG_PIGWEED_LOG_TOKENIZED_LIB
 char ts_str[PRINTF_TIMESTAMP_BUF_SIZE];
@@ -241,12 +250,11 @@ static void print_console_help(const char *name,
 			       const struct zephyr_console_command *command)
 {
 	if (command->help) {
-		shell_fprintf(shell_zephyr, SHELL_NORMAL, "%s\n",
-			      command->help);
+		shell_print(shell_zephyr, "%s", command->help);
 	}
 	if (command->argdesc) {
-		shell_fprintf(shell_zephyr, SHELL_NORMAL, "Usage: %s %s\n",
-			      name, command->argdesc);
+		shell_print(shell_zephyr, "Usage: %s %s", name,
+			    command->argdesc);
 	}
 }
 #endif
@@ -278,15 +286,12 @@ int zshim_run_ec_console_command(const struct zephyr_console_command *command,
 
 	/* Print common parameter error conditions and help on error */
 	if (ret >= EC_ERROR_PARAM1 && ret < EC_ERROR_PARAM_COUNT) {
-		shell_fprintf(shell_zephyr, SHELL_NORMAL,
-			      "Parameter %d invalid\n",
-			      ret - EC_ERROR_PARAM1 + 1);
+		shell_print(shell_zephyr, "Parameter %d invalid",
+			    ret - EC_ERROR_PARAM1 + 1);
 	} else if (ret == EC_ERROR_PARAM_COUNT) {
-		shell_fprintf(shell_zephyr, SHELL_NORMAL,
-			      "Wrong number of parameters\n");
+		shell_print(shell_zephyr, "Wrong number of parameters");
 	} else {
-		shell_fprintf(shell_zephyr, SHELL_NORMAL,
-			      "Command returned error: %d\n", ret);
+		shell_print(shell_zephyr, "Command returned error: %d", ret);
 	}
 
 #ifdef CONFIG_SHELL_HELP
@@ -340,8 +345,9 @@ static int zephyr_shim_console_out(int c)
 	 * console command can be used to turn Zephyr logging on and off.
 	 *
 	 * Other logging modes (LOG_MODE_IMMEDIATE, LOG_MODE_DEFERRED)
-	 * should enable CONFIG_PLATFORM_EC_LOG_BACKEND_CONSOLE_BUFFER to
-	 * capture Zephyr log messages into the console buffer.
+	 * should enable CONFIG_PLATFORM_EC_LOG_BACKEND_CROS_EC or
+	 * CONFIG_PLATFORM_EC_LOG_BACKEND_CONSOLE_BUFFER to capture Zephyr
+	 * log messages into the console buffer.
 	 */
 	if (console_channel_is_disabled(CC_ZEPHYR_LOG)) {
 		return c;
@@ -366,7 +372,8 @@ static int init_ec_shell(void)
 	 * allows us to capture all character output and copy into the
 	 * AP console buffer.
 	 *
-	 * For other other logging modes, projects should enable
+	 * For other logging modes, projects should enable
+	 * CONFIG_PLATFORM_EC_LOG_BACKEND_CROS_EC or
 	 * CONFIG_PLATFORM_EC_LOG_BACKEND_CONSOLE_BUFFER to capture log
 	 * output into the AP console buffer.
 	 */
@@ -488,33 +495,98 @@ static void handle_sprintf_rv(int rv, size_t *len)
 
 static bool shell_is_active(void)
 {
-	return shell_zephyr != NULL &&
-	       shell_zephyr->ctx->state == SHELL_STATE_ACTIVE;
+	return !shell_stopped && shell_zephyr != NULL &&
+	       shell_ready(shell_zephyr);
 }
 
-static void zephyr_print(const char *buff, size_t size)
+/*
+ * Write a pre-formatted string directly to the Zephyr shell output stream,
+ * expanding '\n' to "\r\n".
+ *
+ * Calling shell_fprintf(shell_zephyr, SHELL_NORMAL, "%s", buff) on an
+ * already-formatted buffer is expensive because it:
+ *   1. Runs a redundant cbvprintf() formatting pass and copies characters
+ *      byte-by-byte through the 30-byte shell_fprintf intermediate buffer.
+ *   2. Calls z_shell_cmd_line_erase() before the message and
+ *      z_shell_print_prompt_and_cmd() after the message when
+ *      CONFIG_SHELL_VT100_COMMANDS is enabled, turning one print into four
+ *      formatting and UART write operations.
+ */
+static void shell_write_str(const struct shell *sh, const char *buff,
+			    size_t size)
+{
+	const char *end = buff + size;
+
+	z_shell_lock(sh);
+
+	while (buff < end && *buff != '\0') {
+		const char *p = buff;
+		const char *out = buff;
+		size_t len;
+
+		/* Scan up to the next newline so each non-newline span is
+		 * written in a single stream call.
+		 */
+		while (p < end && *p != '\0' && *p != '\n') {
+			p++;
+		}
+		len = p - buff;
+		if (len == 0) {
+			out = "\r\n";
+			len = 2;
+			p++;
+		}
+		z_shell_print_stream(sh, out, len);
+		buff = p;
+	}
+
+	z_shell_unlock(sh);
+}
+
+void zephyr_console_panic(void)
+{
+	/* Switch the shell to blocking mode in case it is used during panic. */
+	if (shell_is_active()) {
+		(void)shell_zephyr->iface->api->enable(shell_zephyr->iface,
+						       true);
+	}
+}
+
+void zephyr_print(const char *buff, size_t size)
 {
 	if (IS_ENABLED(CONFIG_PLATFORM_EC_PANIC_LOG)) {
 		panic_log_write_str(buff, size);
 	}
 
-	bool in_isr = k_is_in_isr();
-
-	/* shell_* functions can not be used in ISRs so optionally use
-	 * printk instead.
+	/* If the shell is about to be (or is) stopped, or if the caller cannot
+	 * yield (including in ISRs), use printk_unlocked() since
+	 * shell_write_str() may block on shell operations. Use
+	 * printk_unlocked() rather than printk() because printk() redirects to
+	 * the logging subsystem when CONFIG_LOG_PRINTK=y, which would cause an
+	 * infinite loop when zephyr_print() is called from a logging backend.
+	 *
+	 * When CONFIG_LOG_MODE_MINIMAL is enabled, printk_unlocked() routes
+	 * through zephyr_shim_console_out(), which already notifies the AP
+	 * console buffer. For other logging modes, notify it explicitly here.
 	 */
-	if (in_isr) {
-		if (IS_ENABLED(CONFIG_PLATFORM_EC_ISR_CONSOLE_OUTPUT)) {
-			printk("[ISR]%s", buff);
+	if (!shell_is_active() || !k_can_yield()) {
+		static const char isr_prefix[] = "[ISR]";
+		bool in_isr = k_is_in_isr();
+
+		if (in_isr &&
+		    !IS_ENABLED(CONFIG_PLATFORM_EC_ISR_CONSOLE_OUTPUT)) {
+			return;
 		}
-		return;
-	}
 
-	/* If the shell is about to be (or is) stopped, use printk, since the
-	 * output may be stalled and the shell mutex held.
-	 */
-	if (shell_stopped || !shell_is_active()) {
-		printk("%s", buff);
+		printk_unlocked("%s%s", in_isr ? isr_prefix : "", buff);
+		if (!IS_ENABLED(CONFIG_LOG_MODE_MINIMAL) &&
+		    IS_ENABLED(CONFIG_PLATFORM_EC_HOSTCMD_CONSOLE)) {
+			if (in_isr) {
+				console_buf_notify_chars(
+					isr_prefix, sizeof(isr_prefix) - 1);
+			}
+			console_buf_notify_chars(buff, size);
+		}
 		return;
 	}
 
@@ -522,7 +594,7 @@ static void zephyr_print(const char *buff, size_t size)
 	 * backend uses uart_fifo_fill(), while LOG_MODE_MINIMAL uses
 	 * printk() and calls uart_poll_out().
 	 */
-	shell_fprintf(shell_zephyr, SHELL_NORMAL, "%s", buff);
+	shell_write_str(shell_zephyr, buff, size);
 
 	/* Capture legacy output into the console buffer read by the AP.
 	 */
@@ -531,7 +603,7 @@ static void zephyr_print(const char *buff, size_t size)
 	}
 
 	if (IS_ENABLED(CONFIG_PLATFORM_EC_CONSOLE_DEBUG)) {
-		printk("%s", buff);
+		printk_unlocked("%s", buff);
 	}
 }
 #endif /* CONFIG_PIGWEED_LOG_TOKENIZED_LIB */

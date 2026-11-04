@@ -4,7 +4,6 @@
  */
 
 #include "adc.h"
-#include "atomic.h"
 #include "battery.h"
 #include "builtin/assert.h"
 #include "charge_manager.h"
@@ -29,9 +28,9 @@
 #include "usbc_ppc.h"
 #include "util.h"
 #include "zephyr/include/usbc/pdc_dpm.h"
-#ifdef CONFIG_ZEPHYR
 #include "zephyr/include/usbc/pdc_power_mgmt.h"
-#endif
+
+#include <zephyr/sys/atomic.h>
 
 #ifdef HAS_MOCK_CHARGE_MANAGER
 #error Mock defined HAS_MOCK_CHARGE_MANAGER
@@ -118,7 +117,6 @@ static int save_log[CHARGE_PORT_COUNT];
 #endif
 
 /* Use mutexing to sync charge_manager_refresh and pdc_power_mgmt */
-#ifdef CONFIG_ZEPHYR
 K_MUTEX_DEFINE(cm_refresh);
 
 // #define CM_MUTEX_DEBUG
@@ -139,24 +137,18 @@ void charge_manager_dump_mutex_history()
 #define CM_MUTEX_LOCK(m)                                        \
 	{                                                       \
 		MUTEX_HISTORY_LOG(&mutex_event_rb, m, LOCKING); \
-		mutex_lock(m);                                  \
+		k_mutex_lock(m, K_FOREVER);                     \
 		MUTEX_HISTORY_LOG(&mutex_event_rb, m, LOCKED);  \
 	}
 #define CM_MUTEX_UNLOCK(m)                                       \
 	{                                                        \
-		mutex_unlock(m);                                 \
+		k_mutex_unlock(m);                               \
 		MUTEX_HISTORY_LOG(&mutex_event_rb, m, UNLOCKED); \
 	}
 #else
-#define CM_MUTEX_LOCK(m) mutex_lock(m)
-#define CM_MUTEX_UNLOCK(m) mutex_unlock(m)
+#define CM_MUTEX_LOCK(m) k_mutex_lock(m, K_FOREVER)
+#define CM_MUTEX_UNLOCK(m) k_mutex_unlock(m)
 #endif /* CM_MUTEX_DEBUG */
-
-#else /* CONFIG_ZEPHYR */
-/* TODO(b/427504021) - Legacy EC mutexes are not recursive */
-#define CM_MUTEX_LOCK(m)
-#define CM_MUTEX_UNLOCK(m)
-#endif /* CONFIG_ZEPHYR */
 
 /* Store current state of port enable / charge current. */
 /* During charge_manager_refresh, the following data is considered stale. Make
@@ -798,7 +790,7 @@ static bool is_battery_disconnected(void)
 	if (!IS_ENABLED(CONFIG_BATTERY)) {
 		return false;
 	}
-	enum battery_present bp = battery_is_present();
+	enum battery_present bp = charger_current_battery_params()->is_present;
 	return (bp == BP_NO || bp == BP_NOT_SURE ||
 		(bp == BP_YES &&
 		 battery_is_cut_off() != BATTERY_CUTOFF_STATE_NORMAL));
@@ -1161,8 +1153,7 @@ static void charge_manager_refresh(void)
 	/* New power requests must be set only after updating the globals. */
 	if (is_pd_port(updated_new_port)) {
 		/* Check if we can get requested voltage/current */
-		if ((IS_ENABLED(CONFIG_USB_PD_TCPMV2) &&
-		     IS_ENABLED(CONFIG_USB_PE_SM)) ||
+		if (IS_ENABLED(CONFIG_USB_PD_TCPMV2) ||
 		    IS_ENABLED(CONFIG_USB_PDC_POWER_MGMT)) {
 			uint32_t pdo;
 			uint32_t max_voltage;
@@ -1211,13 +1202,13 @@ static void charge_manager_refresh(void)
 	if (is_pd_port(updated_old_port))
 		pd_set_new_power_request(updated_old_port);
 
+	CM_MUTEX_UNLOCK(&cm_refresh);
+
 	if (power_changed) {
 		hook_notify(HOOK_POWER_SUPPLY_CHANGE);
 		/* notify host of power info change */
 		pd_send_host_event(PD_EVENT_POWER_CHANGE);
 	}
-
-	CM_MUTEX_UNLOCK(&cm_refresh);
 }
 DECLARE_DEFERRED(charge_manager_refresh);
 
@@ -1474,7 +1465,7 @@ void charge_manager_leave_safe_mode(void)
 	 * CHARGE_PORT_NONE around init time and not cut off the
 	 * input FETs.
 	 */
-	crec_msleep(board_get_leave_safe_mode_delay_ms());
+	k_msleep(board_get_leave_safe_mode_delay_ms());
 	CPRINTS("%s()", __func__);
 	left_safe_mode = 1;
 	if (charge_manager_is_seeded())
@@ -1649,6 +1640,15 @@ enum charge_supplier charge_manager_get_supplier(void)
 	CM_MUTEX_UNLOCK(&cm_refresh);
 
 	return retval;
+}
+
+int charge_manager_get_available_current(int supplier, int port)
+{
+	if (supplier < 0 || supplier >= CHARGE_SUPPLIER_COUNT ||
+	    !is_valid_port(port))
+		return 0;
+
+	return available_charge[supplier][port].current;
 }
 
 void charge_manager_set_supplier(int port, enum charge_supplier supplier)

@@ -10,6 +10,7 @@
 #include "host_command.h"
 #include "include/power_button.h"
 #include "mkbp_fifo.h"
+#include "mkbp_input_devices.h"
 #include "power.h"
 #include "tablet_mode.h"
 #include "test/drivers/test_state.h"
@@ -47,8 +48,21 @@ static char *button_debug_state_strings[] = {
 	} while (false)
 
 #ifdef CONFIG_PLATFORM_EC_POWER_BUTTON_KEYBOARD
+#include <zephyr/drivers/gpio/gpio_emul.h>
+#define PB_KEYBOARD_NODE \
+	DT_COMPAT_GET_ANY_STATUS_OKAY(cros_ec_power_button_keyboard)
+#define PB_SUPPRESS_EN_GPIO \
+	GPIO_DT_FROM_NODE(DT_PHANDLE(PB_KEYBOARD_NODE, suppress_enable_pin))
 static int mock_pb_asserted = -1;
 #endif
+static int mock_eating_release = -1;
+
+int power_button_is_eating_release(void)
+{
+	if (mock_eating_release >= 0)
+		return mock_eating_release;
+	return 0;
+}
 
 struct button_fixture {
 	timestamp_t fake_time;
@@ -65,11 +79,15 @@ static void *button_setup(void)
 
 static void button_before(void *f)
 {
+#ifdef CONFIG_PLATFORM_EC_POWER_BUTTON_KEYBOARD
+	const struct gpio_dt_spec *pb_suppress_en = PB_SUPPRESS_EN_GPIO;
+#endif
 	((struct button_fixture *)f)->fake_time.val = 0;
 	reset_button_debug_state();
 	button_init();
 #ifdef CONFIG_PLATFORM_EC_POWER_BUTTON_KEYBOARD
 	tablet_reset();
+	gpio_emul_input_set(pb_suppress_en->port, pb_suppress_en->pin, 1);
 	hook_notify(HOOK_TABLET_MODE_CHANGE);
 #endif
 	/* Sleep for 30s to flush any pending tasks */
@@ -81,6 +99,7 @@ static void button_before(void *f)
 
 static void button_after(void *f)
 {
+	mock_eating_release = -1;
 #ifdef CONFIG_PLATFORM_EC_POWER_BUTTON_KEYBOARD
 	extern int debounced_power_pressed;
 	mock_pb_asserted = -1;
@@ -648,6 +667,22 @@ ZTEST(button, test_keyboard_pb_suppression_tablet)
 		      "Expected power button change to be suppressed");
 }
 
+ZTEST(button, test_keyboard_pb_suppression_tablet_backlight_off)
+{
+	const struct gpio_dt_spec *pb_suppress_en = PB_SUPPRESS_EN_GPIO;
+
+	tablet_set_mode(1, TABLET_TRIGGER_LID);
+	gpio_emul_input_set(pb_suppress_en->port, pb_suppress_en->pin, 0);
+	pb_change_count = 0;
+
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "powerbtn 100"));
+	pass_time(150);
+
+	zassert_true(
+		pb_change_count >= 1,
+		"Expected power button change to NOT be suppressed when backlight is off");
+}
+
 ZTEST(button, test_keyboard_pb_suppress_inactive_on_suspend)
 {
 	/* Enable tablet mode to activate suppression */
@@ -661,6 +696,7 @@ ZTEST(button, test_keyboard_pb_suppress_inactive_on_suspend)
 		      "Expected power button change to be suppressed");
 
 	/* Trigger suspend, which should deactivate suppression */
+	power_set_state(POWER_S3);
 	hook_notify(HOOK_CHIPSET_SUSPEND);
 
 	/* Press again, should NOT be suppressed */
@@ -671,6 +707,7 @@ ZTEST(button, test_keyboard_pb_suppress_inactive_on_suspend)
 		     "Expected power button change to NOT be suppressed");
 
 	/* Cleanup */
+	power_set_state(POWER_S0);
 	tablet_set_mode(0, TABLET_TRIGGER_LID);
 }
 
@@ -746,3 +783,54 @@ ZTEST(button, test_keyboard_pb_suspend_missed_release)
 	mock_pb_asserted = -1;
 }
 #endif
+
+/* Test power_button_is_eating_release and MKBP power button event filtering */
+ZTEST(button, test_power_button_is_eating_release)
+{
+	uint32_t event_data = 0;
+
+	/* 1. Default implementation returns 0 */
+	mock_eating_release = -1;
+	zassert_equal(power_button_is_eating_release(), 0);
+
+	/* 2. When eating release is 0: release event IS queued to MKBP FIFO */
+	mock_eating_release = 0;
+	mkbp_clear_fifo();
+	mkbp_button_update(KEYBOARD_BUTTON_POWER, 1);
+	zassert_true(mkbp_get_button_state() & BIT(EC_MKBP_POWER_BUTTON));
+	/* Pop the press event from FIFO */
+	zassert_equal(sizeof(event_data),
+		      mkbp_fifo_get_next_event((uint8_t *)&event_data,
+					       EC_MKBP_EVENT_BUTTON));
+	zassert_true(event_data & BIT(EC_MKBP_POWER_BUTTON));
+
+	/* Release power button: release event is queued to FIFO */
+	mkbp_button_update(KEYBOARD_BUTTON_POWER, 0);
+	zassert_false(mkbp_get_button_state() & BIT(EC_MKBP_POWER_BUTTON));
+	zassert_equal(sizeof(event_data),
+		      mkbp_fifo_get_next_event((uint8_t *)&event_data,
+					       EC_MKBP_EVENT_BUTTON));
+	zassert_false(event_data & BIT(EC_MKBP_POWER_BUTTON));
+
+	/* 3. When eating release is 1: release event is SKIPPED from MKBP FIFO
+	 */
+	mock_eating_release = 1;
+	zassert_equal(power_button_is_eating_release(), 1);
+	mkbp_clear_fifo();
+	mkbp_button_update(KEYBOARD_BUTTON_POWER, 1);
+	zassert_true(mkbp_get_button_state() & BIT(EC_MKBP_POWER_BUTTON));
+	/* Pop the press event from FIFO */
+	zassert_equal(sizeof(event_data),
+		      mkbp_fifo_get_next_event((uint8_t *)&event_data,
+					       EC_MKBP_EVENT_BUTTON));
+	zassert_true(event_data & BIT(EC_MKBP_POWER_BUTTON));
+
+	/* Release power button: release event is eaten and skipped from FIFO */
+	mkbp_button_update(KEYBOARD_BUTTON_POWER, 0);
+	zassert_false(mkbp_get_button_state() & BIT(EC_MKBP_POWER_BUTTON));
+	/* MKBP FIFO should be empty since release event was eaten */
+	zassert_equal(-1, mkbp_fifo_get_next_event((uint8_t *)&event_data,
+						   EC_MKBP_EVENT_BUTTON));
+
+	mock_eating_release = -1;
+}

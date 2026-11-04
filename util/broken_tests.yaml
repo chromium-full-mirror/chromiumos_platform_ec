@@ -17,3 +17,11 @@
     - native_sim.*
   comment: "Picolibc detects builtin functions incorrectly for clang,
             see https://github.com/picolibc/picolibc/issues/805"
+
+- scenarios:
+    - shell.backend.telnet
+    - shell.backend.telnet.iac_reply
+  platforms:
+    - native_sim.*
+  comment: "Fails to link under -O0 coverage build due to undefined symbol
+            net_if_ipv6_addr_lookup_by_iface when CONFIG_NET_IPV6=n"

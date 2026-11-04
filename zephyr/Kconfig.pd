@@ -303,42 +303,6 @@ config PLATFORM_EC_USB_PD_DATA_RESET_MSG
 	  mandatory for products supporting USB4 but optional for other PD 3.0
 	  products.
 
-config PLATFORM_EC_USB_TYPEC_SM
-	bool "Type-C (TC) physical-layer state machine"
-	default y
-	help
-	  This enables the bottom layer of the TCPMv2 state machine which
-	  handles using CC lines to set the voltage-level of the power supplied.
-	  You should normally define this unless you want to override it in your
-	  board code, which is not recommended.
-
-config PLATFORM_EC_USB_PRL_SM
-	bool "Protocol layer (PRL) state machine"
-	default y
-	help
-	  This enables the middle layer of the power-delivery (PD) protocol,
-	  which deals with the flow of power messages across the USB Type-C
-	  interface. You should normally define this unless you want to override
-	  it in your board code, which is not recommended.
-
-config PLATFORM_EC_USB_PE_SM
-	bool "Policy engine (PE) state machine"
-	default y
-	help
-	  This enables the top layer of the power-delivery (PD) protocol, which
-	  deals with the actually PD messages that are exchanged with attached
-	  USB devices. You should normally define this unless you want to
-	  override it in your board code, which is not recommended.
-
-config PLATFORM_EC_USB_DPM_SM
-	bool "Device Policy Manager (DPM) state machine"
-	default y
-	help
-	  This enables the device policy manager portion of the power-delivery
-	  (PD), protocol which is used to define port policy decision.  You
-	  should normally define this unless you want to override it in your
-	  board code, which is not recommended.
-
 config PLATFORM_EC_USB_PD_DECODE_SOP
 	def_bool y  # Required for TCPMV2
 	help

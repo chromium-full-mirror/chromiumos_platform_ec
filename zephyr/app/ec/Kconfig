@@ -44,6 +44,10 @@ choice CBPRINTF_IMPLEMENTATION
 
 endchoice
 
+choice STD_C
+	default STD_C23
+endchoice
+
 choice
 	prompt "Chromium OS EC firmware section"
 	default CROS_EC_RW
@@ -194,12 +198,6 @@ configdefault SHELL_HELP
 
 configdefault KERNEL_SHELL
   default y
-
-configdefault EEPROM_SHELL
-	default y if EEPROM
-
-configdefault PWM_SHELL
-	default y if PWM
 
 configdefault WDT_SHELL
 	default y if WATCHDOG

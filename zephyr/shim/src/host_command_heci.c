@@ -11,6 +11,7 @@
 #include <zephyr/device.h>
 #include <zephyr/init.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/sys/atomic.h>
 
 #include <heci.h>
 
@@ -78,10 +79,24 @@ static K_SEM_DEFINE(cros_ec_ishtp_event_sem, 0, 1);
 static uint32_t cros_ec_ishtp_event;
 static uint32_t heci_cros_ec_conn_id;
 
+static atomic_t host_in_sleep;
+
 int heci_send_mkbp_event(uint32_t *timestamp)
 {
 	struct cros_ec_ishtp_msg evt;
 	struct mrd_t m = { 0 };
+
+	/*
+	 * Do not attempt to send MKBP events over HECI while the AP is
+	 * suspended (S0ix/S3). When the AP is in S0ix, it cannot ACK the
+	 * ISH2HOST doorbell, which would block the caller (e.g. SYSWORKQ via
+	 * force_mkbp_if_events) in ipm_sedi_send() for 1000 ms while holding
+	 * dev_lock and device_write_lock. Return EC_ERROR_BUSY so MKBP defers
+	 * cleanly until the AP resumes.
+	 */
+	if (atomic_get(&host_in_sleep) != 0) {
+		return EC_ERROR_BUSY;
+	}
 
 	evt.hdr.channel = CROS_MKBP_EVENT;
 	evt.hdr.status = 0;
@@ -89,8 +104,17 @@ int heci_send_mkbp_event(uint32_t *timestamp)
 	m.len = sizeof(evt);
 
 	*timestamp = __hw_clock_source_read();
-	return heci_send(heci_cros_ec_conn_id, &m) ? EC_SUCCESS :
-						     EC_ERROR_UNKNOWN;
+
+	/*
+	 * Non-blocking send: if host flow control credit is 0, do not block or
+	 * starve host commands. Return EC_ERROR_BUSY so common/mkbp_event.c
+	 * defers and retries cleanly via its 1-second timer.
+	 */
+	if (!heci_send_nowait(heci_cros_ec_conn_id, &m)) {
+		return EC_ERROR_BUSY;
+	}
+
+	return EC_SUCCESS;
 }
 
 static void heci_send_hostcmd_response(struct host_packet *pkt)
@@ -145,21 +169,23 @@ static void cros_ec_ishtp_process_msg(uint8_t *msg, const size_t msg_size)
 /**
  * Get protocol information
  */
-static enum ec_status heci_get_protocol_info(struct host_cmd_handler_args *args)
+static enum ec_host_cmd_status
+heci_get_protocol_info(struct ec_host_cmd_handler_args *args)
 {
-	struct ec_response_get_protocol_info *r = args->response;
+	struct ec_response_get_protocol_info *r = args->output_buf;
 
 	memset(r, 0, sizeof(*r));
 	r->protocol_versions = BIT(3);
 	r->max_request_packet_size = HECI_CROS_EC_REQUEST_MAX;
 	r->max_response_packet_size = HECI_CROS_EC_RESPONSE_MAX;
 
-	args->response_size = sizeof(*r);
+	args->output_buf_size = sizeof(*r);
 
-	return EC_RES_SUCCESS;
+	return EC_HOST_CMD_SUCCESS;
 }
-DECLARE_HOST_COMMAND(EC_CMD_GET_PROTOCOL_INFO, heci_get_protocol_info,
-		     EC_VER_MASK(0));
+EC_HOST_CMD_HANDLER_RESP_ONLY(EC_CMD_GET_PROTOCOL_INFO, heci_get_protocol_info,
+			      EC_VER_MASK(0),
+			      struct ec_response_get_protocol_info);
 
 static void cros_ec_ishtp_event_callback(uint32_t event, void *arg)
 {
@@ -250,10 +276,10 @@ static int cros_ec_ishtp_client_init(void)
 
 SYS_INIT(cros_ec_ishtp_client_init, APPLICATION, 99);
 
-static enum ec_status
-host_command_host_sleep_event(struct host_cmd_handler_args *args)
+static enum ec_host_cmd_status
+host_command_host_sleep_event(struct ec_host_cmd_handler_args *args)
 {
-	const struct ec_params_host_sleep_event_v1 *p = args->params;
+	const struct ec_params_host_sleep_event_v1 *p = args->input_buf;
 	enum host_sleep_event state = p->sleep_event;
 
 	switch (state) {
@@ -261,12 +287,14 @@ host_command_host_sleep_event(struct host_cmd_handler_args *args)
 	case HOST_SLEEP_EVENT_S3_SUSPEND:
 	case HOST_SLEEP_EVENT_S3_WAKEABLE_SUSPEND:
 		LOG_INF("%s: suspend", __FILE__);
+		atomic_set(&host_in_sleep, 1);
 		hook_notify(HOOK_CHIPSET_SUSPEND);
 		break;
 
 	case HOST_SLEEP_EVENT_S0IX_RESUME:
 	case HOST_SLEEP_EVENT_S3_RESUME:
 		LOG_INF("%s: resume", __FILE__);
+		atomic_clear(&host_in_sleep);
 		hook_notify(HOOK_CHIPSET_RESUME);
 		break;
 
@@ -274,8 +302,10 @@ host_command_host_sleep_event(struct host_cmd_handler_args *args)
 		break;
 	}
 
-	return EC_RES_SUCCESS;
+	return EC_HOST_CMD_SUCCESS;
 }
 
-DECLARE_HOST_COMMAND(EC_CMD_HOST_SLEEP_EVENT, host_command_host_sleep_event,
-		     EC_VER_MASK(0) | EC_VER_MASK(1));
+EC_HOST_CMD_HANDLER_REQ_ONLY(EC_CMD_HOST_SLEEP_EVENT,
+			     host_command_host_sleep_event,
+			     EC_VER_MASK(0) | EC_VER_MASK(1),
+			     struct ec_params_host_sleep_event_v1);

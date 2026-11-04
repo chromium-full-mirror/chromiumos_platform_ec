@@ -340,7 +340,6 @@ void chipset_ap_rst_interrupt(enum gpio_signal signal)
 static void lid_event(void)
 {
 #ifdef CONFIG_PLATFORM_EC_PMIC_PASSTHRU_POWER_SIGNALS
-	/* TODO: b/429110767 Add unit test to check for race condition */
 	if (!chipset_in_state(CHIPSET_STATE_HARD_OFF))
 		passthru_lid_open_to_pmic();
 #endif
@@ -372,7 +371,6 @@ DECLARE_HOOK(HOOK_AC_CHANGE, power_ac_changed, HOOK_PRIO_DEFAULT);
 /* 1 if the system is currently in the off-mode charging heartbeat state. */
 static char heartbeat_mode;
 
-#ifdef CONFIG_ZEPHYR
 static void qcom_rtc_set_host_event(void)
 {
 	host_set_single_event(EC_HOST_EVENT_RTC);
@@ -390,7 +388,6 @@ void rtc_callback(const struct device *dev)
 		task_wake(TASK_ID_CHIPSET);
 	}
 }
-#endif
 
 static enum ec_host_cmd_status
 host_command_offmode_charing_active(struct ec_host_cmd_handler_args *args)
@@ -466,7 +463,7 @@ static int wait_switchcap_power_good(int enable)
 	poll_deadline.val += SWITCHCAP_PG_CHECK_TIMEOUT;
 	while (enable != board_is_switchcap_power_good() &&
 	       get_time().val < poll_deadline.val) {
-		crec_usleep(SWITCHCAP_PG_CHECK_WAIT);
+		k_usleep(SWITCHCAP_PG_CHECK_WAIT);
 	}
 
 	/*
@@ -494,7 +491,7 @@ static void wait_switchcap_power_reset(void)
 	poll_deadline.val += SWITCHCAP_RESET_TIMEOUT;
 	while (!board_is_switchcap_power_reset() &&
 	       get_time().val < poll_deadline.val) {
-		crec_usleep(SWITCHCAP_RESET_CHECK_WAIT);
+		k_usleep(SWITCHCAP_RESET_CHECK_WAIT);
 	}
 
 	if (board_is_switchcap_power_reset()) {
@@ -549,7 +546,7 @@ static int wait_pmic_pwron(int enable, unsigned int timeout)
 	poll_deadline.val += timeout;
 	while (enable != is_pmic_pwron() &&
 	       get_time().val < poll_deadline.val) {
-		crec_usleep(PMIC_POWER_AP_WAIT);
+		k_usleep(PMIC_POWER_AP_WAIT);
 	}
 
 	/* Check the timeout case */
@@ -704,7 +701,7 @@ static int set_system_power(int enable)
 		/* Ensure POWER_GOOD drop to low if it is a forced shutdown */
 		ret |= wait_pmic_pwron(0, FORCE_OFF_RESPONSE_TIMEOUT);
 	}
-	crec_usleep(SYSTEM_POWER_ON_DELAY);
+	k_usleep(SYSTEM_POWER_ON_DELAY);
 
 	return ret;
 }
@@ -882,7 +879,7 @@ static void power_off_seq(uint8_t shutdown_event)
 		} else {
 			/* Do a graceful way to shutdown PMIC/AP first */
 			set_pmic_pwron(0, shutdown_event);
-			crec_usleep(PMIC_POWER_OFF_DELAY);
+			k_usleep(PMIC_POWER_OFF_DELAY);
 		}
 	}
 
@@ -1174,7 +1171,7 @@ static int warm_reset_seq(void)
 	 */
 
 	gpio_set_level(GPIO_PMIC_RESIN, 1);
-	crec_usleep(PMIC_RESIN_PULSE_LENGTH);
+	k_usleep(PMIC_RESIN_PULSE_LENGTH);
 	gpio_set_level(GPIO_PMIC_RESIN, 0);
 
 	/* Check that the PMIC asserts PON_RESET_N*/

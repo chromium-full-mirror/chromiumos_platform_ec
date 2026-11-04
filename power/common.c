@@ -463,7 +463,7 @@ static enum power_state power_common_state(void)
 			 * user specified delay times out.
 			 */
 			for (i = 0; i < reboot_ap_at_g3_delay; i += 100)
-				crec_msleep(100);
+				k_msleep(100);
 			reboot_ap_at_g3_delay = 0;
 
 			return POWER_G3S5;
@@ -855,11 +855,14 @@ static void siglog_deferred(void)
 
 	CPRINTF("%d signal changes:\n", tmp_siglog_entries);
 	for (; siglog_head < tmp_siglog_tail; siglog_head++) {
+		uint64_t t_val = siglog[PTR2IDX(siglog_head)].time.val;
+
 		if (siglog_head != tmp_siglog_head)
-			tdiff.val = siglog[PTR2IDX(siglog_head)].time.val -
+			tdiff.val = t_val -
 				    siglog[PTR2IDX(siglog_head - 1)].time.val;
-		CPRINTF("  %.6lld  +%.6lld  %s => %d\n",
-			siglog[PTR2IDX(siglog_head)].time.val, tdiff.val,
+		CPRINTF("  %lld.%06lld  +%lld.%06lld  %s => %d\n",
+			t_val / USEC_PER_SEC, t_val % USEC_PER_SEC,
+			tdiff.val / USEC_PER_SEC, tdiff.val % USEC_PER_SEC,
 			power_signal_get_name(
 				siglog[PTR2IDX(siglog_head)].signal),
 			siglog[PTR2IDX(siglog_head)].level);
@@ -1142,7 +1145,7 @@ static K_MUTEX_DEFINE(pwr_5v_ctl_mtx);
 
 void power_5v_enable(task_id_t tid, int enable)
 {
-	mutex_lock(&pwr_5v_ctl_mtx);
+	k_mutex_lock(&pwr_5v_ctl_mtx, K_FOREVER);
 
 	if (enable) /* Set the bit indicating the request. */
 		pwr_5v_en_req |= 1 << tid;
@@ -1154,7 +1157,7 @@ void power_5v_enable(task_id_t tid, int enable)
 	 * turn on the rail.  Otherwise, turn it off.
 	 */
 	board_power_5v_enable(pwr_5v_en_req);
-	mutex_unlock(&pwr_5v_ctl_mtx);
+	k_mutex_unlock(&pwr_5v_ctl_mtx);
 }
 
 #define P5_SYSJUMP_TAG 0x5005 /* "P5" */
@@ -1165,22 +1168,19 @@ static void restore_enable_5v_state(void)
 
 	state = (const uint32_t *)system_get_jump_tag(P5_SYSJUMP_TAG, 0, &size);
 	if (state && size == sizeof(pwr_5v_en_req)) {
-		mutex_lock(&pwr_5v_ctl_mtx);
+		k_mutex_lock(&pwr_5v_ctl_mtx, K_FOREVER);
 		pwr_5v_en_req |= *state;
-		mutex_unlock(&pwr_5v_ctl_mtx);
+		k_mutex_unlock(&pwr_5v_ctl_mtx);
 	}
 }
 DECLARE_HOOK(HOOK_INIT, restore_enable_5v_state, HOOK_PRIO_FIRST);
 
 static void preserve_enable_5v_state(void)
 {
-	/*
-	 * Note: Interrupts are already disabled during HOOK_SYSJUMP,
-	 * so pwr_5v_en_req can be read atomically without locking
-	 * pwr_5v_ctl_mtx.
-	 */
+	k_mutex_lock(&pwr_5v_ctl_mtx, K_FOREVER);
 	system_add_jump_tag(P5_SYSJUMP_TAG, 0, sizeof(pwr_5v_en_req),
 			    &pwr_5v_en_req);
+	k_mutex_unlock(&pwr_5v_ctl_mtx);
 }
 DECLARE_HOOK(HOOK_SYSJUMP, preserve_enable_5v_state, HOOK_PRIO_DEFAULT);
 #endif /* defined(CONFIG_POWER_PP5000_CONTROL) */

@@ -8,18 +8,14 @@
 #include "ec_tasks.h"
 #include "host_command.h"
 #include "task.h"
-#include "timer.h"
 #include "zephyr_console_shim.h"
 
 #include <zephyr/init.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/shell/shell.h>
-#include <zephyr/sys/atomic.h>
 
 LOG_MODULE_REGISTER(task_shim, LOG_LEVEL_INF);
-
-#include <soc.h>
 
 #define SAFE_THREAD_NAME(tid)                                           \
 	((tid) && k_thread_name_get((tid)) ? k_thread_name_get((tid)) : \
@@ -32,26 +28,15 @@ BUILD_ASSERT(EC_TASK_PRIORITY(EC_TASK_PRIO_LOWEST) < K_IDLE_PRIO,
 
 /* Forward declare all task entry point functions */
 #define CROS_EC_TASK(name, entry, ...) void entry(void *p);
-#define TASK_TEST(name, entry, ...) CROS_EC_TASK(name, entry)
 CROS_EC_TASK_LIST
 #undef CROS_EC_TASK
-#undef TASK_TEST
 
 /* Statically declare all threads here */
 #define CROS_EC_TASK(name, entry, parameter, stack_size, priority, options) \
 	K_THREAD_DEFINE(name, stack_size, entry, parameter, NULL, NULL,     \
 			EC_TASK_PRIORITY(priority), options, SYS_FOREVER_MS);
-#define TASK_TEST(name, e, p, size) CROS_EC_TASK(name, e, p, size)
 CROS_EC_TASK_LIST
 #undef CROS_EC_TASK
-#undef TASK_TEST
-
-struct task_ctx_base_data {
-	/** A wait-able event that is raised when a new task event is posted */
-	struct k_poll_signal new_event;
-	/** The current platform/ec events set for this task/thread */
-	atomic_t event_mask;
-};
 
 /*
  * Create a mapping from the cros-ec task ID to the Zephyr thread.
@@ -66,23 +51,16 @@ const static k_tid_t task_to_k_tid[TASK_ID_COUNT] = {
 	CROS_EC_TASK_LIST
 };
 
-static struct task_ctx_base_data shimmed_tasks_data[TASK_ID_COUNT];
-static struct task_ctx_base_data extra_tasks_data[EXTRA_TASK_COUNT];
-static int tasks_started;
+static struct k_event task_events[TASK_ID_COUNT + EXTRA_TASK_COUNT];
 #undef CROS_EC_TASK
-#undef TASK_TEST
 
-static struct task_ctx_base_data *task_get_base_data(task_id_t cros_task_id)
+test_export_static struct k_event *task_get_event(task_id_t cros_task_id)
 {
-	if (cros_task_id >= TASK_ID_COUNT + EXTRA_TASK_COUNT) {
+	if (cros_task_id >= ARRAY_SIZE(task_events)) {
 		return NULL;
 	}
 
-	if (cros_task_id >= TASK_ID_COUNT) {
-		return &extra_tasks_data[cros_task_id - TASK_ID_COUNT];
-	}
-
-	return &shimmed_tasks_data[cros_task_id];
+	return &task_events[cros_task_id];
 }
 
 test_export_static k_tid_t get_idle_thread(void)
@@ -158,11 +136,11 @@ static task_id_t thread_id_to_task_id(k_tid_t thread_id)
 		return TASK_ID_SHELL;
 	}
 
-#ifdef CONFIG_AP_PWRSEQ
+#if defined(CONFIG_AP_PWRSEQ) || defined(CONFIG_QCOM_AP_PWRSEQ_DRIVER)
 	if (get_ap_pwrseq_thread() == thread_id) {
 		return TASK_ID_AP_PWRSEQ;
 	}
-#endif /* CONFIG_AP_PWRSEQ */
+#endif /* CONFIG_AP_PWRSEQ || CONFIG_QCOM_AP_PWRSEQ_DRIVER */
 
 	for (size_t i = 0; i < TASK_ID_COUNT; ++i) {
 		if (task_to_k_tid[i] == thread_id) {
@@ -190,115 +168,31 @@ task_id_t task_get_current(void)
 	return thread_id_to_task_id(k_current_get());
 }
 
-atomic_t *task_get_event_bitmap(task_id_t cros_task_id)
-{
-	struct task_ctx_base_data *data;
-
-	data = task_get_base_data(cros_task_id);
-
-	return data == NULL ? NULL : &data->event_mask;
-}
-
 void task_set_event(task_id_t cros_task_id, uint32_t event)
 {
-	struct task_ctx_base_data *data;
+	struct k_event *ev = task_get_event(cros_task_id);
 
-	data = task_get_base_data(cros_task_id);
-
-	if (data != NULL) {
-		atomic_or(&data->event_mask, event);
-		k_poll_signal_raise(&data->new_event, 0);
+	if (ev != NULL) {
+		k_event_post(ev, event);
 	}
 }
 
 uint32_t task_wait_event(int timeout_us)
 {
-	struct task_ctx_base_data *data;
-
-	data = task_get_base_data(task_get_current());
-
-	__ASSERT_NO_MSG(data != NULL);
-
-	const k_timeout_t timeout = (timeout_us == -1) ? K_FOREVER :
-							 K_USEC(timeout_us);
-	const int64_t tick_deadline =
-		k_uptime_ticks() + k_us_to_ticks_near64(timeout_us);
-
-	struct k_poll_event poll_events[1] = {
-		K_POLL_EVENT_INITIALIZER(K_POLL_TYPE_SIGNAL,
-					 K_POLL_MODE_NOTIFY_ONLY,
-					 &data->new_event),
-	};
-
-	/* Wait for signal, then clear it before reading events */
-	const int rv = k_poll(poll_events, ARRAY_SIZE(poll_events), timeout);
-
-	k_poll_signal_reset(&data->new_event);
-	uint32_t events = atomic_set(&data->event_mask, 0);
-
-	if (rv == -EAGAIN) {
-		events |= TASK_EVENT_TIMER;
-	}
-
-	/* If we didn't get an event, we need to wait again. There is a very
-	 * small chance of us reading the event_mask one signaled event too
-	 * early. In that case, just wait again for the remaining timeout
-	 */
-	if (events == 0) {
-		const int64_t ticks_left = tick_deadline - k_uptime_ticks();
-
-		events |= TASK_EVENT_TIMER;
-
-		if (ticks_left > 0) {
-			return task_wait_event(
-				k_ticks_to_us_near64(ticks_left));
-		}
-	}
-
-	return events;
+	return task_wait_event_mask(UINT32_MAX, timeout_us);
 }
 
 uint32_t task_wait_event_mask(uint32_t event_mask, int timeout_us)
 {
-	struct task_ctx_base_data *data;
+	const k_timeout_t timeout = (timeout_us == -1) ? K_FOREVER :
+							 K_USEC(timeout_us);
+	struct k_event *ev = task_get_event(task_get_current());
+	uint32_t events;
 
-	data = task_get_base_data(task_get_current());
+	__ASSERT_NO_MSG(ev != NULL);
 
-	uint32_t events = 0;
-	const int64_t tick_deadline =
-		k_uptime_ticks() + k_us_to_ticks_near64(timeout_us);
-
-	/*  Need to return timeout flags if it occurs as well */
-	event_mask |= TASK_EVENT_TIMER;
-
-	while (!(event_mask & events)) {
-		const int64_t ticks_left = tick_deadline - k_uptime_ticks();
-
-		if (timeout_us != -1 && ticks_left <= 0) {
-			events |= TASK_EVENT_TIMER;
-			break;
-		}
-
-		struct k_poll_event poll_events[1] = {
-			K_POLL_EVENT_INITIALIZER(K_POLL_TYPE_SIGNAL,
-						 K_POLL_MODE_NOTIFY_ONLY,
-						 &data->new_event),
-		};
-
-		/* Ensure to honor the -1 timeout as FOREVER */
-		k_poll(poll_events, ARRAY_SIZE(poll_events),
-		       timeout_us == -1 ? K_FOREVER : K_TICKS(ticks_left));
-		k_poll_signal_reset(&data->new_event);
-		events |= atomic_set(&data->event_mask, 0);
-	}
-
-	/* Replace any events that weren't in the mask */
-	if (events & ~event_mask) {
-		atomic_or(&data->event_mask, events & ~event_mask);
-		k_poll_signal_raise(&data->new_event, 0);
-	}
-
-	return events & event_mask;
+	events = k_event_wait_safe(ev, event_mask, false, timeout);
+	return events ? events : TASK_EVENT_TIMER;
 }
 #ifdef TEST_BUILD
 void set_test_runner_tid(void)
@@ -331,8 +225,6 @@ void start_ec_tasks(void)
 #endif
 		k_thread_start(task_to_k_tid[i]);
 	}
-
-	tasks_started = 1;
 }
 
 /*
@@ -340,66 +232,12 @@ void start_ec_tasks(void)
  * This allows us to set events on tasks before they even start, e.g. in
  * INIT_HOOKS.
  */
-int init_signals(void)
+static int init_events(void)
 {
-	for (size_t i = 0; i < TASK_ID_COUNT + EXTRA_TASK_COUNT; ++i) {
-		struct task_ctx_base_data *const data = task_get_base_data(i);
-
-		k_poll_signal_init(&data->new_event);
+	for (size_t i = 0; i < ARRAY_SIZE(task_events); ++i) {
+		k_event_init(&task_events[i]);
 	}
 
 	return 0;
 }
-SYS_INIT(init_signals, POST_KERNEL, 50);
-
-int task_start_called(void)
-{
-	return tasks_started;
-}
-/*
- * TODO(b/190203712): Implement this
- * LCOV_EXCL_START
- */
-void task_disable_task(task_id_t tskid)
-{
-}
-/* LCOV_EXCL_STOP */
-
-/*
- * This function cannot be tested since it is architecture specific.
- * LCOV_EXCL_START
- */
-void task_clear_pending_irq(int irq)
-{
-#if CONFIG_HAS_ITE_INTC
-	ite_intc_isr_clear(irq);
-#endif
-}
-/* LCOV_EXCL_STOP */
-
-void task_enable_irq(int irq)
-{
-	arch_irq_enable(irq);
-}
-
-void task_disable_irq(int irq)
-{
-	arch_irq_disable(irq);
-}
-
-inline bool in_interrupt_context(void)
-{
-	return k_is_in_isr();
-}
-
-inline bool in_deferred_context(void)
-{
-	/* k_current_get() is not valid pre kernel */
-	if (k_is_pre_kernel()) {
-		return false;
-	}
-	/*
-	 * Deferred calls run in the sysworkq.
-	 */
-	return (k_current_get() == get_sysworkq_thread());
-}
+SYS_INIT(init_events, POST_KERNEL, 50);

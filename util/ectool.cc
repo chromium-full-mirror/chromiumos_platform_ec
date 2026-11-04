@@ -7066,7 +7066,7 @@ int cmd_panic_log(int argc, char *argv[])
 	} else if (!strcmp(argv[1], "dump")) {
 		char *response = (char *)ec_inbuf;
 		int response_max;
-		struct ec_params_panic_log_read read_params;
+		struct ec_params_panic_log_read read_params = {};
 		struct ec_response_get_protocol_info protocol_info_response;
 
 		/* Determine the max response packet size */
@@ -7078,6 +7078,12 @@ int cmd_panic_log(int argc, char *argv[])
 			return rv;
 		}
 		response_max = protocol_info_response.max_response_packet_size;
+		/*
+		 * ec_inbuf was sized from an earlier GET_PROTOCOL_INFO query;
+		 * never let the EC's second answer exceed that allocation.
+		 */
+		if (response_max > ec_max_insize)
+			response_max = ec_max_insize;
 
 		info_params.freeze = 1;
 		rv = ec_command(EC_CMD_PANIC_LOG_INFO, 0, &info_params,
@@ -7088,21 +7094,17 @@ int cmd_panic_log(int argc, char *argv[])
 			return rv;
 		}
 		while (read_params.offset < info_response.length) {
-			/* Limit response size by one byte for null terminator
-			 */
-			int response_size =
-				ec_command(EC_CMD_PANIC_LOG_READ, 0,
-					   &read_params, sizeof(read_params),
-					   response, response_max - 1);
-			if (response_size < 0) {
+			rv = ec_command(EC_CMD_PANIC_LOG_READ, 0, &read_params,
+					sizeof(read_params), response,
+					response_max);
+			if (rv < 0) {
 				fprintf(stderr, "Error reading panic log\n");
 				return rv;
 			}
-			if (response_size == 0)
+			int response_size = rv;
+			if (response_size == 0 || response_size > response_max)
 				break;
-			/* Ensure null terminated */
-			response[response_size] = '\0';
-			fputs(response, stdout);
+			fwrite(response, 1, response_size, stdout);
 			read_params.offset += response_size;
 		}
 		fputs("\n", stdout);
@@ -9534,10 +9536,49 @@ static void cmd_cbi_help(char *cmd)
 		"    <value/string> is an integer or a string to be set\n"
 		"    <*> is unused but must be present (e.g. '0')\n"
 		"    <hex> is a hex string\n"
-		"    [get_flag] is combination of:\n"
-		"      01b: Invalidate cache and reload data from EEPROM\n"
-		"    [set_flag] is combination of:\n"
-		"      10b: Set all fields to defaults first\n");
+		"    [get_flag] is one of (or numeric value):\n"
+		"      none (0): Do not reload from EEPROM\n"
+		"      reload (01b): Invalidate cache and reload data from EEPROM\n"
+		"    [set_flag] is one of (or numeric value):\n"
+		"      none (0): Default\n"
+		"      nosync (01b): Obsolete no-sync flag\n"
+		"      init (10b): Set all fields to defaults first\n");
+}
+
+static int parse_cbi_get_flag(const char *arg, uint32_t *flag)
+{
+	char *e;
+
+	if (!strcasecmp(arg, "none")) {
+		*flag = 0;
+		return 0;
+	}
+	if (!strcasecmp(arg, "reload")) {
+		*flag = CBI_GET_RELOAD;
+		return 0;
+	}
+	*flag = strtol(arg, &e, 0);
+	return (e && *e) ? -1 : 0;
+}
+
+static int parse_cbi_set_flag(const char *arg, uint32_t *flag)
+{
+	char *e;
+
+	if (!strcasecmp(arg, "none")) {
+		*flag = 0;
+		return 0;
+	}
+	if (!strcasecmp(arg, "nosync")) {
+		*flag = CBI_SET_NO_SYNC;
+		return 0;
+	}
+	if (!strcasecmp(arg, "init")) {
+		*flag = CBI_SET_INIT;
+		return 0;
+	}
+	*flag = strtol(arg, &e, 0);
+	return (e && *e) ? -1 : 0;
 }
 
 /*
@@ -9569,12 +9610,9 @@ static int cmd_cbi(int argc, char *argv[])
 		struct ec_params_get_cbi p = { 0 };
 
 		p.tag = tag;
-		if (argc > 3) {
-			p.flag = strtol(argv[3], &e, 0);
-			if (e && *e) {
-				fprintf(stderr, "Bad flag\n");
-				return -1;
-			}
+		if (argc > 3 && parse_cbi_get_flag(argv[3], &p.flag)) {
+			fprintf(stderr, "Bad flag\n");
+			return -1;
 		}
 		rv = ec_command(EC_CMD_GET_CROS_BOARD_INFO, 0, &p, sizeof(p),
 				ec_inbuf, ec_max_insize);
@@ -9702,12 +9740,9 @@ static int cmd_cbi(int argc, char *argv[])
 		free(buf);
 		val_ptr = NULL;
 		p->size = size;
-		if (argc > 5) {
-			p->flag = strtol(argv[5], &e, 0);
-			if (e && *e) {
-				fprintf(stderr, "Bad flag\n");
-				return -1;
-			}
+		if (argc > 5 && parse_cbi_set_flag(argv[5], &p->flag)) {
+			fprintf(stderr, "Bad flag\n");
+			return -1;
 		}
 		rv = ec_command(EC_CMD_SET_CROS_BOARD_INFO, 0, p,
 				sizeof(*p) + size, NULL, 0);
@@ -9727,12 +9762,9 @@ static int cmd_cbi(int argc, char *argv[])
 
 		p.tag = tag;
 		p.size = 0;
-		if (argc > 3) {
-			p.flag = strtol(argv[3], &e, 0);
-			if (e && *e) {
-				fprintf(stderr, "Bad flag\n");
-				return -1;
-			}
+		if (argc > 3 && parse_cbi_set_flag(argv[3], &p.flag)) {
+			fprintf(stderr, "Bad flag\n");
+			return -1;
 		}
 		rv = ec_command(EC_CMD_SET_CROS_BOARD_INFO, 0, &p, sizeof(p),
 				NULL, 0);
@@ -10818,199 +10850,6 @@ static int cmd_mkbp_wake_mask(int argc, char *argv[])
 		printf("MKBP %s wake mask set.\n", argv[2]);
 
 	return 0;
-}
-
-/* Index is already checked. argv[0] is first param value */
-static int cmd_tmp006cal_v0(int idx, int argc, char *argv[])
-{
-	struct ec_params_tmp006_get_calibration pg;
-	struct ec_response_tmp006_get_calibration_v0 rg;
-	struct ec_params_tmp006_set_calibration_v0 ps;
-	float val;
-	char *e;
-	int i, rv;
-
-	/* Get current values */
-	pg.index = idx;
-	rv = ec_command(EC_CMD_TMP006_GET_CALIBRATION, 0, &pg, sizeof(pg), &rg,
-			sizeof(rg));
-	if (rv < 0)
-		return rv;
-
-	if (!argc) {
-		/* If no new values are given, just print what we have */
-		printf("S0: %e\n", rg.s0);
-		printf("b0: %e\n", rg.b0);
-		printf("b1: %e\n", rg.b1);
-		printf("b2: %e\n", rg.b2);
-		return EC_SUCCESS;
-	}
-
-	/* Prepare to reuse the current values */
-	memset(&ps, 0, sizeof(ps));
-	ps.index = idx;
-	ps.s0 = rg.s0;
-	ps.b0 = rg.b0;
-	ps.b1 = rg.b1;
-	ps.b2 = rg.b2;
-
-	/* Parse up to four args, skipping any that are just "-" */
-	for (i = 0; i < argc && i < 4; i++) {
-		if (!strcmp(argv[i], "-"))
-			continue;
-		val = strtod(argv[i], &e);
-		if (e && *e) {
-			fprintf(stderr,
-				"Bad arg \"%s\". Use \"-\" to skip a param.\n",
-				argv[i]);
-			return -1;
-		}
-		switch (i) {
-		case 0:
-			ps.s0 = val;
-			break;
-		case 1:
-			ps.b0 = val;
-			break;
-		case 2:
-			ps.b1 = val;
-			break;
-		case 3:
-			ps.b2 = val;
-			break;
-		}
-	}
-
-	/* Set 'em */
-	return ec_command(EC_CMD_TMP006_SET_CALIBRATION, 0, &ps, sizeof(ps),
-			  NULL, 0);
-}
-
-/* Index is already checked. argv[0] is first param value */
-static int cmd_tmp006cal_v1(int idx, int argc, char *argv[])
-{
-	struct ec_params_tmp006_get_calibration pg;
-	struct ec_response_tmp006_get_calibration_v1 *rg =
-		(struct ec_response_tmp006_get_calibration_v1 *)(ec_inbuf);
-	struct ec_params_tmp006_set_calibration_v1 *ps =
-		(struct ec_params_tmp006_set_calibration_v1 *)(ec_outbuf);
-	float val;
-	char *e;
-	int i, rv, cmdsize;
-
-	/* Algorithm 1 parameter names */
-	static const char *const alg1_pname[] = {
-		"s0", "a1", "a2", "b0", "b1", "b2",
-		"c2", "d0", "d1", "ds", "e0", "e1",
-	};
-
-	/* Get current values */
-	pg.index = idx;
-	rv = ec_command(EC_CMD_TMP006_GET_CALIBRATION, 1, &pg, sizeof(pg), rg,
-			ec_max_insize);
-	if (rv < 0)
-		return rv;
-
-	if (!argc) {
-		/* If no new values are given, just print what we have */
-		printf("algorithm:  %d\n", rg->algorithm);
-		printf("params:\n");
-		/* We only know about alg 1 at the moment */
-		if (rg->algorithm == 1)
-			for (i = 0; i < rg->num_params; i++)
-				printf("  %s  %e\n", alg1_pname[i], rg->val[i]);
-		else
-			for (i = 0; i < rg->num_params; i++)
-				printf("  param%d  %e\n", i, rg->val[i]);
-		return EC_SUCCESS;
-	}
-
-	/* Prepare to reuse the current values */
-	memset(ps, 0, ec_max_outsize);
-	ps->index = idx;
-	ps->algorithm = rg->algorithm;
-	ps->num_params = rg->num_params;
-	for (i = 0; i < rg->num_params; i++)
-		ps->val[i] = rg->val[i];
-
-	/* Parse the args, skipping any that are just "-" */
-	for (i = 0; i < argc && i < rg->num_params; i++) {
-		if (!strcmp(argv[i], "-"))
-			continue;
-		val = strtod(argv[i], &e);
-		if (e && *e) {
-			fprintf(stderr,
-				"Bad arg \"%s\". Use \"-\" to skip a param.\n",
-				argv[i]);
-			return -1;
-		}
-		ps->val[i] = val;
-	}
-
-	/* Set 'em */
-	cmdsize = sizeof(*ps) + ps->num_params * sizeof(ps->val[0]);
-	return ec_command(EC_CMD_TMP006_SET_CALIBRATION, 1, ps, cmdsize, NULL,
-			  0);
-}
-
-int cmd_tmp006cal(int argc, char *argv[])
-{
-	char *e;
-	int idx;
-
-	if (argc < 2) {
-		fprintf(stderr, "Must specify tmp006 index.\n");
-		return -1;
-	}
-
-	idx = strtol(argv[1], &e, 0);
-	if ((e && *e) || idx < 0 || idx > 255) {
-		fprintf(stderr, "Bad index.\n");
-		return -1;
-	}
-
-	/* Pass just the params (if any) to the helper function */
-	argc -= 2;
-	argv += 2;
-
-	if (ec_cmd_version_supported(EC_CMD_TMP006_GET_CALIBRATION, 1))
-		return cmd_tmp006cal_v1(idx, argc, argv);
-
-	if (ec_cmd_version_supported(EC_CMD_TMP006_GET_CALIBRATION, 0))
-		return cmd_tmp006cal_v0(idx, argc, argv);
-
-	printf("The EC is being stupid\n");
-	return -1;
-}
-
-int cmd_tmp006raw(int argc, char *argv[])
-{
-	struct ec_params_tmp006_get_raw p;
-	struct ec_response_tmp006_get_raw r;
-	char *e;
-	int idx;
-	int rv;
-
-	if (argc != 2) {
-		fprintf(stderr, "Must specify tmp006 index.\n");
-		return -1;
-	}
-
-	idx = strtol(argv[1], &e, 0);
-	if ((e && *e) || idx < 0 || idx > 255) {
-		fprintf(stderr, "Bad index.\n");
-		return -1;
-	}
-
-	p.index = idx;
-
-	rv = ec_command(EC_CMD_TMP006_GET_RAW, 0, &p, sizeof(p), &r, sizeof(r));
-	if (rv < 0)
-		return rv;
-
-	printf("T: %d.%02d K\n", r.t / 100, r.t % 100);
-	printf("V: %d nV\n", r.v);
-	return EC_SUCCESS;
 }
 
 static int cmd_hang_detect(int argc, char *argv[])
@@ -12406,6 +12245,16 @@ int cmd_tp_frame_get(int argc, char *argv[])
 		goto err;
 	}
 
+	if (r->n_frames > ec_max_insize / sizeof(r->frame_sizes[0]) ||
+	    (size_t)rv != sizeof(r->n_frames) +
+				  r->n_frames * sizeof(r->frame_sizes[0])) {
+		fprintf(stderr,
+			"Malformed touchpad frame info (n_frames=%u, %d bytes).\n",
+			r->n_frames, rv);
+		rv = -1;
+		goto err;
+	}
+
 	rv = ec_command(EC_CMD_TP_FRAME_SNAPSHOT, 0, NULL, 0, NULL, 0);
 	if (rv < 0) {
 		fprintf(stderr, "Failed to snapshot frame.\n");
@@ -13368,12 +13217,6 @@ const struct command commands[] = {
 	{ "thermalset", cmd_thermal_set_threshold,
 	  "<platform-specific args>\n"
 	  "\tSet the threshold temperature values for the thermal engine." },
-	{ "tmp006cal", cmd_tmp006cal,
-	  "<tmp006_index> [params...]\n"
-	  "\tGet/set TMP006 calibration." },
-	{ "tmp006raw", cmd_tmp006raw,
-	  "<tmp006_index>\n"
-	  "\tGet raw TMP006 data." },
 	{ "tpframeget", cmd_tp_frame_get, "\n\tGet touchpad frame data." },
 	{ "tpselftest", cmd_tp_self_test, "\n\tRun touchpad self test." },
 	{ "typeccontrol", cmd_typec_control,
@@ -13485,7 +13328,7 @@ int main(int argc, char *argv[])
 {
 	const struct command *cmd;
 	int dev = 0;
-	int interfaces = COMM_ALL;
+	enum comm_interface interface = COMM_NONE;
 	int i2c_bus = -1;
 	char device_name[41] = CROS_EC_DEV_NAME;
 	uint16_t vid = USB_VID_GOOGLE, pid = USB_PID_HAMMER;
@@ -13513,13 +13356,13 @@ int main(int argc, char *argv[])
 
 		case OPT_INTERFACE:
 			if (!strcasecmp(optarg, "dev")) {
-				interfaces = COMM_DEV;
+				interface = COMM_DEV;
 			} else if (!strcasecmp(optarg, "lpc")) {
-				interfaces = COMM_LPC;
+				interface = COMM_LPC;
 			} else if (!strcasecmp(optarg, "i2c")) {
-				interfaces = COMM_I2C;
+				interface = COMM_I2C;
 			} else if (!strcasecmp(optarg, "servo")) {
-				interfaces = COMM_SERVO;
+				interface = COMM_SERVO;
 			} else {
 				fprintf(stderr, "Invalid --interface\n");
 				parse_error = 1;
@@ -13527,7 +13370,7 @@ int main(int argc, char *argv[])
 			break;
 		case OPT_DEVICE:
 			if (parse_vidpid(optarg, &vid, &pid)) {
-				interfaces = COMM_USB;
+				interface = COMM_USB;
 			} else {
 				fprintf(stderr, "Invalid --device\n");
 				parse_error = 1;
@@ -13556,14 +13399,17 @@ int main(int argc, char *argv[])
 	}
 
 	if (i2c_bus != -1) {
-		if (!(interfaces & COMM_I2C)) {
+		if (interface != COMM_NONE && interface != COMM_I2C) {
 			fprintf(stderr,
 				"--i2c_bus is specified, but --interface is set to something other than I2C\n");
 			parse_error = 1;
 		} else {
-			interfaces = COMM_I2C;
+			interface = COMM_I2C;
 		}
 	}
+
+	if (interface == COMM_NONE)
+		interface = COMM_DEV;
 
 	/* Must specify a command */
 	if (!parse_error && optind == argc)
@@ -13591,22 +13437,22 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	/* Prefer /dev method, which supports built-in mutex */
-	if (!(interfaces & COMM_DEV) || comm_init_dev(device_name)) {
-		/* If dev is excluded or isn't supported, find alternative */
-
-		/* Lock is not needed for COMM_USB */
-		if (!(interfaces & COMM_USB) &&
-		    acquire_gec_lock(GEC_LOCK_TIMEOUT_SECS) < 0) {
+	if (interface == COMM_DEV) {
+		if (comm_init_dev(device_name)) {
+			fprintf(stderr, "Couldn't find EC\n");
+			goto out;
+		}
+	} else if (interface == COMM_USB) {
+		if (comm_init_usb(vid, pid)) {
+			fprintf(stderr, "Couldn't find EC on USB.\n");
+			goto out;
+		}
+	} else {
+		if (acquire_gec_lock(GEC_LOCK_TIMEOUT_SECS) < 0) {
 			fprintf(stderr, "Could not acquire GEC lock.\n");
 			exit(1);
 		}
-		if (interfaces == COMM_USB) {
-			if (comm_init_usb(vid, pid)) {
-				fprintf(stderr, "Couldn't find EC on USB.\n");
-				goto out;
-			}
-		} else if (comm_init_alt(interfaces, device_name, i2c_bus)) {
+		if (comm_init_alt(interface, device_name, i2c_bus)) {
 			fprintf(stderr, "Couldn't find EC\n");
 			goto out;
 		}
@@ -13629,7 +13475,7 @@ int main(int argc, char *argv[])
 out:
 	release_gec_lock();
 
-	if (interfaces == COMM_USB)
+	if (interface == COMM_USB)
 		comm_usb_exit();
 
 	/* Negative values from the command handler should be treated as errors

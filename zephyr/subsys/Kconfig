@@ -4,7 +4,6 @@
 
 rsource "ap_pwrseq/Kconfig"
 rsource "host_service/Kconfig"
-rsource "usb_dc/Kconfig"
 rsource "usbd_service/Kconfig"
 rsource "pd_controller/Kconfig"
 rsource "fingerprint/Kconfig"
@@ -12,3 +11,4 @@ rsource "ucsi/Kconfig"
 rsource "ascp/Kconfig"
 rsource "adsp_comms/Kconfig"
 rsource "bt_passthru/Kconfig"
+rsource "qcom_ap_pwrseq/Kconfig"

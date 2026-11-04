@@ -420,6 +420,56 @@ ZTEST(jump_data, test_init_corrupted_struct_size)
 		      EC_RESET_FLAG_POWER_ON | EC_RESET_FLAG_SYSJUMP);
 }
 
+ZTEST(jump_data, test_init_corrupted_panic_struct_size)
+{
+	struct panic_data *pdata = GET_JUMP_DATA_PTR(struct panic_data, 0);
+
+	/* Set up valid panic magic but corrupted struct_size */
+	pdata->magic = PANIC_DATA_MAGIC;
+
+	/* Test out-of-bounds struct_size (0xFFFFFFFF) */
+	pdata->struct_size = 0xFFFFFFFF;
+	struct jump_data *jdata = get_jump_data();
+	zassert_equal(
+		(uintptr_t)jdata,
+		(uintptr_t)GET_JUMP_DATA_PTR(struct jump_data, 0),
+		"jdata should default to end of RAM when struct_size is 0xFFFFFFFF");
+
+	/* Test struct_size smaller than PANIC_DATA_MIN_SIZE */
+	pdata->struct_size = PANIC_DATA_MIN_SIZE - 4;
+	jdata = get_jump_data();
+	zassert_equal(
+		(uintptr_t)jdata,
+		(uintptr_t)GET_JUMP_DATA_PTR(struct jump_data, 0),
+		"jdata should default to end of RAM when struct_size < MIN");
+
+	/* Test unaligned struct_size */
+	pdata->struct_size = sizeof(struct panic_data) + 2;
+	jdata = get_jump_data();
+	zassert_equal(
+		(uintptr_t)jdata,
+		(uintptr_t)GET_JUMP_DATA_PTR(struct jump_data, 0),
+		"jdata should default to end of RAM when struct_size is unaligned");
+
+	/* Test struct_size larger than PANIC_DATA_MAX_SIZE */
+	pdata->struct_size = CONFIG_PRESERVED_END_OF_RAM_SIZE;
+	jdata = get_jump_data();
+	zassert_equal(
+		(uintptr_t)jdata,
+		(uintptr_t)GET_JUMP_DATA_PTR(struct jump_data, 0),
+		"jdata should default to end of RAM when struct_size > MAX");
+
+	/*
+	 * Test valid struct_size: jump_data is placed immediately below
+	 * panic_data
+	 */
+	pdata->struct_size = sizeof(struct panic_data);
+	jdata = get_jump_data();
+	zassert_equal(
+		(uintptr_t)jdata, (uintptr_t)pdata - sizeof(struct jump_data),
+		"jdata should precede panic_data when struct_size is valid");
+}
+
 ZTEST(jump_data, test_init_watchdog_reset)
 {
 	struct jump_data *jdata = GET_JUMP_DATA_PTR(struct jump_data, 0);
@@ -456,6 +506,55 @@ ZTEST(jump_data, test_init_watchdog_reset)
 		zassert_not_equal(reason, PANIC_SW_WATCHDOG_HARD,
 				  "Panic reason should not be set in RO");
 	}
+}
+
+ZTEST(jump_data, test_init_aborted_sysjump_watchdog_reset)
+{
+	struct jump_data *jdata = GET_JUMP_DATA_PTR(struct jump_data, 0);
+	const uint32_t ro_discard_flags[] = {
+		EC_RESET_FLAG_WATCHDOG,
+		EC_RESET_FLAG_SOFT,
+		EC_RESET_FLAG_HARD,
+		EC_RESET_FLAG_HIBERNATE,
+	};
+
+	for (size_t i = 0; i < ARRAY_SIZE(ro_discard_flags); i++) {
+		uint32_t flag = ro_discard_flags[i];
+
+		/*
+		 * Simulate an aborted sysjump where the target image was reset
+		 * before init_jump_data() could clear jdata->magic, booting RO
+		 * with a reset flag set.
+		 */
+		system_common_reset_state();
+		jdata->magic = JUMP_DATA_MAGIC;
+		jdata->version = 3;
+		jdata->reset_flags = EC_RESET_FLAG_POWER_ON;
+		jdata->struct_size = sizeof(struct jump_data);
+		jdata->jump_tag_total = 0;
+		system_set_reset_flags(flag);
+
+		system_common_pre_init();
+
+		if (IS_ENABLED(CONFIG_CROS_EC_RO)) {
+			zassert_equal(jdata->magic, 0);
+			zassert_equal(jdata->version, 0);
+			zassert_equal(system_jumped_to_this_image(), 0);
+			zassert_equal(system_get_reset_flags(), flag);
+		} else {
+			zassert_equal(jdata->magic, 0);
+			zassert_equal(system_jumped_to_this_image(), 1);
+			zassert_equal(system_get_reset_flags(),
+				      EC_RESET_FLAG_POWER_ON |
+					      EC_RESET_FLAG_SYSJUMP);
+		}
+	}
+}
+
+ZTEST(jump_data, test_pre_system_jump_defaults)
+{
+	chip_pre_system_jump();
+	arch_pre_system_jump();
 }
 
 ZTEST_SUITE(jump_data, NULL, NULL, jump_data_before, NULL, NULL);

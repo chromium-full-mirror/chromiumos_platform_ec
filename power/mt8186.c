@@ -64,9 +64,6 @@
 /* Timeout for PMIC resetting AP after hard off. */
 #define PMIC_AP_RESET_TIMEOUT (1 * SECOND)
 
-/* 30 ms for hard reset, we hold it longer to prevent TPM false alarm. */
-#define SYS_RST_PULSE_LENGTH (50 * MSEC)
-
 /*
  * A delay for distinguish a WDT reset or a normal shutdown. It usually takes
  * 90ms to pull AP_IN_SLEEP_L low in a normal shutdown.
@@ -111,7 +108,7 @@ static bool power_is_enough(void)
 
 	while (!system_can_boot_ap() &&
 	       !timestamp_expired(poll_deadline, NULL)) {
-		crec_usleep(CAN_BOOT_AP_CHECK_WAIT);
+		k_usleep(CAN_BOOT_AP_CHECK_WAIT);
 	}
 
 	return system_can_boot_ap();
@@ -122,9 +119,9 @@ static bool power_is_enough(void)
 static void set_pmic_pwron(void)
 {
 	GPIO_SET_LEVEL(GPIO_EC_PMIC_EN_ODL, 1);
-	crec_msleep(PMIC_EN_PULSE_MS);
+	k_msleep(PMIC_EN_PULSE_MS);
 	GPIO_SET_LEVEL(GPIO_EC_PMIC_EN_ODL, 0);
-	crec_msleep(PMIC_EN_PULSE_MS);
+	k_msleep(PMIC_EN_PULSE_MS);
 	GPIO_SET_LEVEL(GPIO_EC_PMIC_EN_ODL, 1);
 }
 
@@ -144,7 +141,7 @@ static void set_pmic_pwroff(void)
 	pmic_off_timeout.val += PMIC_HARD_OFF_DELAY;
 
 	while (!timestamp_expired(pmic_off_timeout, NULL)) {
-		crec_msleep(100);
+		k_msleep(100);
 	};
 
 	GPIO_SET_LEVEL(GPIO_EC_PMIC_EN_ODL, 1);
@@ -268,7 +265,6 @@ void chipset_reset(enum chipset_shutdown_reason reason)
 	hook_call_deferred(&reset_flag_deferred_data, RESET_FLAG_TIMEOUT);
 	/* Hold GPIO_SYS_RST_ODL to S5 and it will be released during S5->S3. */
 	GPIO_SET_LEVEL(GPIO_SYS_RST_ODL, 0);
-	crec_usleep(SYS_RST_PULSE_LENGTH);
 }
 
 #ifdef CONFIG_POWER_TRACK_HOST_SLEEP_STATE
@@ -354,6 +350,37 @@ enum power_state power_chipset_init(void)
 		exit_hard_off = 0;
 	}
 
+	/* ======== Workaround for PMIC stuck issue ======== */
+	/*
+	 * If reset by (ESC+Refresh+power button) but signal shows S0 while sigs
+	 * == 0, it means PMIC state machine froze before signals initialized.
+	 * Force exit_hard_off = 1 and correct init_state to POWER_S5 to trigger
+	 * chipset_force_shutdown() followed by auto power-on.
+	 */
+	else if (IS_ENABLED(CONFIG_PLATFORM_EC_PMIC_HANG_WORKAROUND) &&
+		 (system_get_reset_flags() & EC_RESET_FLAG_RESET_PIN) &&
+		 (init_state != POWER_S5)) {
+		CPRINTS("[PMIC STUCK DETECTED]"
+			"*** power state %d, Force REBOOT.",
+			init_state);
+
+		/* 1. Preserve the boot intent and automatically boot up after
+		 * discharging. */
+		exit_hard_off = 1;
+
+		/*
+		 * 2. Manually set init_state so the state machine initiates
+		 * from the S5 safe landing point.
+		 */
+		init_state = POWER_S5;
+
+		/*
+		 * 3. Explicitly invoke Force Shutdown, forcing the PMIC to
+		 * perform an 8-second power-off discharge!
+		 */
+		chipset_force_shutdown(CHIPSET_SHUTDOWN_INIT);
+	}
+
 	/* If the init signal state is at S5, assigns it to G3 to match the
 	 * default GPIO and PP4200_S5 rail states.
 	 */
@@ -434,8 +461,12 @@ enum power_state power_handle_state(enum power_state state)
 		gpio_pin_set_dt(GPIO_DT_FROM_NODELABEL(en_pp4200_s5), 1);
 		if (power_wait_mask_signals_timeout(IN_PG_PP4200_S5,
 						    IN_PG_PP4200_S5,
-						    PG_PP4200_S5_DELAY))
+						    PG_PP4200_S5_DELAY)) {
+#ifdef CONFIG_PLATFORM_EC_POWERSEQ_MTK_FW_SUSPEND
+			is_exiting_off = false;
+#endif
 			return POWER_S5G3;
+		}
 #endif
 		chipset_power_on();
 		return POWER_S5;
@@ -552,10 +583,16 @@ enum power_state power_handle_state(enum power_state state)
 		 * AP for S0.
 		 */
 		is_held = false;
+#ifdef CONFIG_PLATFORM_EC_POWERSEQ_MTK_FW_SUSPEND
+		is_exiting_off = false;
+#endif
 		return POWER_S5;
 
 	case POWER_S5G3:
 		is_s5g3_passed = true;
+#ifdef CONFIG_PLATFORM_EC_POWERSEQ_MTK_FW_SUSPEND
+		is_exiting_off = false;
+#endif
 #if DT_NODE_EXISTS(DT_NODELABEL(en_pp4200_s5))
 		if (power_wait_mask_signals_timeout(IN_PMIC_AP_RST,
 						    IN_PMIC_AP_RST,
@@ -563,7 +600,7 @@ enum power_state power_handle_state(enum power_state state)
 			CPRINTS("PMIC reset AP timeout. Forcing PMIC off");
 		gpio_pin_set_dt(GPIO_DT_FROM_NODELABEL(en_pp4200_s5), 0);
 #ifdef CONFIG_PLATFORM_EC_PP3700_DISCHARGE_TIME_MS
-		crec_msleep(CONFIG_PLATFORM_EC_PP3700_DISCHARGE_TIME_MS);
+		k_msleep(CONFIG_PLATFORM_EC_PP3700_DISCHARGE_TIME_MS);
 #endif /* CONFIG_PLATFORM_EC_PP3700_DISCHARGE_TIME_MS */
 		power_signal_disable_interrupt(GPIO_PMIC_EC_RESETB);
 #endif /* DT_NODE_EXISTS(DT_NODELABEL(en_pp4200_s5)) */

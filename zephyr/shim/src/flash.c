@@ -35,9 +35,9 @@ K_MUTEX_DEFINE(flash_lock);
 void crec_flash_lock_mapped_storage(int lock)
 {
 	if (lock)
-		mutex_lock(&flash_lock);
+		k_mutex_lock(&flash_lock, K_FOREVER);
 	else
-		mutex_unlock(&flash_lock);
+		k_mutex_unlock(&flash_lock);
 }
 #endif
 
@@ -357,6 +357,25 @@ int crec_flash_response_fill_banks(struct ec_response_flash_info_2 *r,
 	return res;
 }
 
+int crec_flash_bank_total_count(void)
+{
+	struct ec_flash_bank region;
+	size_t sector_idx = 0;
+	int banks_idx = 0;
+	int res;
+
+	do {
+		res = flash_get_region(sector_idx, &region);
+		if (res != EC_RES_SUCCESS && res != EC_RES_IN_PROGRESS)
+			break;
+
+		sector_idx += region.count;
+		banks_idx++;
+	} while (res == EC_RES_IN_PROGRESS);
+
+	return banks_idx;
+}
+
 int crec_flash_total_banks(void)
 {
 	return flash_get_page_count(flash_ctrl_dev);
@@ -377,7 +396,7 @@ static void flash_shared_enable_ec_access(void)
 	/* EC to get access to SPI flash  */
 	gpio_pin_set_dt(&spi_oe, 0);
 	/* delay before EC access the external SPI flash */
-	k_busy_wait(10 * USEC_PER_MSEC);
+	k_msleep(10);
 }
 DECLARE_HOOK(HOOK_SYSJUMP, flash_shared_enable_ec_access, HOOK_PRIO_FIRST);
 

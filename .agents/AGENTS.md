@@ -66,6 +66,9 @@ See local `docs/` folder for detailed documentation on specific topics.
     Use `dut-control -i` to list all available commands.
 *   **`ectool`**: Host utility to send commands to the EC from userspace (run
     from the DUT host).
+*   **`flash_dut.py`**: Utility script (`util/flash_dut.py`) to flash EC RW/RO
+    firmware directly onto remote CrOS and ALOS DUTs over SSH or ADB without a
+    Servo connection.
 *   **`flash_ec`**: Utility script (`util/flash_ec`) to flash EC firmware via Servo.
 *   **`futility`**: Used to manage GBB flags (e.g., to disable Software Sync
     for development) (run inside `cros_sdk` or on the DUT).
@@ -202,17 +205,16 @@ platform/ec$ ./twister -T path/to/my/tests
 
 ### Run a specific test
 ```
-platform/ec$ ./twister -s <test dir>/<my.test.scenario>
+platform/ec$ ./twister -s <my.test.scenario>
 ```
 
 For example:
 ```
-platform/ec$ ./twister -s drivers/drivers.default
+platform/ec$ ./twister -s drivers.default
 ```
 
-`drivers/` is the directory under `zephyr/test/` that contains the requested
-test, and `drivers.default` is the specific test scenario specified in that
-directory's `testcase.yaml` file.
+`drivers.default` is the test scenario named in the `testcase.yaml` file of
+the test directory under `zephyr/test/`, here `zephyr/test/drivers/`.
 
 ### Run all tests with coverage
 

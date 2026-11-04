@@ -22,6 +22,8 @@ uint8_t CrosHostcmdTransport::bt_event_data_[kBtEventBufSize];
 struct ring_buf CrosHostcmdTransport::bt_events_ring_buf_;
 struct k_spinlock CrosHostcmdTransport::rb_lock_;
 HostTransport::HandleHostMsg CrosHostcmdTransport::msg_handler_ = nullptr;
+CrosHostcmdTransport::ResetHandler CrosHostcmdTransport::reset_handler_ =
+	nullptr;
 
 pw::Status CrosHostcmdTransport::Start(HandleHostMsg &&msgHandler)
 {
@@ -145,7 +147,45 @@ size_t CrosHostcmdTransport::GetPendingEvents(uint8_t *out_buffer,
 	return current_total_size;
 }
 
+void CrosHostcmdTransport::SetResetHandler(ResetHandler handler)
+{
+	reset_handler_ = handler;
+}
+
+void CrosHostcmdTransport::Reset()
+{
+	k_spinlock_key_t key = k_spin_lock(&rb_lock_);
+	ring_buf_reset(&bt_events_ring_buf_);
+	k_spin_unlock(&rb_lock_, key);
+
+	if (reset_handler_) {
+		reset_handler_();
+	}
+}
+
 } // namespace chre
+
+static enum ec_host_cmd_status
+hc_bt_control(struct ec_host_cmd_handler_args *args)
+{
+	const auto *req = static_cast<const struct ec_params_bt_control *>(
+		args->input_buf);
+
+	if (args->input_buf_size < sizeof(*req)) {
+		return EC_HOST_CMD_INVALID_PARAM;
+	}
+
+	switch (req->subcmd) {
+	case EC_BT_CONTROL_RESET:
+		LOG_INF("AP requested BT subsystem reset");
+		chre::CrosHostcmdTransport::Reset();
+		return EC_HOST_CMD_SUCCESS;
+	default:
+		LOG_WRN("Unknown BT control subcmd: %u", req->subcmd);
+		return EC_HOST_CMD_INVALID_PARAM;
+	}
+}
+EC_HOST_CMD_HANDLER_UNBOUND(EC_CMD_BT_CONTROL, hc_bt_control, EC_VER_MASK(0));
 
 static enum ec_status hc_bt_command(struct host_cmd_handler_args *args)
 {
@@ -157,7 +197,9 @@ static enum ec_status hc_bt_command(struct host_cmd_handler_args *args)
 	 * Large messages from the AP will arrive in 240-byte chunks using the
 	 * 'offset' and 'total_size' fields (to be added to the struct above).
 	 */
-	if (req->size == 0 || req->size > BT_MAX_COMMAND_SIZE) {
+	if (args->params_size < sizeof(req->size) || req->size == 0 ||
+	    req->size > BT_MAX_COMMAND_SIZE ||
+	    args->params_size < sizeof(req->size) + req->size) {
 		return EC_RES_INVALID_PARAM;
 	}
 

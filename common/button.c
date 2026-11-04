@@ -5,7 +5,6 @@
 
 /* Button module for Chrome EC */
 
-#include "atomic.h"
 #include "button.h"
 #include "chipset.h"
 #include "common.h"
@@ -22,6 +21,8 @@
 #include "timer.h"
 #include "util.h"
 #include "watchdog.h"
+
+#include <zephyr/sys/atomic.h>
 
 /* Console output macro */
 #define CPRINTS(format, args...) cprints(CC_SWITCH, format, ##args)
@@ -106,7 +107,7 @@ static void button_blink_hw_reinit_led(void)
 		led_control(EC_LED_ID_RECOVERY_HW_REINIT_LED, led_state);
 		led_state = !led_state;
 		watchdog_reload();
-		crec_msleep(100);
+		k_msleep(100);
 		now = get_time();
 	}
 
@@ -433,8 +434,8 @@ static void simulate_button_release_deferred(void)
 		if ((uint32_t)sim_button_state &
 		    BIT(buttons[button_idx].type)) {
 			/* Set state of the button as released */
-			atomic_clear_bits(&sim_button_state,
-					  BIT(buttons[button_idx].type));
+			atomic_and(&sim_button_state,
+				   ~BIT(buttons[button_idx].type));
 
 			button_interrupt_simulate(button_idx);
 		}

@@ -5,6 +5,7 @@
 """The entry point into zmake."""
 
 import argparse
+import contextlib
 import inspect
 import json
 import logging
@@ -15,6 +16,8 @@ import sys
 
 from zmake import jobserver
 from zmake import multiproc
+from zmake.repository_prep import prepared_workspace
+from zmake.repository_prep import resolve_prep_dirs
 import zmake.zmake as zm
 
 
@@ -168,6 +171,28 @@ def get_argparser():
     )
     parser.add_argument(
         "--zephyr-base", type=pathlib.Path, help="Path to Zephyr OS repository"
+    )
+    parser.add_argument(
+        "--patches-dir",
+        action="append",
+        dest="patches_dirs",
+        metavar="PATCHES_DIR",
+        type=pathlib.Path,
+        help="Path to a patches directory. Can be repeated.",
+    )
+    parser.add_argument(
+        "--src-override-dir",
+        action="append",
+        dest="src_override_dirs",
+        metavar="SRC_OVERRIDE_DIR",
+        type=pathlib.Path,
+        help="Path to a source override directory. Can be repeated.",
+    )
+    parser.add_argument(
+        "--no-shadow",
+        action="store_true",
+        default=False,
+        help="Do not use a shadow workspace; apply changes in-place.",
     )
 
     sub = parser.add_subparsers(
@@ -494,26 +519,78 @@ def main(argv=None):
     jobserver_client = jobserver.GNUMakeJobClient.from_environ(jobs=opts.jobs)
     multiproc.LogWriter.reset()
 
-    zmake = call_with_namespace(zm.Zmake, opts, jobserver=jobserver_client)
-    try:
-        subcommand_method = getattr(zmake, opts.subcommand.replace("-", "_"))
-        result = call_with_namespace(subcommand_method, opts)
-        wait_rv = zmake.executor.wait()
-        return result or wait_rv
-    finally:
-        multiproc.LogWriter.wait_for_log_end()
-        for file, failed_projects in zmake.cmp_failed_projects.items():
-            if failed_projects:
-                logging.error(
-                    "Failed projects by diff in %s: %s",
-                    file,
-                    ", ".join(sorted(failed_projects)),
-                )
-        if zmake.failed_projects:
-            logging.error(
-                "All failed projects: %s",
-                " ".join(sorted(zmake.failed_projects)),
+    mod_dir = opts.modules_dir.resolve() if opts.modules_dir else None
+    workspace_prepared = os.environ.get("ZMAKE_WORKSPACE_PREPARED") == "1" or (
+        mod_dir is not None
+        and any(
+            (d / ".workspace_prepared").exists()
+            for d in (mod_dir.parent.parent, mod_dir.parent, mod_dir / "ec")
+        )
+    )
+    origin_checkout = os.environ.get("ZMAKE_ORIGIN_CHECKOUT")
+    if opts.subcommand == "compare-builds" and origin_checkout:
+        opts.checkout = pathlib.Path(origin_checkout)
+        workspace_prepared = False
+
+    prep_subcommands = {"configure", "build", "compare-builds"}
+    need_prep = opts.subcommand in prep_subcommands and not workspace_prepared
+
+    with contextlib.ExitStack() as stack:
+        if need_prep:
+            prep_checkout = (
+                pathlib.Path(opts.checkout).resolve() if opts.checkout else None
             )
+            if prep_checkout is None and (
+                not opts.zephyr_base or not opts.modules_dir
+            ):
+                with contextlib.suppress(FileNotFoundError):
+                    prep_checkout = zm.util.locate_cros_checkout().resolve()
+            if prep_checkout is not None:
+                p_dirs, o_dirs, has_work = resolve_prep_dirs(
+                    prep_checkout, opts
+                )
+                if (
+                    opts.subcommand == "compare-builds"
+                    and has_work
+                    and not opts.no_shadow
+                ):
+                    opts.worktree_patches_dirs = p_dirs
+                    opts.worktree_src_override_dirs = o_dirs
+                else:
+                    stack.enter_context(
+                        prepared_workspace(opts, checkout=prep_checkout)
+                    )
+            elif opts.patches_dirs or opts.src_override_dirs:
+                logging.warning(
+                    "Unable to locate checkout; skipping patches/overrides."
+                )
+
+        zmake = None
+        try:
+            zmake = call_with_namespace(
+                zm.Zmake, opts, jobserver=jobserver_client
+            )
+            subcommand_method = getattr(
+                zmake, opts.subcommand.replace("-", "_")
+            )
+            result = call_with_namespace(subcommand_method, opts)
+            wait_rv = zmake.executor.wait()
+            return result or wait_rv
+        finally:
+            multiproc.LogWriter.wait_for_log_end()
+            if zmake:
+                for file, failed_projects in zmake.cmp_failed_projects.items():
+                    if failed_projects:
+                        logging.error(
+                            "Failed projects by diff in %s: %s",
+                            file,
+                            ", ".join(sorted(failed_projects)),
+                        )
+                if zmake.failed_projects:
+                    logging.error(
+                        "All failed projects: %s",
+                        " ".join(sorted(zmake.failed_projects)),
+                    )
 
 
 if __name__ == "__main__":

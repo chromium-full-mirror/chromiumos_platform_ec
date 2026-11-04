@@ -250,7 +250,7 @@ static int set_range(struct motion_sensor_t *s, int range, int rnd)
 	 * Lock accel resource to prevent another task from attempting
 	 * to write accel parameters until we are done.
 	 */
-	mutex_lock(s->mutex);
+	k_mutex_lock(s->mutex, K_FOREVER);
 	/*
 	 * FIFO stop collecting events. Restart FIFO in Bypass mode.
 	 * If Range is changed all samples in FIFO must be discharged because
@@ -277,7 +277,7 @@ static int set_range(struct motion_sensor_t *s, int range, int rnd)
 		err = lis2dh_enable_fifo(s, LIS2DH_STREAM_MODE);
 
 unlock_rate:
-	mutex_unlock(s->mutex);
+	k_mutex_unlock(s->mutex);
 
 	return err;
 }
@@ -288,7 +288,7 @@ static int set_data_rate(const struct motion_sensor_t *s, int rate, int rnd)
 	struct stprivate_data *data = s->drv_data;
 	uint8_t reg_val;
 
-	mutex_lock(s->mutex);
+	k_mutex_lock(s->mutex, K_FOREVER);
 
 	/*
 	 * FIFO stop collecting events. Set FIFO to bypass mode to flush the
@@ -345,7 +345,7 @@ static int set_data_rate(const struct motion_sensor_t *s, int rate, int rnd)
 	}
 
 unlock_rate:
-	mutex_unlock(s->mutex);
+	k_mutex_unlock(s->mutex);
 	return ret;
 }
 
@@ -415,7 +415,7 @@ static int init(struct motion_sensor_t *s)
 		ret = st_raw_read8(s->port, s->i2c_spi_addr_flags,
 				   LIS2DH_WHO_AM_I_REG, &tmp);
 		if (ret != EC_SUCCESS) {
-			udelay(10);
+			k_busy_wait(10);
 			count--;
 		} else {
 			break;
@@ -428,7 +428,7 @@ static int init(struct motion_sensor_t *s)
 	if (tmp != LIS2DH_WHO_AM_I)
 		return EC_ERROR_ACCESS_DENIED;
 
-	mutex_lock(s->mutex);
+	k_mutex_lock(s->mutex, K_FOREVER);
 	/*
 	 * Device can be re-initialized after a reboot so any control
 	 * register must be restored to it's default.
@@ -449,11 +449,26 @@ static int init(struct motion_sensor_t *s)
 	if (ret != EC_SUCCESS)
 		goto err_unlock;
 
-	/* Enable BDU */
+	/*
+	 * Enable BDU and attempt to enable High-Resolution (HR) mode.
+	 * On LIS2DH, bit 3 (HR) is writable and enables 12-bit resolution.
+	 * On LIS2DE/LNG2DM, bit 3 is read-only 0 (8-bit only).
+	 */
 	ret = st_raw_write8(s->port, s->i2c_spi_addr_flags, LIS2DH_CTRL4_ADDR,
-			    LIS2DH_BDU_MASK);
+			    LIS2DH_BDU_MASK | LIS2DH_HR_MASK);
 	if (ret != EC_SUCCESS)
 		goto err_unlock;
+
+	ret = st_raw_read8(s->port, s->i2c_spi_addr_flags, LIS2DH_CTRL4_ADDR,
+			   &tmp);
+	if (ret != EC_SUCCESS)
+		goto err_unlock;
+
+	if (tmp & LIS2DH_HR_MASK) {
+		data->resol = LIS2DH_RESOLUTION_12;
+	} else {
+		data->resol = LIS2DH_RESOLUTION_8;
+	}
 
 	ret = st_raw_write8(s->port, s->i2c_spi_addr_flags, LIS2DH_CTRL5_ADDR,
 			    LIS2DH_CTRL5_RESET_VAL);
@@ -472,15 +487,12 @@ static int init(struct motion_sensor_t *s)
 		}
 	}
 
-	mutex_unlock(s->mutex);
-
-	/* Set default resolution */
-	data->resol = LIS2DH_RESOLUTION;
+	k_mutex_unlock(s->mutex);
 
 	return sensor_init_done(s);
 
 err_unlock:
-	mutex_unlock(s->mutex);
+	k_mutex_unlock(s->mutex);
 	CPRINTS("%s: MS Init type:0x%X Error", s->name, s->type);
 
 	return ret;

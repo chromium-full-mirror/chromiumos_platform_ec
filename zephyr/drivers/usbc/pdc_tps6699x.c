@@ -21,6 +21,7 @@
 #include <zephyr/sys/minmax.h>
 LOG_MODULE_REGISTER(tps6699x, CONFIG_USBC_LOG_LEVEL);
 #include "builtin/endian.h"
+#include "task_id.h"
 #include "tps6699x_cmd.h"
 #include "tps6699x_reg.h"
 #include "usbc/pdc_utils.h"
@@ -213,6 +214,8 @@ enum state_t {
 	ST_TASK_WAIT,
 	/** ST_SUSPENDED */
 	ST_SUSPENDED,
+	/** ST_DISABLE - permanent disable on init failure */
+	ST_DISABLE,
 };
 
 /**
@@ -259,6 +262,8 @@ struct pdc_data_t {
 	bool init_done;
 	/* Init attempt counter */
 	int init_attempt;
+	/** Cached error status */
+	union error_status_t error_status;
 	/** Callback data */
 	void *cb_data;
 	/** CCI Event */
@@ -370,6 +375,7 @@ static const char *const state_names[] = {
 	[ST_ERROR_RECOVERY] = "ERROR RECOVERY",
 	[ST_TASK_WAIT] = "TASK_WAIT",
 	[ST_SUSPENDED] = "SUSPENDED",
+	[ST_DISABLE] = "PDC_DISABLED",
 };
 
 static const struct smf_state states[];
@@ -392,7 +398,6 @@ static void cmd_update_retimer(struct pdc_data_t *data);
 static void cmd_get_current_pdo(struct pdc_data_t *data);
 static void cmd_is_vconn_sourcing(struct pdc_data_t *data);
 static void cmd_set_sx_app_config(struct pdc_data_t *data);
-static void cmd_get_attention_vdo(struct pdc_data_t *data);
 static int write_task_cmd(struct pdc_config_t const *cfg,
 			  enum command_task task, union reg_data *cmd_data);
 static void cmd_set_max_pdp(struct pdc_data_t *data);
@@ -764,10 +769,9 @@ static enum smf_state_result st_init_run(void *o)
 		return SMF_EVENT_HANDLED;
 	}
 
-	/* If we've attempted init too many times, suspend instead. */
+	/* If we've attempted init too many times, disable instead. */
 	if (data->init_attempt > PDC_INIT_RETRY_MAX) {
-		suspend_comms();
-		set_state(data, ST_SUSPENDED);
+		set_state(data, ST_DISABLE);
 		return SMF_EVENT_HANDLED;
 	}
 
@@ -1005,7 +1009,7 @@ static enum smf_state_result st_idle_run(void *o)
 			task_trig(data);
 			break;
 		case CMD_GET_ATTENTION_VDO:
-			cmd_get_attention_vdo(data);
+			task_ucsi(data, UCSI_GET_ATTENTION_VDO);
 			break;
 		case CMD_SET_MAX_PDP:
 			cmd_set_max_pdp(data);
@@ -1094,6 +1098,38 @@ static enum smf_state_result st_suspended_run(void *o)
 	k_event_clear(&data->pdc_event, PDC_CHIP_INFO_AVAIL_EVENT);
 
 	set_state(data, ST_INIT);
+	return SMF_EVENT_HANDLED;
+}
+
+static void st_disable_entry(void *o)
+{
+	struct pdc_data_t *data = (struct pdc_data_t *)o;
+
+	print_current_state(data);
+	/* Mark init done so the upper-layer INIT_WAIT_FOR_READY state can
+	 * proceed past this port. Without this, the upper-layer state machine
+	 * would block forever waiting for a dead PDC.
+	 */
+	data->init_done = true;
+	/* Mark the port as permanently disabled so the upper-layer state
+	 * machine can react.
+	 */
+	data->error_status.port_disabled = 1;
+}
+
+static enum smf_state_result st_disable_run(void *o)
+{
+	struct pdc_data_t *data = (struct pdc_data_t *)o;
+
+	/* Clear all events that might keep the thread busy, since the driver
+	 * will not be able to process them while disabled (mirrors
+	 * st_suspended_run). A stale event (e.g. a command posted just
+	 * before entering this state) would otherwise make the thread spin
+	 * forever.
+	 */
+	k_event_clear(&data->pdc_event, PDC_ALL_THREAD_WAKE_EVENTS);
+
+	/* Stay here until reset. */
 	return SMF_EVENT_HANDLED;
 }
 
@@ -1913,48 +1949,6 @@ error_recovery:
 	set_state(data, ST_ERROR_RECOVERY);
 }
 
-static void cmd_get_attention_vdo(struct pdc_data_t *data)
-{
-	union reg_received_attention_vdm received_attention_vdm;
-	struct pdc_config_t const *cfg = data->dev->config;
-
-	int rv;
-
-	if (data->user_buf == NULL) {
-		LOG_ERR("TI%d: Null user buffer; can't read attention reg",
-			cfg->connector_number);
-		goto error_recovery;
-	}
-
-	rv = tps_rd_received_attention_vdm(&cfg->i2c, &received_attention_vdm);
-	if (rv) {
-		LOG_ERR("TI%d: Failed to read received attention vdm (%d)",
-			cfg->connector_number, rv);
-		goto error_recovery;
-	}
-
-	union get_attention_vdo_t get_attention_vdo = {
-		.alt_mode_index = 0,
-		.num_vdos = received_attention_vdm.number_valid_vdos,
-		.sequence_number = received_attention_vdm.sequence_number,
-		.vdm_heade = received_attention_vdm.vdm_header,
-		.vdo = received_attention_vdm.vdo,
-	};
-	memcpy(data->user_buf, &get_attention_vdo,
-	       sizeof(union get_attention_vdo_t));
-
-	/* Command has completed */
-	data->cci_event.command_completed = 1;
-	/* Inform the system of the event */
-	call_cci_event_cb(data);
-
-	set_state(data, ST_IDLE);
-	return;
-
-error_recovery:
-	set_state(data, ST_ERROR_RECOVERY);
-}
-
 static void cmd_set_max_pdp(struct pdc_data_t *data)
 {
 	struct pdc_config_t const *cfg = data->dev->config;
@@ -2633,6 +2627,10 @@ static enum smf_state_result st_task_wait_run(void *o)
 		}
 		break;
 	}
+	case UCSI_GET_ATTENTION_VDO:
+		offset = 1;
+		len = sizeof(union get_attention_vdo_t);
+		break;
 	default:
 		/* No data for this command */
 		len = 0;
@@ -2682,6 +2680,8 @@ static const struct smf_state states[] = {
 					  NULL, NULL, NULL),
 	[ST_SUSPENDED] = SMF_CREATE_STATE(st_suspended_entry, st_suspended_run,
 					  NULL, NULL, NULL),
+	[ST_DISABLE] = SMF_CREATE_STATE(st_disable_entry, st_disable_run, NULL,
+					NULL, NULL),
 };
 
 static int tps_post_command_with_callback(const struct device *dev,
@@ -2691,6 +2691,15 @@ static int tps_post_command_with_callback(const struct device *dev,
 					  struct pdc_callback *callback)
 {
 	struct pdc_data_t *data = dev->data;
+
+	/* Port is permanently disabled (PDC init failed). Return -ENOSYS so
+	 * the upper-layer state machine fast-fails instead of entering
+	 * PDC_SEND_CMD_WAIT (which would block for PDC_CMD_TIMEOUT_MS=2000ms
+	 * and exceed the watchdog's 1600ms limit).
+	 */
+	if (get_state(data) == ST_DISABLE) {
+		return -ENOSYS;
+	}
 
 	/* TODO(b/345783692): Double check this logic. */
 	if (get_state(data) != ST_IDLE) {
@@ -2890,15 +2899,47 @@ static int tps_get_connector_capability(const struct device *dev,
 static int tps_get_connector_status(const struct device *dev,
 				    union connector_status_t *cs)
 {
+	struct pdc_data_t *data = dev->data;
+
+	if (cs == NULL) {
+		return -EINVAL;
+	}
+
+	/* Port is permanently disabled (init failed). Synthesize a
+	 * "not-connected" connector status and notify the upper layer via
+	 * the CCI callback so the upper-layer state machine can transition
+	 * out of PDC_INIT (INIT_GET_CONNECTOR_STATUS) into PDC_UNATTACHED
+	 * instead of looping forever waiting for a dead PDC. This isolates
+	 * the port while letting the rest of the system proceed.
+	 */
+	if (get_state(data) == ST_DISABLE) {
+		memset(cs, 0, sizeof(*cs));
+		data->cci_event.raw_value = 0;
+		data->cci_event.command_completed = 1;
+		call_cci_event_cb(data);
+		return 0;
+	}
+
 	return tps_post_command(dev, CMD_GET_CONNECTOR_STATUS, cs);
 }
 
 static int tps_get_error_status(const struct device *dev,
 				union error_status_t *es)
 {
+	struct pdc_data_t *data = dev->data;
+
 	if (es == NULL) {
 		return -EINVAL;
 	}
+
+	/* Port is permanently disabled. Return the cached error_status so
+	 * the upper layer can react.
+	 */
+	if (get_state(data) == ST_DISABLE) {
+		es->raw_value = data->error_status.raw_value;
+		return 0;
+	}
+
 	return tps_post_command(dev, CMD_GET_ERROR_STATUS, es);
 }
 
@@ -3192,11 +3233,12 @@ static void tps_start_thread(const struct device *dev)
 	k_thread_start(data->thread);
 }
 
-static bool tps_is_init_done(const struct device *dev)
+static enum pdc_driver_init_state_t tps_is_init_done(const struct device *dev)
 {
 	struct pdc_data_t *data = dev->data;
 
-	return data->init_done;
+	return data->init_done ? PDC_DRIVER_INIT_STATE_SUCCESS :
+				 PDC_DRIVER_INIT_STATE_WAIT;
 }
 
 static int tps_get_pch_data_status(const struct device *dev, uint8_t port_num,
@@ -3291,13 +3333,17 @@ static int tps_execute_ucsi_cmd(const struct device *dev, uint8_t ucsi_command,
 	/* The OS will send SET_UOR to request a data role swap. Sending SET_UOR
 	 * to the PDC will not clear the "initiate swap to DFP" bit, causing the
 	 * data role swap to immediately reverse. Intercept SET_UOR here and
-	 * call tps_set_uor() to issue a data role swap based on CMD_SET_DRS.
+	 * issue a data role swap based on CMD_SET_DRS.
 	 */
 	if (ucsi_command == UCSI_SET_UOR) {
-		union uor_t uor;
+		struct pdc_data_t *data = dev->data;
 
-		memcpy(&uor, command_specific, sizeof(union uor_t));
-		return tps_set_uor(dev, uor);
+		if (command_specific == NULL)
+			return -EINVAL;
+
+		memcpy(&data->uor, command_specific, sizeof(union uor_t));
+		return tps_post_command_with_callback(dev, CMD_SET_DRS, NULL,
+						      lpm_data_out, callback);
 	}
 
 	/* The linux UCSI driver sends GET_PD_MESSAGE to request partner (SOP)

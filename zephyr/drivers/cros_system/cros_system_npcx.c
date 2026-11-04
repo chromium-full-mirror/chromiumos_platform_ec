@@ -250,6 +250,15 @@ system_npcx_hibernate_by_lfw_in_last_ram(uint32_t pd_ram_mask)
 	/* Set deep idle mode */
 	inst_pmc->PMCSR = BIT(NPCX_PMCSR_IDLE) | BIT(NPCX_PMCSR_DHF);
 
+	/*
+	 * Set PRIMASK = 1 so on wake the CPU will not vector to any ISR.
+	 * Set BASEPRI = 0 to allow any priority to wake.
+	 */
+	__disable_irq();
+	__set_BASEPRI(0);
+	__DSB();
+	__ISB();
+
 	/* Enter system sleep mode */
 	__asm__ volatile("wfi");
 
@@ -501,12 +510,11 @@ int cros_system_get_reset_cause(void)
  * Match PSL node with a known wake source label.
  */
 #define MATCH_PSL_WAKE_SOURCE(node_id, prop, idx, label, source, wake_source) \
-	COND_CODE_1(DT_NODE_EXISTS(DT_NODELABEL(label)),                      \
-		    (if (DT_SAME_NODE(DT_PHANDLE_BY_IDX(node_id, prop, idx),  \
-				      DT_NODELABEL(label))) {                 \
-			    wake_source = source;                             \
-		    }),                                                       \
-		    ())
+	IF_ENABLED(DT_NODE_EXISTS(DT_NODELABEL(label)),                       \
+		   (if (DT_SAME_NODE(DT_PHANDLE_BY_IDX(node_id, prop, idx),   \
+				     DT_NODELABEL(label))) {                  \
+			   wake_source = source;                              \
+		   }))
 
 /**
  * Check if the PSL wake source matches one of the known signals (lid, power

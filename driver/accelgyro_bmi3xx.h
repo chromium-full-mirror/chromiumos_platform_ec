@@ -179,7 +179,16 @@
 /* 1LSB = 61 milli-dps*/
 #define BMI3_OFFSET_GYR_MDPS (61 * 1000)
 
-#define BMI3_FIFO_BUFFER 32
+/*
+ * Size the FIFO read buffer to a multiple of BMI3_FIFO_ENTRY (3 words / 6 bytes
+ * per frame) to avoid reading truncated partial frames that must be discarded
+ * and re-read on the next transaction.
+ *
+ * 10 frames * 3 words/frame = 30 uint16_t words (60 bytes) of FIFO data, or
+ * 31 words (62 bytes) total including the 1-word (2-byte) I2C sync word in
+ * struct bmi3_fifo_frame, fitting within a 64-byte I2C transfer.
+ */
+#define BMI3_FIFO_BUFFER (10 * BMI3_FIFO_ENTRY)
 
 /* General Macro Definitions */
 /* LSB and MSB mask definitions */
@@ -272,7 +281,6 @@ extern const struct accelgyro_drv bmi3xx_drv;
 
 void bmi3xx_interrupt(enum gpio_signal signal);
 
-#if defined(CONFIG_ZEPHYR)
 #if DT_NODE_EXISTS(DT_ALIAS(bmi3xx_int))
 /*
  * Get the motion sensor ID of the BMI3xx sensor that
@@ -290,6 +298,5 @@ void bmi3xx_interrupt(enum gpio_signal signal);
 #define CONFIG_ACCELGYRO_BMI3XX_INT_EVENT \
 	TASK_EVENT_MOTION_SENSOR_INTERRUPT(SENSOR_ID(DT_ALIAS(bmi3xx_int)))
 #endif
-#endif /* CONFIG_ZEPHYR */
 
 #endif /* PLATFORM_EC_DRIVER_ACCELGYRO_BMI3XX_H_ */
