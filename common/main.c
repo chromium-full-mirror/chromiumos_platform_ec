@@ -173,6 +173,8 @@ test_mockable __keep int main(void)
 	 * by tasks.)
 	 */
 	watchdog_init();
+	watchdog_reload();
+	reset_watchdog_stats();
 #endif
 
 	/*

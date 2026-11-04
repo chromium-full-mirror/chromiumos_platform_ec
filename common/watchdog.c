@@ -42,14 +42,18 @@ void watchdog_reload(void)
 DECLARE_HOOK(HOOK_TICK, watchdog_reload, HOOK_PRIO_DEFAULT);
 DECLARE_HOOK(HOOK_SYSJUMP, watchdog_reload, HOOK_PRIO_LAST);
 
-__maybe_unused static void reset_watchdog_stats(void)
+void reset_watchdog_stats(void)
 {
-	uint32_t key = irq_lock();
-	watchdog_stats_reset_ts = watchdog_reload_last_ts;
-	watchdog_reload_period_max_ts.val = 0;
-	watchdog_reload_period_max_ms = 0;
-	watchdog_reload_count = 0;
-	irq_unlock(key);
+	if (IS_ENABLED(CONFIG_HOSTCMD_WATCHDOG_INFO) ||
+	    IS_ENABLED(CONFIG_CONSOLE_CMD_WATCHDOG_INFO)) {
+		uint32_t key = irq_lock();
+
+		watchdog_stats_reset_ts = watchdog_reload_last_ts;
+		watchdog_reload_period_max_ts.val = 0;
+		watchdog_reload_period_max_ms = 0;
+		watchdog_reload_count = 0;
+		irq_unlock(key);
+	}
 }
 
 #if defined(CONFIG_HOSTCMD_WATCHDOG_INFO)
@@ -74,8 +78,9 @@ static enum ec_status hostcmd_watchdog_info(struct host_cmd_handler_args *args)
 		r->watchdog_reload_period_max_ts_ms =
 			watchdog_reload_period_max_ts.val / MSEC;
 		r->watchdog_reload_count = watchdog_reload_count;
-		r->watchdog_stats_elapsed_ms =
-			time_since32(watchdog_stats_reset_ts) / MSEC;
+		r->watchdog_stats_elapsed_ms = (watchdog_reload_last_ts.val -
+						watchdog_stats_reset_ts.val) /
+					       MSEC;
 		irq_unlock(key);
 	}
 
@@ -108,7 +113,8 @@ static void print_watchdog_info(void)
 	ccprintf("Reload Period Nominal: %d ms\n", HOOK_TICK_INTERVAL / MSEC);
 
 	uint32_t key = irq_lock();
-	elapsed = time_since32(watchdog_stats_reset_ts) / MSEC;
+	elapsed = (watchdog_reload_last_ts.val - watchdog_stats_reset_ts.val) /
+		  MSEC;
 	count = watchdog_reload_count;
 	max_ms = watchdog_reload_period_max_ms;
 	max_ts_ms = watchdog_reload_period_max_ts.val / MSEC;

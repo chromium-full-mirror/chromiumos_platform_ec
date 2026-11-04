@@ -54,8 +54,13 @@ void watchdog_stop_and_unlock(void);
 void watchdog_reload(void);
 /* Chip specific watchdog reload */
 void chip_watchdog_reload(void);
+/* Reset watchdog reload statistics */
+void reset_watchdog_stats(void);
 #else
 test_mockable_static_inline void watchdog_reload(void)
+{
+}
+test_mockable_static_inline void reset_watchdog_stats(void)
 {
 }
 #endif
