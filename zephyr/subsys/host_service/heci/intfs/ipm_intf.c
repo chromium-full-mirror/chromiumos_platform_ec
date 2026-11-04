@@ -10,14 +10,21 @@
 #include <string.h>
 
 #include <zephyr/drivers/ipm.h>
+#include <zephyr/kernel.h>
 
 #include <host_bsp_service.h>
 #include <sedi_driver_ipc.h>
+#include <sedi_soc_funcs.h>
 
 #define IPM_NAME DEVICE_DT_NAME(DT_NODELABEL(ipmhost))
 
 static const struct device *dev;
 static int ipm_intf_init(void);
+/*
+ * Serialize send_host_msg() across threads so PM_VNN_DRIVER_RESET() completes
+ * before the next outbound host IPC transfer begins.
+ */
+static K_MUTEX_DEFINE(host_write_lock);
 
 uint32_t in_drbl;
 uint8_t *in_data;
@@ -36,12 +43,35 @@ static int read_host_msg(uint32_t *drbl, uint8_t *msg, uint32_t msg_size)
 
 static int send_host_msg(uint32_t drbl, uint8_t *msg, uint32_t msg_size)
 {
-	return ipm_send(dev, 1, drbl, msg, msg_size);
+	int ret;
+
+	k_mutex_lock(&host_write_lock, K_FOREVER);
+	ret = ipm_send(dev, 1, drbl, msg, msg_size);
+
+	/*
+	 * Reset VNN_ID_IPC_HOST_W so both the write-1-to-toggle PMU_VNN_REQ
+	 * hardware bit and its firmware counter return to 0 even if ipm_send()
+	 * timed out or raced with D0ix entry.
+	 */
+	PM_VNN_DRIVER_RESET(VNN_ID_IPC_HOST_W);
+	k_mutex_unlock(&host_write_lock);
+
+	return ret;
 }
 
 static int send_host_ack(void)
 {
+	unsigned int key = irq_lock();
+
+	/*
+	 * Reset VNN_ID_IPC_HOST_R under IRQ lock after ipm_complete() so both
+	 * the hardware bit and firmware counter return to 0 before the next
+	 * inbound doorbell ISR can fire.
+	 */
 	ipm_complete(dev);
+	PM_VNN_DRIVER_RESET(VNN_ID_IPC_HOST_R);
+	irq_unlock(key);
+
 	return 0;
 }
 
