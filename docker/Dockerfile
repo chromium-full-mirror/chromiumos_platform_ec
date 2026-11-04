@@ -42,6 +42,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     vim \
     gosu \
     openocd \
+    dfu-util \
     lcov \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*

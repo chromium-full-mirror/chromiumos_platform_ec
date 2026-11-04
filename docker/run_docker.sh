@@ -12,17 +12,24 @@ set -e
 # working directory.
 WORKSPACE_DIR="$(realpath "$(dirname "${BASH_SOURCE[0]}")/workspace")"
 
-# Hardware access is granted in two independent layers:
+# Hardware access is granted in three independent layers:
 #
-# 1. Bind-mounting /dev makes the host device nodes visible, including any
-#    device hotplugged or re-enumerated after the container starts. A device
-#    that resets into a bootloader and comes back as a different ttyACM
-#    number stays usable.
+# 1. Bind-mounting /dev makes the host device nodes (/dev/ttyACM*,
+#    /dev/bus/usb/*) visible, including any device hotplugged or
+#    re-enumerated after the container starts. A device that resets into a
+#    USB DFU bootloader and comes back as a different USB device address or
+#    ttyACM number has its new device nodes created in /dev.
 # 2. The device cgroup controller still denies open() on anything outside
 #    Docker's small default allowlist, so a rule is needed as well.
 #    "c *:* rmw" grants character devices only: serial ports and usbfs work,
 #    while block devices (disks) stay inaccessible and the default seccomp,
 #    AppArmor and capability restrictions remain in place.
+# 3. Sharing the host network namespace (--net=host) and bind-mounting
+#    /run/udev read-only allows libusb (via libudev's NETLINK_KOBJECT_UEVENT
+#    socket and udev database) to receive kernel hotplug events. Without
+#    this, long-running processes using libusb/pyusb cache the initial USB
+#    device list and never detect when a device re-enumerates into or out of
+#    DFU mode.
 
 # Only allocate a TTY when attached to an interactive terminal, so that the
 # wrapper stays usable from scripts and CI.
@@ -33,7 +40,9 @@ fi
 
 exec docker run --rm \
   "${TTY_ARGS[@]}" \
+  --net=host \
   --device-cgroup-rule="c *:* rmw" \
   -v "${WORKSPACE_DIR}:/workspace" \
   -v /dev:/dev \
+  -v /run/udev:/run/udev:ro \
   ec-builder "$@"
