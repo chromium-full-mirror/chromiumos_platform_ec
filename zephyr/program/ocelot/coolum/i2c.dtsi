@@ -30,17 +30,29 @@
 &i2c1 {
 	label = "I2C_PORT_PD";
 	clock-frequency = <I2C_BITRATE_FAST>;
+	pinctrl-0 = <&i2c1_clk_gpc1_default
+		&i2c1_data_gpc2_default>;
+	pinctrl-names = "default";
+	status = "okay";
 };
 
 &i2c3 {
 	/* Port not used. All PDCs on bus i2c_port_pd1 */
 	label = "I2C_PORT_PD_SPARE";
 	clock-frequency = <I2C_BITRATE_STANDARD>;
+	pinctrl-0 = <&i2c3_clk_gph1_default
+		&i2c3_data_gph2_default>;
+	pinctrl-names = "default";
+	status = "okay";
 };
 
 &i2c4 {
 	label = "I2C_PORT_CHARGER";
 	clock-frequency = <I2C_BITRATE_STANDARD>;
+	pinctrl-0 = <&i2c4_clk_gpe0_default
+		&i2c4_data_gpe7_default>;
+	pinctrl-names = "default";
+	status = "okay";
 
 	imvp_rt3645: richtek-imvp@20 {
 		compatible = "richtek,rt3645";
@@ -57,10 +69,19 @@
 
 &i2c5 {
 	label = "I2C_PORT_ISH";
+	scl-gpios = < &gpioe 1 0x0 >;
+	sda-gpios = < &gpioe 2 0x0 >;
 	clock-frequency = <I2C_BITRATE_FAST>;
+	pinctrl-0 = <&i2c5_clk_gpe1_default
+		&i2c5_data_gpe2_default>;
+	pinctrl-names = "default";
+	status = "okay";
 
 	dsp_service: dsp-service@29 {
 		compatible = "cros,dsp-service";
 		reg = <0x29>;
+		int-gpios = <&gpioh 6 (GPIO_ACTIVE_LOW |
+				GPIO_VOLTAGE_1P8 |
+				GPIO_OPEN_DRAIN)>;
 	};
 };
