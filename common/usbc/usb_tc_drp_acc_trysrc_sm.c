@@ -485,6 +485,7 @@ static void pd_update_dual_role_config(int port);
 /* Forward declare common, private functions */
 static void set_state_tc(const int port, const enum usb_tc_state new_state);
 test_export_static enum usb_tc_state get_state_tc(const int port);
+static enum usb_tc_state get_last_state_tc(const int port);
 static bool tc_state_is_attached(enum usb_tc_state state);
 static bool in_ct_state(int port);
 
@@ -773,6 +774,32 @@ static void tc_detached(int port)
 
 	if (IS_ENABLED(CONFIG_CHARGE_MANAGER))
 		charge_manager_update_dualrole(port, CAP_UNKNOWN);
+}
+
+static void tc_debug_detach(const int port)
+{
+	enum usb_tc_state curr_state = get_state_tc(port);
+	enum usb_tc_state last_state = get_last_state_tc(port);
+
+	/*
+	 * Waking from LowPowerMode or toggling between Unattached states
+	 * never attaches a partner.
+	 */
+	if (last_state == TC_LOW_POWER_MODE ||
+	    last_state == TC_UNATTACHED_SNK || last_state == TC_UNATTACHED_SRC)
+		return;
+
+	/*
+	 * When exiting Attached.SNK or Attached.SRC, only debug detach if a
+	 * DTS partner was connected and we are not performing a Power Role
+	 * Swap.
+	 */
+	if ((curr_state == TC_ATTACHED_SNK || curr_state == TC_ATTACHED_SRC) &&
+	    (!TC_CHK_FLAG(port, TC_FLAGS_TS_DTS_PARTNER) ||
+	     TC_CHK_FLAG(port, TC_FLAGS_REQUEST_PR_SWAP)))
+		return;
+
+	tcpm_debug_detach(port);
 }
 
 static inline void pd_set_dual_role_and_event(int port,
@@ -2286,7 +2313,7 @@ static void tc_unattached_snk_entry(const int port)
 	 * require we set CC Open before changing power roles with a debug
 	 * accessory.
 	 */
-	tcpm_debug_detach(port);
+	tc_debug_detach(port);
 	typec_select_pull(port, TYPEC_CC_RD);
 	typec_select_src_current_limit_rp(
 		port, typec_get_default_current_limit_rp(port));
@@ -2854,10 +2881,7 @@ static void tc_attached_snk_exit(const int port)
 	/* Stop drawing power */
 	sink_stop_drawing_current(port);
 
-	if (TC_CHK_FLAG(port, TC_FLAGS_TS_DTS_PARTNER) &&
-	    !TC_CHK_FLAG(port, TC_FLAGS_REQUEST_PR_SWAP)) {
-		tcpm_debug_detach(port);
-	}
+	tc_debug_detach(port);
 
 	/* Clear flags after checking Vconn status */
 	TC_CLR_FLAG(port, TC_FLAGS_REQUEST_PR_SWAP | TC_FLAGS_POWER_OFF_SNK);
@@ -2903,7 +2927,7 @@ static void tc_unattached_src_entry(const int port)
 	 * require we set CC Open before changing power roles with a debug
 	 * accessory.
 	 */
-	tcpm_debug_detach(port);
+	tc_debug_detach(port);
 	typec_select_pull(port, TYPEC_CC_RP);
 	typec_select_src_current_limit_rp(
 		port, typec_get_default_current_limit_rp(port));
@@ -3492,10 +3516,9 @@ static void tc_attached_src_exit(const int port)
 		if (TC_CHK_FLAG(port, TC_FLAGS_VCONN_ON) &&
 		    !TC_CHK_FLAG(port, TC_FLAGS_CTVPD_DETECTED))
 			set_vconn(port, 0);
-
-		if (TC_CHK_FLAG(port, TC_FLAGS_TS_DTS_PARTNER))
-			tcpm_debug_detach(port);
 	}
+
+	tc_debug_detach(port);
 
 	/* Clear CTVPD detected after checking for Vconn */
 	TC_CLR_FLAG(port, TC_FLAGS_CTVPD_DETECTED);
