@@ -143,6 +143,23 @@ register_npcx9_project(
 
 register_npcx9_project(
     project_name="blanc",
+    extra_kconfig_base_files=[
+        here / "dsp_comms.conf",
+    ],
+)
+
+register_ish_project(
+    project_name="blanc-ish",
+    boards=["ocelot"],
+    zephyr_board="intel_ish_5_8_0",
+    dts_overlays=[
+        here / "blanc-ish" / "project.overlay",
+    ],
+    kconfig_files=[
+        here / "dsp_comms.conf",
+        here / "blanc-ish" / "project.conf",
+        here / ".." / ".." / "ish.conf",
+    ],
 )
 
 # For use on RVP SKU3

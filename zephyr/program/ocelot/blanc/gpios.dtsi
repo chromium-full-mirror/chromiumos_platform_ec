@@ -120,7 +120,6 @@
 			<&gpio4 1 (GPIO_INPUT | GPIO_PULL_DOWN)>,
 			<&gpio3 4 (GPIO_INPUT | GPIO_PULL_DOWN)>,
 			<&gpioc 7 (GPIO_INPUT | GPIO_PULL_DOWN)>,
-			<&gpioa 2 (GPIO_INPUT | GPIO_PULL_DOWN)>,
 			<&gpioa 7 (GPIO_INPUT | GPIO_PULL_DOWN)>,
 			<&gpio9 7 (GPIO_INPUT | GPIO_PULL_DOWN)>,
 			<&gpio8 1 (GPIO_INPUT | GPIO_PULL_DOWN)>,
