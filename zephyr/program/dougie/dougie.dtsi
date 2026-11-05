@@ -3,6 +3,7 @@
  * found in the LICENSE file.
  */
 
+#include <dt-bindings/wake_mask_event_defines.h>
 #include <zephyr/dt-bindings/pwm/it8xxx2_pwm.h>
 
 /* Project-specific overrides */
@@ -15,12 +16,56 @@
 		gpio-wp = &gpio_ec_wp_od;
 	};
 
+	chosen {
+		zephyr,host-cmd-shi-backend = &shi0;
+	};
+
+	ec-mkbp-host-event-wakeup-mask {
+		compatible = "cros-ec,mkbp-host-event-wakeup-mask";
+		wakeup-mask = <(
+			HOST_EVENT_AC_CONNECTED |
+			HOST_EVENT_AC_DISCONNECTED |
+			HOST_EVENT_LID_OPEN |
+			HOST_EVENT_POWER_BUTTON |
+			HOST_EVENT_HANG_DETECT |
+			HOST_EVENT_MODE_CHANGE)>;
+	};
+
+	ec-mkbp-event-wakeup-mask {
+		compatible = "cros-ec,mkbp-event-wakeup-mask";
+		wakeup-mask = <(MKBP_EVENT_KEY_MATRIX |
+				MKBP_EVENT_HOST_EVENT)>;
+	};
+
 	named-gpios {
 		/* The legacy system code requires GPIO_ENTERING_RW symbol */
 		gpio_ec_entering_rw: ec_entering_rw {
 			enum-name = "GPIO_ENTERING_RW";
 		};
 	};
+};
+
+&pinctrl {
+	shi_mosi_gpm0_default: shi_mosi_gpm0_default {
+		gpio-voltage = "1v8";
+	};
+	shi_miso_gpm1_default: shi_miso_gpm1_default {
+		gpio-voltage = "1v8";
+	};
+	shi_clk_gpm4_default: shi_clk_gpm4_default {
+		gpio-voltage = "1v8";
+	};
+	shi_cs_gpm5_default: shi_cs_gpm5_default {
+		gpio-voltage = "1v8";
+	};
+};
+
+&shi0 {
+	status = "okay";
+	pinctrl-0 = <&shi_mosi_gpm0_default &shi_miso_gpm1_default
+		     &shi_clk_gpm4_default &shi_cs_gpm5_default>;
+	pinctrl-names = "default";
+	cs-gpios = <&gpiom 5 GPIO_VOLTAGE_1P8>;
 };
 
 &pwm2 {

@@ -132,18 +132,6 @@
 			gpios = <&gpioh 4 (GPIO_INPUT | GPIO_VOLTAGE_1P8)>;
 			enum-name = "GPIO_PS_HOLD";
 		};
-		gpio_spi_ap_di_ec_do: spi_ap_di_ec_do {
-			gpios = <&gpiom 1 (GPIO_OUTPUT | GPIO_ACTIVE_HIGH | GPIO_OUTPUT_INIT_LOW | GPIO_VOLTAGE_1P8)>;
-		};
-		gpio_spi_ap_do_ec_di: spi_ap_do_ec_di {
-			gpios = <&gpiom 0 (GPIO_INPUT | GPIO_VOLTAGE_1P8)>;
-		};
-		gpio_spi_ap_ec_cs_l: spi_ap_ec_cs_l {
-			gpios = <&gpiom 5 (GPIO_INPUT | GPIO_VOLTAGE_1P8)>;
-		};
-		gpio_spi_ap_ec_sck: spi_ap_ec_sck {
-			gpios = <&gpiom 4 (GPIO_INPUT | GPIO_VOLTAGE_1P8)>;
-		};
 		gpio_sys_in_suspend: sys_in_suspend {
 			gpios = <&gpiof 1 (GPIO_INPUT | GPIO_VOLTAGE_1P8)>;
 			enum-name = "GPIO_AP_SUSPEND";
