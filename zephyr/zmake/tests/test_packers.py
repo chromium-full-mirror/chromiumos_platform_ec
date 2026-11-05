@@ -5,7 +5,9 @@
 """Tests for zmake packers."""
 
 import pathlib
+import subprocess
 import tempfile
+from unittest import mock
 
 # pylint:disable=import-error
 import hypothesis
@@ -73,3 +75,46 @@ def test_file_size_out_of_bounds(data):
             outfile.write(data)
         with pytest.raises(RuntimeError):
             packer.check_packed_file_size(file=file, dir_map={})
+
+
+def test_binman_packer_timeout_kills_process(tmp_path):
+    """Test BinmanPacker kills and reaps binman on TimeoutExpired."""
+    ro_dir = tmp_path / "ro"
+    rw_dir = tmp_path / "rw"
+    work_dir = tmp_path / "work"
+    (ro_dir / "zephyr").mkdir(parents=True)
+    (rw_dir / "zephyr").mkdir(parents=True)
+    work_dir.mkdir(parents=True)
+    for build_dir in (ro_dir, rw_dir):
+        (build_dir / "zephyr" / "zephyr.bin").write_bytes(b"\0")
+        (build_dir / "zephyr" / "zephyr.elf").write_bytes(b"\0")
+
+    project = mock.Mock()
+    project.config.project_name = "telith"
+    packer = packers.BinmanPacker(project)
+
+    jobclient = mock.Mock()
+    proc = mock.Mock()
+    proc.wait.side_effect = [
+        subprocess.TimeoutExpired(cmd="binman", timeout=300),
+        0,
+    ]
+    jobclient.popen.return_value = proc
+
+    with (
+        mock.patch("zmake.multiproc.LogWriter.log_output"),
+        mock.patch(
+            "zmake.util.get_tool_path",
+            side_effect=lambda tool: f"/usr/bin/{tool}",
+        ),
+        pytest.raises(subprocess.TimeoutExpired),
+    ):
+        list(
+            packer.pack_firmware(
+                work_dir, jobclient, {"ro": ro_dir, "rw": rw_dir}
+            )
+        )
+
+    proc.wait.assert_any_call(timeout=300)
+    proc.kill.assert_called_once_with()
+    assert proc.wait.call_count == 2
