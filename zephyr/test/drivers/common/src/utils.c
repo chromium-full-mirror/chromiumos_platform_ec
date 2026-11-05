@@ -152,12 +152,18 @@ void connect_source_to_port(struct tcpci_partner_data *partner,
 	k_sleep(K_SECONDS(10));
 }
 
-void disconnect_source_from_port(const struct emul *tcpci_emul,
-				 const struct emul *charger_emul)
+void disconnect_source_from_port_no_wait(const struct emul *tcpci_emul,
+					 const struct emul *charger_emul)
 {
 	set_ac_enabled(false);
 	zassert_ok(tcpci_emul_disconnect_partner(tcpci_emul));
 	isl923x_emul_set_adc_vbus(charger_emul, 0);
+}
+
+void disconnect_source_from_port(const struct emul *tcpci_emul,
+				 const struct emul *charger_emul)
+{
+	disconnect_source_from_port_no_wait(tcpci_emul, charger_emul);
 	k_sleep(K_SECONDS(1));
 }
 

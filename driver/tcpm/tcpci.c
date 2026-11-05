@@ -1365,20 +1365,22 @@ void tcpci_tcpc_alert_with_value(int port, int alert_value)
 		 */
 		if (IS_ENABLED(CONFIG_USB_PD_DUAL_ROLE_AUTO_TOGGLE) &&
 		    !IS_ENABLED(CONFIG_USB_PD_EVENT_DRIVEN_CC_STATE)) {
-			enum tcpc_cc_voltage_status cc1;
-			enum tcpc_cc_voltage_status cc2;
+			int status;
+			int rv;
 
 			/*
-			 * Some TCPCs generate CC Alerts when
-			 * drp auto toggle is active and nothing
-			 * is connected to the port. So, get the
-			 * CC line status and only generate a
-			 * PD_EVENT_CC if something is connected.
+			 * Some TCPCs generate CC Alerts when drp auto toggle is
+			 * active and nothing is connected to the port. So, get
+			 * the CC line status and only generate a PD_EVENT_CC
+			 * if something is connected or if DRP auto toggle is
+			 * no longer actively looking for connection.
 			 */
-			tcpci_tcpm_get_cc(port, &cc1, &cc2);
-			if (cc1 != TYPEC_CC_VOLT_OPEN ||
-			    cc2 != TYPEC_CC_VOLT_OPEN)
-				/* CC status cchanged, wake task */
+			rv = tcpc_read(port, TCPC_REG_CC_STATUS, &status);
+			if (rv == EC_SUCCESS &&
+			    (!TCPC_REG_CC_STATUS_LOOK4CONNECTION(status) ||
+			     !cc_is_open(TCPC_REG_CC_STATUS_CC1(status),
+					 TCPC_REG_CC_STATUS_CC2(status))))
+				/* CC status changed, wake task */
 				pd_event |= PD_EVENT_CC;
 		} else {
 			/* CC status changed, wake task */

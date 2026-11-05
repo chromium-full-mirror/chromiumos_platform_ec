@@ -705,3 +705,124 @@ ZTEST_F(usb_tc, test_tc_error_recovery_and_suspend)
 
 ZTEST_SUITE(usb_tc, drivers_predicate_post_main, usb_tc_setup, usb_tc_before,
 	    usb_tc_after, NULL);
+
+struct usb_tc_lpm_fixture {
+	const struct emul *tcpci_emul;
+	const struct emul *charger_emul;
+	struct tcpci_partner_data src_partner;
+	struct tcpci_src_emul_data src_ext;
+};
+
+static void *usb_tc_lpm_setup(void)
+{
+	static struct usb_tc_lpm_fixture fixture;
+
+	fixture.tcpci_emul = EMUL_GET_USBC_BINDING(TEST_PORT, tcpc);
+	fixture.charger_emul = EMUL_GET_USBC_BINDING(TEST_PORT, chg);
+
+	tcpci_partner_init(&fixture.src_partner, PD_REV20);
+	fixture.src_partner.extensions = tcpci_src_emul_init(
+		&fixture.src_ext, &fixture.src_partner, NULL);
+
+	return &fixture;
+}
+
+static void usb_tc_lpm_before(void *fixture_data)
+{
+	struct usb_tc_lpm_fixture *fixture = fixture_data;
+	struct ec_response_typec_status status;
+
+	test_set_chipset_to_s0();
+	pd_set_dual_role(TEST_PORT, PD_DRP_TOGGLE_ON);
+	pd_set_suspend(TEST_PORT, false);
+	connect_source_to_port(&fixture->src_partner, &fixture->src_ext, 0,
+			       fixture->tcpci_emul, fixture->charger_emul);
+	status = host_cmd_typec_status(TEST_PORT);
+	zassert_true(status.sop_connected);
+	zassert_equal(PD_ROLE_SINK, status.power_role);
+}
+
+static void usb_tc_lpm_after(void *fixture_data)
+{
+	struct usb_tc_lpm_fixture *fixture = fixture_data;
+
+	pd_set_dual_role(TEST_PORT, PD_DRP_TOGGLE_ON);
+	pd_set_suspend(TEST_PORT, false);
+	disconnect_source_from_port(fixture->tcpci_emul, fixture->charger_emul);
+	tcpci_emul_set_vbus_level(fixture->tcpci_emul, VBUS_SAFE0V);
+}
+
+ZTEST_F(usb_tc_lpm, test_tc_low_power_mode_drp_toggle_bounce)
+{
+	struct ec_response_typec_status status;
+	uint16_t cc_status;
+	uint16_t role_ctrl;
+	uint16_t cmd;
+
+	/*
+	 * Disconnect the attached Source partner without sleeping past
+	 * PD_LPM_DEBOUNCE_US before the bounce can be injected.
+	 */
+	disconnect_source_from_port_no_wait(fixture->tcpci_emul,
+					    fixture->charger_emul);
+
+	zassert_true(WAIT_FOR(
+		tcpci_emul_get_reg(fixture->tcpci_emul, TCPC_REG_CC_STATUS,
+				   &cc_status) == 0 &&
+			TCPC_REG_CC_STATUS_LOOK4CONNECTION(cc_status),
+		USEC_PER_SEC, k_sleep(K_MSEC(2))));
+
+	/*
+	 * Transitioning from Unattached.SNK (Rd) to DRP auto-toggle configures
+	 * ROLE_CTRL with DRP=1 and TYPEC_CC_RP on both CC lines.
+	 */
+	zassert_ok(tcpci_emul_get_reg(fixture->tcpci_emul, TCPC_REG_ROLE_CTRL,
+				      &role_ctrl));
+	zassert_true(TCPC_REG_ROLE_CTRL_DRP(role_ctrl));
+	zassert_equal(TYPEC_CC_RP, TCPC_REG_ROLE_CTRL_CC1(role_ctrl));
+	zassert_equal(TYPEC_CC_RP, TCPC_REG_ROLE_CTRL_CC2(role_ctrl));
+
+	zassert_ok(tcpci_emul_get_reg(fixture->tcpci_emul, TCPC_REG_COMMAND,
+				      &cmd));
+	zassert_equal(TCPC_REG_COMMAND_LOOK4CONNECTION, cmd);
+
+	/*
+	 * Simulate a transient CC bounce during the PD_LPM_DEBOUNCE_US window
+	 * before I2CIDLE is sent. The bounce aborts DRP auto-toggle in the
+	 * TCPC (clearing LOOK4CONNECTION) while leaving the port presenting Rp
+	 * and returning both CC lines to OPEN.
+	 */
+	zassert_ok(tcpci_emul_connect_partner(
+		fixture->tcpci_emul, PD_ROLE_SINK, TYPEC_CC_VOLT_RD,
+		TYPEC_CC_VOLT_OPEN, POLARITY_CC1));
+	zassert_ok(tcpci_emul_disconnect_partner(fixture->tcpci_emul));
+
+	/*
+	 * Detecting LOOK4CONNECTION == 0 wakes the PD task via PD_EVENT_CC so
+	 * the TCPM re-arms LOOK4CONNECTION before committing to I2CIDLE.
+	 */
+	zassert_true(WAIT_FOR(tcpci_emul_get_reg(fixture->tcpci_emul,
+						 TCPC_REG_COMMAND, &cmd) == 0 &&
+				      cmd == TCPC_REG_COMMAND_I2CIDLE,
+			      USEC_PER_SEC, k_sleep(K_MSEC(2))));
+
+	zassert_ok(tcpci_emul_get_reg(fixture->tcpci_emul, TCPC_REG_CC_STATUS,
+				      &cc_status));
+	zassert_true(TCPC_REG_CC_STATUS_LOOK4CONNECTION(cc_status));
+
+	/*
+	 * Reconnect the Source partner and verify externally observable PD
+	 * Sink power negotiation succeeds. Without re-arming LOOK4CONNECTION,
+	 * the TCPC remains presenting Rp against the Source's Rp (seeing OPEN
+	 * on both CC lines) and never negotiates power.
+	 */
+	connect_source_to_port(&fixture->src_partner, &fixture->src_ext, 0,
+			       fixture->tcpci_emul, fixture->charger_emul);
+
+	status = host_cmd_typec_status(TEST_PORT);
+	zassert_true(status.sop_connected);
+	zassert_equal(PD_ROLE_SINK, status.power_role);
+}
+
+ZTEST_SUITE(usb_tc_lpm, drivers_predicate_post_main, usb_tc_lpm_setup,
+	    usb_tc_lpm_before, usb_tc_lpm_after, NULL);

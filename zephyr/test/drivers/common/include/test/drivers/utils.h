@@ -691,6 +691,17 @@ void connect_source_to_port(struct tcpci_partner_data *partner,
 			    const struct emul *charger_emul);
 
 /**
+ * @brief Disconnect a power source from a given port without sleeping.
+ *
+ * Note: this function currently only supports an ISL923X charger chip.
+ *
+ * @param tcpci_emul The TCPCI emulator that will be disconnected
+ * @param charger_emul The charger chip emulator
+ */
+void disconnect_source_from_port_no_wait(const struct emul *tcpci_emul,
+					 const struct emul *charger_emul);
+
+/**
  * @brief Disconnect a power source from a given port.
  *
  * Note: this is function currently only supports an ISL923X charger chip.
