@@ -310,6 +310,8 @@ void k_sys_fatal_error_handler(unsigned int reason, const struct arch_esf *esf)
 #endif /* CONFIG_ZTEST_FATAL_HOOK */
 
 #ifdef CONFIG_PLATFORM_EC_DEBUG_ASSERT
+static bool in_assert;
+
 FUNC_NORETURN
 __override void zassert_post_action(const char *path, unsigned int line)
 {
@@ -320,6 +322,13 @@ __override void zassert_post_action(const char *path, unsigned int line)
 	 * force synchronous console/log output.
 	 */
 	irq_lock();
+
+	if (in_assert) {
+		panic_puts("Recursive assert\n");
+		panic_reboot();
+		CODE_UNREACHABLE;
+	}
+	in_assert = true;
 
 	/* Save assert panic data first before logging or stack walking. */
 	panic_data_write_assert(path, line);
@@ -463,4 +472,17 @@ static void panic_host_event_init(void)
 	}
 }
 DECLARE_HOOK(HOOK_CHIPSET_STARTUP, panic_host_event_init, HOOK_PRIO_LAST);
+#endif
+
+#if defined(CONFIG_ZTEST) && defined(CONFIG_PLATFORM_EC_DEBUG_ASSERT)
+#include <zephyr/ztest.h>
+
+static void panic_assert_reset_rule_before(const struct ztest_unit_test *test,
+					   void *data)
+{
+	ARG_UNUSED(test);
+	ARG_UNUSED(data);
+	in_assert = false;
+}
+ZTEST_RULE(panic_assert_reset, panic_assert_reset_rule_before, NULL);
 #endif

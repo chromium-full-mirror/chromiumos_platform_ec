@@ -80,6 +80,28 @@ ZTEST(debug_assert, test_assert_true)
 	zassert_is_null(panic_get_data());
 }
 
+static void system_reset_recursive_assert(int flags)
+{
+	/* Trigger a second assert while inside zassert_post_action(). */
+	if (system_reset_fake.call_count == 1) {
+		__ASSERT(false, "Second assert");
+	}
+	system_reset_longjmp(flags);
+}
+
+ZTEST(debug_assert, test_assert_recursive_post_action)
+{
+	int linenum;
+
+	system_reset_fake.custom_fake = system_reset_recursive_assert;
+
+	linenum = __LINE__ + 1;
+	EXPECT_NO_RETURN(__ASSERT(false, "First assert"));
+
+	zassert_equal(system_reset_fake.call_count, 2);
+	verify_assert_panic_data(linenum);
+}
+
 static void reset(void *data)
 {
 	ARG_UNUSED(data);
