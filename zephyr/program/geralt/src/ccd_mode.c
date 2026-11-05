@@ -6,7 +6,6 @@
 #include "console.h"
 #include "gpio/gpio_int.h"
 #include "hooks.h"
-#include "system.h"
 #include "typec_control.h"
 
 #define CPRINTS(format, args...) cprints(CC_USB, format, ##args)
@@ -41,8 +40,3 @@ static void ccd_mode_init(void)
 	gpio_enable_dt_interrupt(GPIO_INT_FROM_NODELABEL(int_ccd_mode_odl));
 }
 DECLARE_HOOK(HOOK_INIT, ccd_mode_init, HOOK_PRIO_PRE_DEFAULT);
-
-__override void board_pulse_entering_rw(void)
-{
-	/* no-op for dauntless */
-}

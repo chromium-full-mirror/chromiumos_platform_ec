@@ -40,6 +40,9 @@
 #include "util.h"
 #include "watchdog.h"
 
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/kernel.h>
+
 /* Console output macros */
 #define CPUTS(outstr) cputs(CC_SYSTEM, outstr)
 #define CPRINTF(format, args...) cprintf(CC_SYSTEM, format, ##args)
@@ -522,11 +525,15 @@ const char *ec_image_to_string(enum ec_image copy)
 	return image_names[copy < ARRAY_SIZE(image_names) ? copy : 0];
 }
 
-__overridable void board_pulse_entering_rw(void)
+test_export_static void pulse_entering_rw(void)
 {
-	gpio_set_level(GPIO_ENTERING_RW, 1);
-	k_usleep(MSEC);
-	gpio_set_level(GPIO_ENTERING_RW, 0);
+	const struct gpio_dt_spec *spec = gpio_get_dt_spec(GPIO_ENTERING_RW);
+
+	if (spec != NULL) {
+		gpio_pin_set_dt(spec, 1);
+		k_busy_wait(USEC_PER_MSEC);
+		gpio_pin_set_dt(spec, 0);
+	}
 }
 
 /**
@@ -549,7 +556,7 @@ test_mockable_static void jump_to_image(uintptr_t init_addr)
 	 * drop it again so we don't leak power through the pulldown in the
 	 * Silego.
 	 */
-	board_pulse_entering_rw();
+	pulse_entering_rw();
 
 #ifdef CONFIG_I2C_CONTROLLER
 	/* Prepare I2C module for sysjump */
