@@ -18,7 +18,6 @@ tests:
       - CONFIG_TEST_HIBERNATE_Z5_GPIO_BAD_CONFIG=y
       # Allow GPIO emulator to handle bad pin error
       - CONFIG_ASSERT=n
-      - CONFIG_PLATFORM_EC_DEBUG_ASSERT=n
     extra_dtc_overlay_files:
       - boards/native_sim.overlay
       - boards/native_sim_gpio_bad_config.overlay

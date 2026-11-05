@@ -2021,38 +2021,6 @@
  */
 
 /*
- * ASSERT() macros are checked at runtime.  See CONFIG_DEBUG_ASSERT_REBOOTS
- * to see what happens if one fails.
- *
- * Boards may #undef this to reduce image size.
- */
-#define CONFIG_DEBUG_ASSERT
-
-/*
- * Prints a message and reboots if an ASSERT() macro fails at runtime.  When
- * enabled, an ASSERT() which fails will produce a message of the form:
- *
- * ASSERTION FAILURE '<expr>' in function() at file:line
- *
- * If this is not defined, failing ASSERT() will trigger a BKPT instruction
- * instead.
- *
- * Ignored if CONFIG_DEBUG_ASSERT is not defined.
- *
- * Boards may #undef this to reduce image size.
- */
-#define CONFIG_DEBUG_ASSERT_REBOOTS
-
-/*
- * On assertion failure, prints only the file name and the line number.
- *
- * Ignored if CONFIG_DEBUG_ASSERT_REBOOTS is not defined.
- *
- * Boards may define this to reduce image size.
- */
-#undef CONFIG_DEBUG_ASSERT_BRIEF
-
-/*
  * Disable the write buffer used for default memory map accesses.
  * This turns "Imprecise data bus errors" into "Precise" errors
  * in exception traces at the cost of some performance.

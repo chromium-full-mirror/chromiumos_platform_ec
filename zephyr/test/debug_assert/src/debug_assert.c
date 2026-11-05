@@ -83,7 +83,7 @@ ZTEST(debug_assert, test_assert_true)
 
 static void system_reset_recursive_assert(int flags)
 {
-	/* Trigger a second assert while inside zassert_post_action(). */
+	/* Trigger a second assert while inside zassert_fail(). */
 	if (system_reset_fake.call_count == 1) {
 		__ASSERT(false, "Second assert");
 	}

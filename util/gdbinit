@@ -148,5 +148,5 @@ end
 define ec-brexception
     break exception_panic
     break bus_fault_handler
-    break panic_assert_fail
+    break zassert_fail
 end

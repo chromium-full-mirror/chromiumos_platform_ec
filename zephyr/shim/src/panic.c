@@ -316,7 +316,9 @@ void k_sys_fatal_error_handler(unsigned int reason, const struct arch_esf *esf)
 }
 #endif /* CONFIG_ZTEST_FATAL_HOOK */
 
-#ifdef CONFIG_PLATFORM_EC_DEBUG_ASSERT
+BUILD_ASSERT(!(IS_ENABLED(CONFIG_ASSERT_TEST) && !IS_ENABLED(CONFIG_TEST)));
+
+#if defined(CONFIG_ASSERT) && !defined(CONFIG_ASSERT_TEST)
 static bool in_assert;
 
 FUNC_NORETURN
@@ -381,7 +383,7 @@ __override void zassert_fail(const char *cond, const char *file,
 
 	CODE_UNREACHABLE;
 }
-#endif /* CONFIG_PLATFORM_EC_DEBUG_ASSERT */
+#endif /* CONFIG_ASSERT && !CONFIG_ASSERT_TEST */
 
 uint32_t panic_get_reason_reg(const struct panic_data *pdata)
 {
@@ -504,7 +506,8 @@ static void panic_host_event_init(void)
 DECLARE_HOOK(HOOK_CHIPSET_STARTUP, panic_host_event_init, HOOK_PRIO_LAST);
 #endif
 
-#if defined(CONFIG_ZTEST) && defined(CONFIG_PLATFORM_EC_DEBUG_ASSERT)
+#if defined(CONFIG_ZTEST) && defined(CONFIG_ASSERT) && \
+	!defined(CONFIG_ASSERT_TEST)
 #include <zephyr/ztest.h>
 
 static void panic_assert_reset_rule_before(const struct ztest_unit_test *test,

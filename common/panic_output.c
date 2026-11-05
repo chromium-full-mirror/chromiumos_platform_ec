@@ -135,6 +135,8 @@ void panic_printf(const char *format, ...)
 }
 #endif
 
+BUILD_ASSERT(!IS_ENABLED(CONFIG_RESET_ON_FATAL_ERROR));
+
 /**
  * Display a message and reboot
  */
@@ -420,7 +422,7 @@ static int command_crash(int argc, const char **argv)
 	}
 
 	if (!strcasecmp(argv[1], "assert")) {
-		if (!IS_ENABLED(CONFIG_DEBUG_ASSERT_REBOOTS)) {
+		if (!IS_ENABLED(CONFIG_ASSERT)) {
 			ccprintf("Asserts are disabled\n");
 			return EC_ERROR_PARAM1;
 		}

@@ -176,7 +176,6 @@ config HW_TEST_PANIC_DATA
 	bool "Panic data test"
 	depends on ZTEST
 	select ASSERT
-	select PLATFORM_EC_DEBUG_ASSERT
 	help
 	  It verifies panic data across different reboots.
 

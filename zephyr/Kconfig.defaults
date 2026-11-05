@@ -94,6 +94,14 @@ configdefault I2C_TRANSFER_TIMEOUT_MS
 configdefault DEVICE_API_ASSERT
 	default n
 
+configdefault ASSERT
+	default y
+
+# Temporarily use deprecated ASSERT_NO_COND_INFO to default the unnamed DEFAULT
+# zassert choice to TERSE on non-test builds until upstream names the choice.
+configdefault ASSERT_NO_COND_INFO
+	default y if !TEST
+
 config EC_HOST_CMD
 	default n if ARCH_POSIX
 	default y if AP && !HECI

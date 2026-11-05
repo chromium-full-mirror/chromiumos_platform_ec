@@ -75,7 +75,6 @@ rsource "Kconfig.cec"
 rsource "Kconfig.cme"
 rsource "Kconfig.console"
 rsource "Kconfig.console_cmd_mem"
-rsource "Kconfig.debug_assert"
 rsource "Kconfig.defaults"
 rsource "Kconfig.detachable_base"
 rsource "Kconfig.espi"
@@ -333,23 +332,6 @@ config PLATFORM_EC_CROS_FWID_VERSION
 	help
 	  Include Chrome OS FWID in version output. The CrOS FWID will
 	  be common across OS, AP firmware and EC firmware when built together.
-
-config PLATFORM_EC_DEBUG_ASSERT
-	bool "Enable assertion failures"
-	default y
-	select ASSERT
-	help
-	  Assertion failures are used to flag conditions which should not occur
-	  and thus indicate the software is unable to continue execution. This
-	  option can be disabled so that the assert() macro becomes a NOP. In
-	  this case, execution will continue but the results are unpredictable.
-
-	  Messages are of the form:
-
-	     ASSERTION FAILURE '<expr>' in function() at file:line
-
-	  Note: There is also ASSERT() which is an alias of assert(), used in
-	  host code where cstdlib is used.
 
 config PLATFORM_EC_DP_REDRIVER_TDP142
 	bool "Include TDP142 DisplayPort redriver driver"

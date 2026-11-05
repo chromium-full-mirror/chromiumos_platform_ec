@@ -299,26 +299,35 @@ shipping firmware.
 
 ### ASSERT() Calls
 
-By default, `ASSERT()` calls generate a console message of the following form:
+Zephyr's `zassert` subsystem controls assertion checks and output across EC and
+kernel code. `ASSERT()`, `assert()`, and `__ASSERT()` use the built-in `DEFAULT`
+module (`CONFIG_ASSERT_MODULE_DEFAULT_LEVEL_*`). Non-test builds default to
+`TERSE`, which keeps runtime checks and reboots on failure (`ASSERTION FAIL`)
+while omitting condition, message, and file/line strings, so only
+`CONFIG_ASSERT=n` reduces size further.
 
-```
-    ASSERTION FAILURE '<expr>' in function() at file:line
-```
-
-There are two options available that reduce the size of strings stored with the
-`ASSERT()` calls.
+Set one of the following Kconfig options in `prj.conf` or `project.conf` to
+change the assertion level:
 
 <!-- mdformat off(Don't format table) -->
 
-Description | cros-ec setting | zephyr-ec setting | Total Savings
-:--- | :--- | :--- | :---
-Display only file and line number | `#define CONFIG_DEBUG_ASSERT_BRIEF` | `CONFIG_PLATFORM_EC_DEBUG_ASSERT_BRIEF=y` | 2000-2500 bytes
-Disable all debug from ASSERT() calls.<br> EC is reset using a software breakpoint. | `#undef CONFIG_DEBUG_ASSERT_REBOOTS` | `CONFIG_PLATFORM_EC_DEBUG_ASSERT_REBOOTS=n`<br>`CONFIG_PLATFORM_EC_DEBUG_ASSERT_BREAKPOINT=y` | 3000-4000 bytes
+Level | Kconfig setting | Console output | Flash vs Terse | RAM vs Terse
+:--- | :--- | :--- | :--- | :---
+Verbose | `CONFIG_ASSERT_MODULE_DEFAULT_LEVEL_VERBOSE=y` | `ASSERTION FAIL [<expr>] @ <file>:<line>` (+ message) | +11 to +20 KB | 0 B (+8 to +9.5 KB on IT8xxx2)
+Normal | `CONFIG_ASSERT_MODULE_DEFAULT_LEVEL_NORMAL=y` | `ASSERTION FAIL @ <file>:<line>` | +3.5 to +6 KB | 0 B (+1.3 to +2.7 KB on IT8xxx2)
+Terse | `CONFIG_ASSERT_MODULE_DEFAULT_LEVEL_TERSE=y` (default) | `ASSERTION FAIL` | 0 B (baseline) | 0 B (baseline)
+Disabled | `CONFIG_ASSERT=n` | None (compiled out globally) | -3 to -9 KB | 0 B (-1.2 to -2.8 KB on IT8xxx2)
 
 <!-- mdformat on -->
 
-It is not recommended to disable `CONFIG_PLATFORM_EC_DEBUG_ASSERT_REBOOTS` on
-shipping firmware.
+Named assertion modules defined via `subsys/debug/zassert/Kconfig.template.assert`
+(`CONFIG_ASSERT_MODULE_<MODULE>_LEVEL_*`) default to `VERBOSE` when
+`CONFIG_ASSERT=y`. To enable verbose or file/line assertions in a single file
+without increasing flash across the whole image, keep `CONFIG_ASSERT=y` and use
+`ZASSERT_VERBOSE()` / `ZASSERT_NORMAL()` (or `ZASSERT_MODULE(DEFAULT,
+ZASSERT_LEVEL_VERBOSE)` with `ZASSERT()`) from `<zephyr/sys/zassert.h>`.
+
+It is not recommended to disable `CONFIG_ASSERT` on shipping firmware.
 
 ### Disable console help and history
 
