@@ -22,6 +22,7 @@
 #include "util.h"
 #include "watchdog.h"
 
+#include <zephyr/shell/shell.h>
 #include <zephyr/sys/atomic.h>
 
 /* Console output macro */
@@ -465,7 +466,8 @@ static void simulate_button(uint32_t button_mask, int press_ms)
 #endif /* #ifdef CONFIG_SIMULATED_BUTTON */
 
 #ifdef CONFIG_CMD_BUTTON
-static int console_command_button(int argc, const char **argv)
+static int console_command_button(const struct shell *sh, size_t argc,
+				  char **argv)
 {
 	int press_ms = 50;
 	char *e;
@@ -473,8 +475,7 @@ static int console_command_button(int argc, const char **argv)
 	int button = BUTTON_COUNT;
 	uint32_t button_mask = 0;
 
-	if (argc < 2)
-		return EC_ERROR_PARAM_COUNT;
+	ARG_UNUSED(sh);
 
 	for (argv_idx = 1; argv_idx < argc; argv_idx++) {
 		if (!strcasecmp(argv[argv_idx], "vup"))
@@ -495,20 +496,22 @@ static int console_command_button(int argc, const char **argv)
 		}
 
 		if (button == BUTTON_COUNT)
-			return EC_ERROR_PARAM1 + argv_idx - 1;
+			return -EINVAL;
 
 		button_mask |= BIT(button);
 	}
 
 	if (!button_mask)
-		return EC_SUCCESS;
+		return 0;
 
 	simulate_button(button_mask, press_ms);
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(button, console_command_button, "vup|vdown|rec msec",
-			"Simulate button press");
+SHELL_CMD_ARG_REGISTER(button, NULL,
+		       SHELL_HELP("Simulate button press",
+				  "vup|vdown|rec msec"),
+		       console_command_button, 2, 3);
 #endif /* CONFIG_CMD_BUTTON */
 
 #ifdef CONFIG_HOSTCMD_BUTTON

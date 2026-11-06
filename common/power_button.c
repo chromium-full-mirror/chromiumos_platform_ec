@@ -21,6 +21,8 @@
 #include "timer.h"
 #include "util.h"
 
+#include <zephyr/shell/shell.h>
+
 /* Console output macros */
 #define CPUTS(outstr) cputs(CC_SWITCH, outstr)
 #define CPRINTS(format, args...) cprints(CC_SWITCH, format, ##args)
@@ -312,7 +314,7 @@ test_export_static void power_button_change_deferred(void)
 
 static void power_button_simulate_deferred(void)
 {
-	ccprintf("Simulating %s release.\n", power_button.name);
+	CPRINTS("Simulating %s release.", power_button.name);
 	simulate_power_pressed = 0;
 	power_button_is_stable = 0;
 	power_button_change_deferred();
@@ -348,7 +350,7 @@ void power_button_interrupt(enum gpio_signal signal)
 
 void power_button_simulate_press(unsigned int duration)
 {
-	ccprintf("Simulating %d ms %s press.\n", duration, power_button.name);
+	CPRINTS("Simulating %d ms %s press.", duration, power_button.name);
 	simulate_power_pressed = 1;
 	power_button_is_stable = 0;
 	power_button_change_deferred();
@@ -366,22 +368,25 @@ __overridable int power_button_is_eating_release(void)
 /*****************************************************************************/
 /* Console commands */
 
-static int command_powerbtn(int argc, const char **argv)
+static int command_powerbtn(const struct shell *sh, size_t argc, char **argv)
 {
 	int ms = POWER_BUTTON_SHORTPRESS; /* Press duration in ms */
 	char *e;
 
+	ARG_UNUSED(sh);
+
 	if (argc > 1) {
 		ms = strtoi(argv[1], &e, 0);
 		if (*e || ms < 0)
-			return EC_ERROR_PARAM1;
+			return -EINVAL;
 	}
 
 	power_button_simulate_press(ms);
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(powerbtn, command_powerbtn, "[msec]",
-			"Simulate power button press");
+SHELL_CMD_ARG_REGISTER(powerbtn, NULL,
+		       SHELL_HELP("Simulate power button press", "[msec]"),
+		       command_powerbtn, 1, 1);
 
 /*****************************************************************************/
 /* Host commands */

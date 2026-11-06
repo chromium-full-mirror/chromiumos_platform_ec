@@ -109,11 +109,11 @@ static int command_powerbtn(const struct shell *shell, size_t argc, char **argv)
 	if (argc > 1) {
 		ms = strtoi(argv[1], &e, 0);
 		if (*e || ms < 0)
-			return EC_ERROR_PARAM1;
+			return -EINVAL;
 	}
 
 	power_button_simulate_press(ms);
-	return EC_SUCCESS;
+	return 0;
 }
 
 SHELL_CMD_ARG_REGISTER(powerbtn, NULL,

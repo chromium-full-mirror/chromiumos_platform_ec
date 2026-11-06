@@ -17,8 +17,7 @@ ZTEST_USER(console_cmd_button, test_button_no_arg)
 
 	rv = shell_execute_cmd(get_ec_shell(), "button");
 
-	zassert_equal(EC_ERROR_PARAM_COUNT, rv, "Expected %d, returned %d",
-		      EC_ERROR_PARAM_COUNT, rv);
+	zassert_equal(-EINVAL, rv, "Expected %d, returned %d", -EINVAL, rv);
 }
 
 ZTEST_USER(console_cmd_button, test_button_vup)
@@ -27,8 +26,7 @@ ZTEST_USER(console_cmd_button, test_button_vup)
 
 	rv = shell_execute_cmd(get_ec_shell(), "button vup a");
 
-	zassert_equal(EC_ERROR_PARAM2, rv, "Expected %d, returned %d",
-		      EC_ERROR_PARAM2, rv);
+	zassert_equal(-EINVAL, rv, "Expected %d, returned %d", -EINVAL, rv);
 
 	rv = shell_execute_cmd(get_ec_shell(), "button vup 50");
 
@@ -41,8 +39,7 @@ ZTEST_USER(console_cmd_button, test_button_vdown)
 
 	rv = shell_execute_cmd(get_ec_shell(), "button vdown a");
 
-	zassert_equal(EC_ERROR_PARAM2, rv, "Expected %d, returned %d",
-		      EC_ERROR_PARAM2, rv);
+	zassert_equal(-EINVAL, rv, "Expected %d, returned %d", -EINVAL, rv);
 
 	rv = shell_execute_cmd(get_ec_shell(), "button vdown 50");
 
@@ -59,8 +56,8 @@ ZTEST_USER(console_cmd_button, test_button_rec)
 		zassert_ok(rv, "Expected %d, returned %d", EC_SUCCESS, rv);
 	} else {
 		/* Recovery button does not exist */
-		zassert_equal(EC_ERROR_PARAM1, rv, "Expected %d, returned %d",
-			      EC_ERROR_PARAM1, rv);
+		zassert_equal(-EINVAL, rv, "Expected %d, returned %d", -EINVAL,
+			      rv);
 	}
 }
 

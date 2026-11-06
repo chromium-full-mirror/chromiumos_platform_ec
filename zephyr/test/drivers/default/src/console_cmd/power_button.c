@@ -30,6 +30,5 @@ ZTEST_USER(console_cmd_power_button, test_invalid_arg)
 
 	rv = shell_execute_cmd(get_ec_shell(), "powerbtn foo");
 
-	zassert_equal(rv, EC_ERROR_PARAM1, "Expected %d, but got %d",
-		      EC_ERROR_PARAM1, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
