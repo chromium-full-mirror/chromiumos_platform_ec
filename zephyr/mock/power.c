@@ -19,14 +19,12 @@ LOG_MODULE_REGISTER(mock_power);
 DEFINE_FAKE_VALUE_FUNC(enum power_state, power_handle_state, enum power_state);
 DEFINE_FAKE_VOID_FUNC(chipset_force_shutdown, enum chipset_shutdown_reason);
 DEFINE_FAKE_VOID_FUNC(chipset_power_on);
-DEFINE_FAKE_VALUE_FUNC(int, command_power, int, const char **);
 
 #define MOCK_POWER_LIST(FAKE)                 \
 	{                                     \
 		FAKE(power_handle_state);     \
 		FAKE(chipset_force_shutdown); \
 		FAKE(chipset_power_on);       \
-		FAKE(command_power);          \
 	}
 
 /**
@@ -46,7 +44,6 @@ static void mock_power_rule_before(const struct ztest_unit_test *test,
 	chipset_force_shutdown_fake.custom_fake =
 		chipset_force_shutdown_custom_fake;
 	chipset_power_on_fake.custom_fake = chipset_power_on_custom_fake;
-	command_power_fake.custom_fake = command_power_custom_fake;
 }
 
 ZTEST_RULE(mock_power_rule, mock_power_rule_before, NULL);
@@ -95,52 +92,9 @@ void chipset_force_shutdown_custom_fake(enum chipset_shutdown_reason reason)
 
 void chipset_power_on_custom_fake(void)
 {
-	if (chipset_in_state(CHIPSET_STATE_ANY_OFF)) {
-		handle_power_request(POWER_REQ_ON);
-		task_wake(TASK_ID_CHIPSET);
-	}
-}
-
-/* Power states that we can report */
-enum power_state_t {
-	PSTATE_UNKNOWN,
-	PSTATE_OFF,
-	PSTATE_ON,
-	PSTATE_COUNT,
-};
-
-static const char *const state_name[] = {
-	"unknown",
-	"OFF",
-	"ON",
-};
-
-int command_power_custom_fake(int argc, const char **argv)
-{
-	int v, req;
-
-	if (argc < 2) {
-		enum power_state_t state;
-
-		state = PSTATE_UNKNOWN;
-		if (chipset_in_state(CHIPSET_STATE_ANY_OFF))
-			state = PSTATE_OFF;
-		if (chipset_in_state(CHIPSET_STATE_ON))
-			state = PSTATE_ON;
-		ccprintf("%s\n", state_name[state]);
-
-		return EC_SUCCESS;
-	}
-
-	if (!parse_bool(argv[1], &v)) {
-		return EC_ERROR_PARAM1;
-	}
-	req = v ? POWER_REQ_ON : POWER_REQ_OFF;
-	handle_power_request(req);
-	LOG_INF("MOCK: Requesting power %s\n", power_req_name[req]);
+	LOG_INF("MOCK %s()", __func__);
+	handle_power_request(POWER_REQ_ON);
 	task_wake(TASK_ID_CHIPSET);
-
-	return EC_SUCCESS;
 }
 
 static void mock_lid_event(void)

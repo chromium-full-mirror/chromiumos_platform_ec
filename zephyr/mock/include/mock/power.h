@@ -27,15 +27,12 @@ enum power_request_t {
 DECLARE_FAKE_VALUE_FUNC(enum power_state, power_handle_state, enum power_state);
 DECLARE_FAKE_VOID_FUNC(chipset_force_shutdown, enum chipset_shutdown_reason);
 DECLARE_FAKE_VOID_FUNC(chipset_power_on);
-DECLARE_FAKE_VALUE_FUNC(int, command_power, int, const char **);
 
 enum power_state power_handle_state_custom_fake(enum power_state state);
 
 void chipset_force_shutdown_custom_fake(enum chipset_shutdown_reason reason);
 
 void chipset_power_on_custom_fake(void);
-
-int command_power_custom_fake(int argc, const char **argv);
 
 /** @brief Mocks an AP power state change request.
  *

@@ -559,8 +559,8 @@ ZTEST(power_common, test_power_console_cmd)
 			     strcmp(buffer, "\r\nON\r\n") == 0,
 		     "Invalid console output %s", buffer);
 
-	zassert_equal(EC_ERROR_PARAM1,
-		      shell_execute_cmd(get_ec_shell(), "power x"), NULL);
+	zassert_equal(-EINVAL, shell_execute_cmd(get_ec_shell(), "power x"),
+		      NULL);
 
 	zassert_equal(EC_SUCCESS, shell_execute_cmd(get_ec_shell(), "power on"),
 		      NULL);

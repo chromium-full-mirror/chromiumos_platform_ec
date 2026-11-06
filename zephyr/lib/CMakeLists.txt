@@ -6,3 +6,5 @@ if(CONFIG_ZEPHYR_PIGWEED_MODULE)
   add_subdirectory(math)
   add_subdirectory(vsensor)
 endif()
+
+add_subdirectory(ap_power_console)

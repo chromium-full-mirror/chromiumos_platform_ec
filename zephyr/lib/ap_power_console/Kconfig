@@ -1,0 +1,12 @@
+# Copyright 2026 The ChromiumOS Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+config AP_POWER_CONSOLE
+	bool "AP power console command (power [on/off])"
+	depends on AP_POWER_CONTROL && SHELL
+	default y if PLATFORM_EC_POWERSEQ_SC7180 || PLATFORM_EC_POWERSEQ_SC7280
+	default y if PLATFORM_EC_POWERSEQ_QC_EXP
+	help
+	  Enable the 'power [on/off]' shell command to query or control the AP
+	  power state via the chipset API.
