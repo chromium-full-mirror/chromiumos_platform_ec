@@ -95,7 +95,8 @@ bool heci_send_proto_msg(uint8_t host_addr, uint8_t fw_addr, bool last_frag,
 	return true;
 }
 
-static bool send_client_msg(struct heci_conn_t *conn, struct mrd_t *msg)
+static bool send_client_msg(struct heci_conn_t *conn, struct mrd_t *msg,
+			    uint32_t *sent_bytes)
 {
 	__ASSERT(conn != NULL, "invalid heci connection\n");
 	__ASSERT(msg != NULL, "invalid heci client msg to send\n");
@@ -106,7 +107,12 @@ static bool send_client_msg(struct heci_conn_t *conn, struct mrd_t *msg)
 	int ret;
 	unsigned int fragment_size;
 	unsigned int done_bytes = 0;
+	uint32_t acked_bytes = 0;
 	uint32_t out_drbl, copy_size, max_frag_size;
+
+	if (sent_bytes != NULL) {
+		*sent_bytes = 0;
+	}
 
 	max_frag_size = host_intf->max_fragment_size - sizeof(bus_msg->hdr);
 #ifdef CONFIG_RTD3
@@ -124,6 +130,8 @@ static bool send_client_msg(struct heci_conn_t *conn, struct mrd_t *msg)
 	bus_msg->hdr.last_frag = 0;
 
 	while (msg != NULL) {
+		uint32_t payload_len;
+
 		fragment_size = 0;
 		/* try to copy as much as we can into current fragment */
 		while ((fragment_size < max_frag_size) && (msg != NULL)) {
@@ -148,19 +156,30 @@ static bool send_client_msg(struct heci_conn_t *conn, struct mrd_t *msg)
 			bus_msg->hdr.last_frag = 1;
 		}
 
+		payload_len = fragment_size;
 		bus_msg->hdr.len = fragment_size;
 		fragment_size += sizeof(bus_msg->hdr);
 
 		out_drbl = BUILD_DRBL(fragment_size, PROTOCOL_HECI);
 		ret = send_bsp_msg(out_drbl, heci_dev.send_buffer,
 				   fragment_size);
-#ifdef CONFIG_RTD3
-		mng_host_access_dereq();
-#endif
 		if (ret) {
+#ifdef CONFIG_RTD3
+			mng_host_access_dereq();
+#endif
+			if (sent_bytes != NULL) {
+				*sent_bytes = acked_bytes;
+			}
 			LOG_ERR("write HECI client msg err %d", ret);
 			return false;
 		}
+		acked_bytes += payload_len;
+	}
+#ifdef CONFIG_RTD3
+	mng_host_access_dereq();
+#endif
+	if (sent_bytes != NULL) {
+		*sent_bytes = acked_bytes;
 	}
 	return true;
 }
@@ -216,9 +235,24 @@ static int32_t cal_send_msg_len(uint32_t conn_id, struct mrd_t *msg)
 	return total_len;
 }
 
+/*
+ * Host command responses use blocking heci_send() (non-zero timeout) and have
+ * no upper-layer retry, whereas MKBP events use heci_send_nowait() (K_NO_WAIT)
+ * and are already retried by common/mkbp_event.c on failure.
+ */
+#define HECI_IS_MKBP_EVENT(timeout) K_TIMEOUT_EQ((timeout), K_NO_WAIT)
+
+static inline void heci_reset_pending_transfers(struct heci_conn_t *conn)
+{
+	conn->rx_fc_pending = false;
+	conn->pending_resp_buf = NULL;
+	conn->pending_resp_len = 0;
+}
+
 bool heci_send_timeout(uint32_t conn_id, struct mrd_t *msg, k_timeout_t timeout)
 {
 	int32_t total_len;
+	uint32_t sent_bytes = 0;
 	bool sent = false;
 	struct heci_conn_t *conn;
 
@@ -240,7 +274,7 @@ bool heci_send_timeout(uint32_t conn_id, struct mrd_t *msg, k_timeout_t timeout)
 
 	/* Wait for flow control if no credit is available */
 	if (conn->host_buffers == 0) {
-		if (K_TIMEOUT_EQ(timeout, K_NO_WAIT)) {
+		if (HECI_IS_MKBP_EVENT(timeout)) {
 			/* Non-blocking caller: abort immediately under lock */
 			heci_unlock();
 			return false;
@@ -269,11 +303,25 @@ bool heci_send_timeout(uint32_t conn_id, struct mrd_t *msg, k_timeout_t timeout)
 		/* TODO: add dma support */
 	}
 #endif
-	sent = send_client_msg(conn, msg);
+	sent = send_client_msg(conn, msg, &sent_bytes);
 	if (sent) {
 		conn->host_buffers--;
+		if (!HECI_IS_MKBP_EVENT(timeout)) {
+			conn->pending_resp_buf = NULL;
+			conn->pending_resp_len = 0;
+		}
 	} else {
 		LOG_ERR("heci send fail!");
+		if (!HECI_IS_MKBP_EVENT(timeout)) {
+			__ASSERT(msg->next == NULL,
+				 "Chained MRDs not supported for retry");
+			conn->pending_resp_buf =
+				(const uint8_t *)msg->buf + sent_bytes;
+			conn->pending_resp_len =
+				(uint16_t)(total_len - sent_bytes);
+			LOG_WRN("client msg send failed on conn %u (len=%u), deferring retry",
+				conn_id, conn->pending_resp_len);
+		}
 	}
 
 	heci_unlock();
@@ -303,6 +351,7 @@ bool heci_send_flow_control(uint32_t conn_id)
 	if (!(conn->state & HECI_CONN_STATE_OPEN)) {
 		LOG_WRN("heci connection %d is closed now, fails to send fc",
 			(int)conn_id);
+		heci_reset_pending_transfers(conn);
 		ret = false;
 		goto out_unlock;
 	}
@@ -317,6 +366,18 @@ bool heci_send_flow_control(uint32_t conn_id)
 		conn->rx_buffer = NULL;
 	}
 
+	/*
+	 * Do not grant RX flow control credit to the host before a deferred
+	 * outbound response on this connection has been flushed.
+	 */
+	if (conn->pending_resp_len > 0) {
+		conn->rx_fc_pending = true;
+		ret = false;
+		LOG_WRN("response pending on conn %u, deferring flow control",
+			conn_id);
+		goto out_unlock;
+	}
+
 	/* build flow control message */
 	fc.command = HECI_BUS_MSG_FLOW_CONTROL;
 	fc.host_addr = conn->host_addr;
@@ -329,6 +390,14 @@ bool heci_send_flow_control(uint32_t conn_id)
 
 	ret = heci_send_proto_msg(HECI_DRIVER_ADDRESS, HECI_DRIVER_ADDRESS,
 				  true, (uint8_t *)&fc, sizeof(fc));
+	if (!ret) {
+		conn->rx_fc_pending = true;
+		LOG_WRN("flow control send failed on conn %u, deferring retry",
+			conn_id);
+	} else if (conn->rx_fc_pending) {
+		conn->rx_fc_pending = false;
+		LOG_INF("flow control retry succeeded on conn %u", conn_id);
+	}
 
 out_unlock:
 	heci_unlock();
@@ -365,6 +434,7 @@ static void heci_connection_reset(struct heci_conn_t *conn)
 		return;
 	}
 
+	heci_reset_pending_transfers(conn);
 	conn->state = HECI_CONN_STATE_DISCONNECTING;
 	heci_notify_client(conn, HECI_EVENT_DISCONN);
 }
@@ -600,6 +670,7 @@ static void heci_connect_host(struct heci_bus_msg_t *msg)
 	idle_conn->host_addr = req->host_addr;
 	idle_conn->fw_addr = req->fw_addr;
 	idle_conn->state = HECI_CONN_STATE_OPEN;
+	heci_reset_pending_transfers(idle_conn);
 	idle_conn->flow_ctrl_sem = &(flow_ctrl_sems[conn_id]);
 	idle_conn->event_cb = client->properties.event_cb;
 	idle_conn->event_cb_arg = client->properties.event_cb_arg;
@@ -642,6 +713,8 @@ static void heci_disconnect(struct heci_bus_msg_t *msg)
 	if (conn != NULL) {
 		LOG_DBG("disconnect req from host, conn: %d(%d<->%d)",
 			conn->connection_id, req->host_addr, req->fw_addr);
+
+		heci_reset_pending_transfers(conn);
 
 		if (conn->state & HECI_CONN_STATE_DISCONNECTING) {
 			/*
@@ -721,6 +794,7 @@ static void heci_reset_resp(struct heci_bus_msg_t *msg)
 			      HECI_CONN_STATE_OPEN);
 	if (conn) {
 		conn->host_buffers = 0;
+		heci_reset_pending_transfers(conn);
 
 		resp.command = HECI_BUS_MSG_RESET_RESP;
 		resp.host_addr = req->host_addr;
@@ -914,6 +988,7 @@ static void heci_process_client_message(struct heci_bus_msg_t *msg)
 		LOG_ERR(" no valid connection");
 		return;
 	}
+	heci_reset_pending_transfers(conn);
 
 	LOG_DBG("conn:%d(%d<->%d)", conn->connection_id, msg->hdr.host_addr,
 		msg->hdr.fw_addr);
@@ -1131,6 +1206,61 @@ static void heci_process_message(struct heci_bus_msg_t *msg)
 	heci_unlock();
 }
 
+static void heci_retry_pending_transfers(void)
+{
+	for (uint32_t i = 0; i < HECI_MAX_NUM_OF_CONNECTIONS; i++) {
+		struct heci_conn_t *conn = &heci_dev.connections[i];
+		bool send_fc;
+
+		heci_lock();
+		if (!(conn->state & HECI_CONN_STATE_OPEN)) {
+			heci_reset_pending_transfers(conn);
+			heci_unlock();
+			continue;
+		}
+
+		if (conn->pending_resp_len > 0) {
+			uint32_t sent_bytes = 0;
+
+			if (conn->host_buffers == 0) {
+				heci_unlock();
+				continue;
+			}
+
+			struct mrd_t m = {
+				.next = NULL,
+				.buf = (void *)conn->pending_resp_buf,
+				.len = conn->pending_resp_len,
+			};
+
+			if (send_client_msg(conn, &m, &sent_bytes)) {
+				conn->host_buffers--;
+				conn->pending_resp_buf = NULL;
+				conn->pending_resp_len = 0;
+				LOG_INF("client msg retry succeeded on conn %u",
+					i);
+			} else {
+				if ((sent_bytes > 0) &&
+				    (sent_bytes < conn->pending_resp_len)) {
+					conn->pending_resp_buf += sent_bytes;
+					conn->pending_resp_len -=
+						(uint16_t)sent_bytes;
+				}
+				LOG_WRN("client msg retry failed on conn %u",
+					i);
+				heci_unlock();
+				continue;
+			}
+		}
+		send_fc = conn->rx_fc_pending;
+		heci_unlock();
+
+		if (send_fc) {
+			heci_send_flow_control(i);
+		}
+	}
+}
+
 static inline void ack_host(void)
 {
 	host_intf->send_ack();
@@ -1171,7 +1301,19 @@ static int heci_handler(uint32_t drbl)
 		goto out;
 	}
 
+	/*
+	 * Flush any transfers that were deferred across a prior host suspend
+	 * entry before processing the newly arrived host message, and again
+	 * after heci_process_message() in case an incoming
+	 * HECI_BUS_MSG_FLOW_CONTROL message replenished conn->host_buffers.
+	 * Keep ack_host() after both so the host does not send another message
+	 * before the current one finishes processing.
+	 */
+	heci_retry_pending_transfers();
+
 	heci_process_message(heci_msg);
+
+	heci_retry_pending_transfers();
 
 out:
 	ack_host();
