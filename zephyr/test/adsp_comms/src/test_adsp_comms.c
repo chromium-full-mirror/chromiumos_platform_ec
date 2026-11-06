@@ -273,27 +273,23 @@ ZTEST_USER(adsp_comms, test_command_chgstate_sustain)
 	zassert_ok(shell_execute_cmd(sh, "chgstate"));
 
 	/* Missing arguments */
-	zassert_equal(EC_ERROR_PARAM_COUNT,
-		      shell_execute_cmd(sh, "chgstate sustain"));
-	zassert_equal(EC_ERROR_PARAM_COUNT,
-		      shell_execute_cmd(sh, "chgstate sustain 80"));
+	zassert_equal(-EINVAL, shell_execute_cmd(sh, "chgstate sustain"));
+	zassert_equal(-EINVAL, shell_execute_cmd(sh, "chgstate sustain 80"));
 
 	/* Invalid number format */
-	zassert_equal(EC_ERROR_PARAM2,
+	zassert_equal(-EINVAL,
 		      shell_execute_cmd(sh, "chgstate sustain abc 80"));
-	zassert_equal(EC_ERROR_PARAM3,
+	zassert_equal(-EINVAL,
 		      shell_execute_cmd(sh, "chgstate sustain 80 def"));
 
 	/* Invalid range (lower > upper, upper > 100, lower < -1) */
-	zassert_equal(EC_ERROR_INVAL,
-		      shell_execute_cmd(sh, "chgstate sustain 85 80"));
-	zassert_equal(EC_ERROR_INVAL,
-		      shell_execute_cmd(sh, "chgstate sustain -2 80"));
-	zassert_equal(EC_ERROR_INVAL,
+	zassert_equal(-EINVAL, shell_execute_cmd(sh, "chgstate sustain 85 80"));
+	zassert_equal(-EINVAL, shell_execute_cmd(sh, "chgstate sustain -2 80"));
+	zassert_equal(-EINVAL,
 		      shell_execute_cmd(sh, "chgstate sustain 80 101"));
 
 	/* Unknown sub-command */
-	zassert_equal(EC_ERROR_PARAM1, shell_execute_cmd(sh, "chgstate foo"));
+	zassert_equal(-EINVAL, shell_execute_cmd(sh, "chgstate foo"));
 }
 
 /* Test reset of ADSP comms state on HOOK_CHIPSET_SHUTDOWN_COMPLETE */

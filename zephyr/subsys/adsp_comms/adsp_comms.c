@@ -10,13 +10,13 @@
 #include "charge_state.h"
 #include "chipset.h"
 #include "common.h"
-#include "console.h"
 #include "ec_commands.h"
 #include "extpower.h"
 #include "hooks.h"
 #include "util.h"
 
 #include <zephyr/logging/log.h>
+#include <zephyr/shell/shell.h>
 
 LOG_MODULE_DECLARE(adsp_comms, LOG_LEVEL_INF);
 
@@ -52,7 +52,7 @@ enum led_pwr_state led_pwr_get_state(void)
 	return active_charge_state;
 }
 
-static int command_chgstate(int argc, const char **argv)
+static int command_chgstate(const struct shell *sh, size_t argc, char **argv)
 {
 	const char *state_str = "idle";
 	int soc = battery_get_fake_soc();
@@ -61,44 +61,8 @@ static int command_chgstate(int argc, const char **argv)
 		(bp == BP_YES) ? "YES" : (bp == BP_NO ? "NO" : "NOT_SURE");
 	int batt_is_charging = 0;
 
-	if (argc > 1) {
-		if (IS_ENABLED(
-			    CONFIG_PLATFORM_EC_CHARGE_CONTROL_PERSIST_TO_BBRAM) &&
-		    !strcasecmp(argv[1], "sustain")) {
-			char *e;
-			int lower, upper;
-			int rv;
-
-			if (argc <= 3)
-				return EC_ERROR_PARAM_COUNT;
-			lower = strtoi(argv[2], &e, 0);
-			if (*e)
-				return EC_ERROR_PARAM2;
-			upper = strtoi(argv[3], &e, 0);
-			if (*e)
-				return EC_ERROR_PARAM3;
-
-			if (lower == CHARGE_CONTROL_SUSTAINER_DISABLED ||
-			    upper == CHARGE_CONTROL_SUSTAINER_DISABLED) {
-				rv = charge_control_save_to_bbram(
-					CHARGE_CONTROL_SUSTAINER_DISABLED,
-					CHARGE_CONTROL_SUSTAINER_DISABLED, 0);
-			} else if (0 <= lower && lower <= upper &&
-				   upper <= 100) {
-				rv = charge_control_save_to_bbram(
-					lower, upper,
-					(lower < upper) ?
-						EC_CHARGE_CONTROL_FLAG_NO_IDLE :
-						0);
-			} else {
-				return EC_ERROR_INVAL;
-			}
-			if (rv)
-				return rv;
-		} else {
-			return EC_ERROR_PARAM1;
-		}
-	}
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
 
 	if (active_charge_state == LED_PWRS_CHARGE ||
 	    active_charge_state == LED_PWRS_CHARGE_NEAR_FULL) {
@@ -109,12 +73,12 @@ static int command_chgstate(int argc, const char **argv)
 		state_str = "discharge";
 	}
 
-	ccprintf("state = %s\n", state_str);
-	ccprintf("ac = %d\n", extpower_is_present());
-	ccprintf("batt_is_charging = %d\n", batt_is_charging);
-	ccprintf("batt.*:\n");
-	ccprintf("\tstate_of_charge = %d%%\n", soc);
-	ccprintf("\tis_present = %s\n", pres_str);
+	shell_print(sh, "state = %s", state_str);
+	shell_print(sh, "ac = %d", extpower_is_present());
+	shell_print(sh, "batt_is_charging = %d", batt_is_charging);
+	shell_print(sh, "batt.*:");
+	shell_print(sh, "\tstate_of_charge = %d%%", soc);
+	shell_print(sh, "\tis_present = %s", pres_str);
 
 	if (IS_ENABLED(CONFIG_PLATFORM_EC_CHARGE_CONTROL_PERSIST_TO_BBRAM)) {
 		int8_t lower, upper;
@@ -124,17 +88,60 @@ static int command_chgstate(int argc, const char **argv)
 			    EC_SUCCESS &&
 		    lower != CHARGE_CONTROL_SUSTAINER_DISABLED &&
 		    upper != CHARGE_CONTROL_SUSTAINER_DISABLED) {
-			ccprintf("Battery sustainer = on (%d%% ~ %d%%)\n",
-				 lower, upper);
+			shell_print(sh, "Battery sustainer = on (%d%% ~ %d%%)",
+				    lower, upper);
 		} else {
-			ccprintf("Battery sustainer = off\n");
+			shell_print(sh, "Battery sustainer = off");
 		}
 	}
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(chgstate, command_chgstate, "[sustain <lower> <upper>]",
-			"Get/set charge state machine status");
+
+static int cmd_chgstate_sustain(const struct shell *sh, size_t argc,
+				char **argv)
+{
+	char *e;
+	int lower, upper;
+	int rv;
+
+	lower = strtoi(argv[1], &e, 0);
+	if (*e)
+		return -EINVAL;
+	upper = strtoi(argv[2], &e, 0);
+	if (*e)
+		return -EINVAL;
+
+	if (lower == CHARGE_CONTROL_SUSTAINER_DISABLED ||
+	    upper == CHARGE_CONTROL_SUSTAINER_DISABLED) {
+		rv = charge_control_save_to_bbram(
+			CHARGE_CONTROL_SUSTAINER_DISABLED,
+			CHARGE_CONTROL_SUSTAINER_DISABLED, 0);
+	} else if (0 <= lower && lower <= upper && upper <= 100) {
+		rv = charge_control_save_to_bbram(
+			lower, upper,
+			(lower < upper) ? EC_CHARGE_CONTROL_FLAG_NO_IDLE : 0);
+	} else {
+		return -EINVAL;
+	}
+	if (rv)
+		return -EINVAL;
+
+	return command_chgstate(sh, argc, argv);
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(
+	sub_chgstate_cmds,
+	SHELL_COND_CMD_ARG(
+		IS_ENABLED(CONFIG_PLATFORM_EC_CHARGE_CONTROL_PERSIST_TO_BBRAM),
+		sustain, NULL,
+		SHELL_HELP("Set battery sustain limits", "<lower> <upper>"),
+		cmd_chgstate_sustain, 3, 0),
+	SHELL_SUBCMD_SET_END);
+
+SHELL_CMD_ARG_REGISTER(chgstate, &sub_chgstate_cmds,
+		       "Get/set charge state machine status", command_chgstate,
+		       1, 0);
 
 #ifdef CONFIG_BATTERY_STATUS_CUSTOM
 test_mockable int battery_status(int *status)
