@@ -11,6 +11,8 @@
 #include "motion_sense_fifo.h"
 #include "timer.h"
 
+#include <zephyr/shell/shell.h>
+
 /* Support V1 algorithm */
 #ifndef CONFIG_BODY_DETECTION_ALGORITHM_V1
 static
@@ -89,38 +91,72 @@ bool body_detect_get_spoof(void)
 	return spoof_enable;
 }
 
-static int command_setbodydetectionmode(int argc, const char **argv)
+static int cmd_bodydetectmode_on(const struct shell *sh, size_t argc,
+				 char **argv)
 {
-	if (argc == 1) {
-		print_body_detect_mode();
-		return EC_SUCCESS;
-	}
+	ARG_UNUSED(sh);
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
 
-	if (argc != 2)
-		return EC_ERROR_PARAM_COUNT;
-
-	/* |+1| to also make sure the strings the same length. */
-	if (strncmp(argv[1], "on", strlen("on") + 1) == 0) {
-		body_detect_change_state(BODY_DETECTION_ON_BODY, true);
-		spoof_enable = true;
-	} else if (strncmp(argv[1], "off", strlen("off") + 1) == 0) {
-		body_detect_change_state(BODY_DETECTION_OFF_BODY, true);
-		spoof_enable = true;
-	} else if (strncmp(argv[1], "reset", strlen("reset") + 1) == 0) {
-		body_detect_reset();
-		/*
-		 * Don't call body_detect_set_spoof(), since
-		 * body_detect_change_state() was already called by
-		 * body_detect_reset().
-		 */
-		spoof_enable = false;
-	} else {
-		return EC_ERROR_PARAM1;
-	}
-
-	return EC_SUCCESS;
+	body_detect_change_state(BODY_DETECTION_ON_BODY, true);
+	spoof_enable = true;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(
-	bodydetectmode, command_setbodydetectionmode, "[on | off | reset]",
-	"Manually force body detect mode to on (body), off (body) or reset.");
+
+static int cmd_bodydetectmode_off(const struct shell *sh, size_t argc,
+				  char **argv)
+{
+	ARG_UNUSED(sh);
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	body_detect_change_state(BODY_DETECTION_OFF_BODY, true);
+	spoof_enable = true;
+	return 0;
+}
+
+static int cmd_bodydetectmode_reset(const struct shell *sh, size_t argc,
+				    char **argv)
+{
+	ARG_UNUSED(sh);
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	body_detect_reset();
+	/*
+	 * Don't call body_detect_set_spoof(), since
+	 * body_detect_change_state() was already called by
+	 * body_detect_reset().
+	 */
+	spoof_enable = false;
+	return 0;
+}
+
+static int command_setbodydetectionmode(const struct shell *sh, size_t argc,
+					char **argv)
+{
+	ARG_UNUSED(sh);
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	print_body_detect_mode();
+	return 0;
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(
+	sub_bodydetectmode_cmds,
+	SHELL_CMD_ARG(on, NULL, "Force body detect mode on",
+		      cmd_bodydetectmode_on, 1, 0),
+	SHELL_CMD_ARG(off, NULL, "Force body detect mode off",
+		      cmd_bodydetectmode_off, 1, 0),
+	SHELL_CMD_ARG(reset, NULL, "Reset body detect mode",
+		      cmd_bodydetectmode_reset, 1, 0),
+	SHELL_SUBCMD_SET_END);
+
+SHELL_CMD_ARG_REGISTER(
+	bodydetectmode, &sub_bodydetectmode_cmds,
+	SHELL_HELP(
+		"Manually force body detect mode to on (body), off (body) or reset.",
+		"[on | off | reset]"),
+	command_setbodydetectionmode, 1, 0);
 #endif /* CONFIG_ACCEL_SPOOF_MODE */

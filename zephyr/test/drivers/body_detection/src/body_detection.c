@@ -92,6 +92,10 @@ ZTEST_USER(bodydetectmode, test_setbodydetectionmode_forced)
 		      "unexpected body detect initial mode: %d",
 		      body_detect_state);
 
+	ret = shell_execute_cmd(get_ec_shell(), "bodydetectmode");
+	zassert_equal(ret, EC_SUCCESS, "unexpected command return status: %d",
+		      ret);
+
 	/**
 	 * Set body detect mode to "off", since it defaults "on".
 	 */
@@ -149,8 +153,8 @@ ZTEST_USER(bodydetectmode, test_setbodydetectionmode_too_many_args)
 
 	ret = shell_execute_cmd(get_ec_shell(),
 				"bodydetectmode too many arguments");
-	zassert_equal(ret, EC_ERROR_PARAM_COUNT,
-		      "unexpected command return status: %d", ret);
+	zassert_equal(ret, -EINVAL, "unexpected command return status: %d",
+		      ret);
 }
 
 /**
@@ -161,8 +165,8 @@ ZTEST_USER(bodydetectmode, test_setbodydetectionmode_unknown_arg)
 	int ret;
 
 	ret = shell_execute_cmd(get_ec_shell(), "bodydetectmode X");
-	zassert_equal(ret, EC_ERROR_PARAM1,
-		      "unexpected command return status: %d", ret);
+	zassert_equal(ret, -EINVAL, "unexpected command return status: %d",
+		      ret);
 }
 
 ZTEST_SUITE(bodydetectmode, drivers_predicate_post_main, NULL,
