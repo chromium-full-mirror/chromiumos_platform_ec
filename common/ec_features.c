@@ -8,9 +8,10 @@
 #include "board_config.h"
 #include "common.h"
 #include "config.h"
-#include "console.h"
 #include "ec_commands.h"
 #include "motion_sense.h"
+
+#include <zephyr/shell/shell.h>
 
 /* LCOV_EXCL_START */
 uint32_t get_feature_flags0(void)
@@ -227,11 +228,11 @@ __overridable uint32_t board_override_feature_flags1(uint32_t flags1)
 	return flags1;
 }
 
-static int cc_feat(int argc, const char **argv)
+static int cc_feat(const struct shell *sh, size_t argc, char **argv)
 {
-	ccprintf(" 0-31: 0x%08x\n", get_feature_flags0());
-	ccprintf("32-63: 0x%08x\n", get_feature_flags1());
+	shell_print(sh, " 0-31: 0x%08x", get_feature_flags0());
+	shell_print(sh, "32-63: 0x%08x", get_feature_flags1());
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(feat, cc_feat, "", "Print feature flags");
+SHELL_CMD_REGISTER(feat, NULL, "Print feature flags", cc_feat);
