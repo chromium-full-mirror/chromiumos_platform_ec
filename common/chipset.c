@@ -14,6 +14,8 @@
 #include "system.h"
 #include "timer.h"
 
+#include <zephyr/shell/shell.h>
+
 /* Console output macros */
 #define CPUTS(outstr) cputs(CC_CHIPSET, outstr)
 #define CPRINTS(format, args...) cprints(CC_CHIPSET, format, ##args)
@@ -22,17 +24,24 @@
 /* Console commands */
 
 #ifdef CONFIG_CMD_POWER_AP
-static int command_apreset(int argc, const char **argv)
+static int command_apreset(const struct shell *sh, size_t argc, char **argv)
 {
-	/* Force the chipset to reset */
-	ccprintf("Issuing AP reset...\n");
-	chipset_reset(CHIPSET_RESET_CONSOLE_CMD);
-	return EC_SUCCESS;
-}
-DECLARE_CONSOLE_COMMAND(apreset, command_apreset, NULL, "Issue AP reset");
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
 
-static int command_apshutdown(int argc, const char **argv)
+	/* Force the chipset to reset */
+	shell_print(sh, "Issuing AP reset...");
+	chipset_reset(CHIPSET_RESET_CONSOLE_CMD);
+	return 0;
+}
+SHELL_CMD_REGISTER(apreset, NULL, "Issue AP reset", command_apreset);
+
+static int command_apshutdown(const struct shell *sh, size_t argc, char **argv)
 {
+	ARG_UNUSED(sh);
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
 	/*
 	 * TODO: Fix the problem that CHIPSET_SHUTDOWN_CONSOLE_CMD is
 	 * overwritten by CHIPSET_SHUTDOWN_POWERFAIL (in intel_x86.c).
@@ -45,10 +54,9 @@ static int command_apshutdown(int argc, const char **argv)
 	}
 
 	chipset_force_shutdown(CHIPSET_SHUTDOWN_CONSOLE_CMD);
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(apshutdown, command_apshutdown, NULL,
-			"Force AP shutdown");
+SHELL_CMD_REGISTER(apshutdown, NULL, "Force AP shutdown", command_apshutdown);
 
 #endif
 

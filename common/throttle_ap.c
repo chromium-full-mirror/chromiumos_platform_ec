@@ -18,6 +18,8 @@
 #include "timer.h"
 #include "util.h"
 
+#include <zephyr/shell/shell.h>
+
 /* Console output macros */
 #define CPUTS(outstr) cputs(CC_THERMAL, outstr)
 #define CPRINTS(format, args...) cprints(CC_THERMAL, format, ##args)
@@ -187,22 +189,25 @@ void throttle_ap_c10_input_interrupt(enum gpio_signal signal)
 /*****************************************************************************/
 /* Console commands */
 #ifdef CONFIG_CMD_APTHROTTLE
-static int command_apthrottle(int argc, const char **argv)
+static int command_apthrottle(const struct shell *sh, size_t argc, char **argv)
 {
 	int i;
 	uint32_t tmpval;
+
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
 
 	for (i = 0; i < NUM_THROTTLE_TYPES; i++) {
 		k_mutex_lock(&throttle_mutex, K_FOREVER);
 		tmpval = throttle_request[i];
 		k_mutex_unlock(&throttle_mutex);
 
-		ccprintf("AP throttling type %d is %s (0x%08x)\n", i,
-			 tmpval ? "on" : "off", tmpval);
+		shell_print(sh, "AP throttling type %d is %s (0x%08x)", i,
+			    tmpval ? "on" : "off", tmpval);
 	}
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(apthrottle, command_apthrottle, NULL,
-			"Display the AP throttling state");
+SHELL_CMD_REGISTER(apthrottle, NULL, "Display the AP throttling state",
+		   command_apthrottle);
 #endif

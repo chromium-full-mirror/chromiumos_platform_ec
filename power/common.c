@@ -28,6 +28,8 @@
 
 #include <string.h>
 
+#include <zephyr/shell/shell.h>
+
 /* Console output macros */
 #define CPUTS(outstr) cputs(CC_CHIPSET, outstr)
 #define CPRINTS(format, args...) cprints(CC_CHIPSET, format, ##args)
@@ -964,22 +966,26 @@ inline void power_set_pause_in_s5(int pause)
 /*****************************************************************************/
 /* Console commands */
 
-static int command_powerinfo(int argc, const char **argv)
+static int command_powerinfo(const struct shell *sh, size_t argc, char **argv)
 {
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
 	/*
 	 * Print power state in same format as state machine.  This is
 	 * used by FAFT tests, so must match exactly.
 	 */
-	ccprintf("power state %d = %s, in 0x%04x\n", state, state_names[state],
-		 in_signals);
+	shell_print(sh, "power state %d = %s, in 0x%04x", state,
+		    state_names[state], in_signals);
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(powerinfo, command_powerinfo, NULL,
-			"Show current power state");
+SHELL_CMD_REGISTER(powerinfo, NULL, "Show current power state",
+		   command_powerinfo);
 
 #ifdef CONFIG_CMD_POWERINDEBUG
-static int command_powerindebug(int argc, const char **argv)
+static int command_powerindebug(const struct shell *sh, size_t argc,
+				char **argv)
 {
 	const struct power_signal_info *s = power_signal_list;
 	int i;
@@ -989,33 +995,34 @@ static int command_powerindebug(int argc, const char **argv)
 	if (argc == 2) {
 		int m = strtoi(argv[1], &e, 0);
 		if (*e)
-			return EC_ERROR_PARAM1;
+			return -EINVAL;
 
 		in_debug = m;
 	}
 
 	/* Print the mask */
-	ccprintf("power in:   0x%04x\n", in_signals);
-	ccprintf("debug mask: 0x%04x\n", in_debug);
+	shell_print(sh, "power in:   0x%04x", in_signals);
+	shell_print(sh, "debug mask: 0x%04x", in_debug);
 
 	/* Print the decode */
 
-	ccprintf("bit meanings:\n");
+	shell_print(sh, "bit meanings:");
 	for (i = 0; i < POWER_SIGNAL_COUNT; i++, s++) {
 		int mask = 1 << i;
-		ccprintf("  0x%04x %d %s\n", mask, in_signals & mask ? 1 : 0,
-			 s->name);
+		shell_print(sh, "  0x%04x %d %s", mask,
+			    in_signals & mask ? 1 : 0, s->name);
 	}
 
-	return EC_SUCCESS;
-};
-DECLARE_CONSOLE_COMMAND(powerindebug, command_powerindebug, "[mask]",
-			"Get/set power input debug mask");
+	return 0;
+}
+SHELL_CMD_ARG_REGISTER(powerindebug, NULL,
+		       SHELL_HELP("Get/set power input debug mask", "[mask]"),
+		       command_powerindebug, 1, 1);
 #endif
 
 #ifdef CONFIG_CMD_S5_TIMEOUT
 /* Allow command-line access to configure our S5 delay for power testing */
-static int command_s5_timeout(int argc, const char **argv)
+static int command_s5_timeout(const struct shell *sh, size_t argc, char **argv)
 {
 	char *e;
 
@@ -1023,22 +1030,26 @@ static int command_s5_timeout(int argc, const char **argv)
 		uint32_t s = strtoi(argv[1], &e, 0);
 
 		if (*e)
-			return EC_ERROR_PARAM1;
+			return -EINVAL;
 
 		s5_inactivity_timeout = s;
 	}
 
 	/* Print the current setting */
-	ccprintf("S5 inactivity timeout: %d s\n", s5_inactivity_timeout);
-	return EC_SUCCESS;
+	shell_print(sh, "S5 inactivity timeout: %d s", s5_inactivity_timeout);
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(s5_timeout, command_s5_timeout, "[sec]",
-			"Set the timeout from S5 to G3 transition, "
-			"-1 to indicate no transition");
+SHELL_CMD_ARG_REGISTER(
+	s5_timeout, NULL,
+	SHELL_HELP("Set the timeout from S5 to G3 transition, -1 to indicate "
+		   "no transition",
+		   "[sec]"),
+	command_s5_timeout, 1, 1);
 #endif
 
 #ifdef CONFIG_HIBERNATE
-static int command_hibernation_delay(int argc, const char **argv)
+static int command_hibernation_delay(const struct shell *sh, size_t argc,
+				     char **argv)
 {
 	char *e;
 	uint32_t time_g3 =
@@ -1047,21 +1058,23 @@ static int command_hibernation_delay(int argc, const char **argv)
 	if (argc >= 2) {
 		uint32_t s = strtoi(argv[1], &e, 0);
 		if (*e)
-			return EC_ERROR_PARAM1;
+			return -EINVAL;
 
 		hibernate_delay = s;
 	}
 
 	/* Print the current setting */
-	ccprintf("Hibernation delay: %d s\n", hibernate_delay);
+	shell_print(sh, "Hibernation delay: %d s", hibernate_delay);
 	if (state == POWER_G3 && !extpower_is_present()) {
-		ccprintf("Time G3: %d s\n", time_g3);
-		ccprintf("Time left: %d s\n", hibernate_delay - time_g3);
+		shell_print(sh, "Time G3: %d s", time_g3);
+		shell_print(sh, "Time left: %d s", hibernate_delay - time_g3);
 	}
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(hibdelay, command_hibernation_delay, "[sec]",
-			"Set the delay before going into hibernation");
+SHELL_CMD_ARG_REGISTER(hibdelay, NULL,
+		       SHELL_HELP("Set the delay before going into hibernation",
+				  "[sec]"),
+		       command_hibernation_delay, 1, 1);
 
 static enum ec_host_cmd_status
 host_command_hibernation_delay(struct ec_host_cmd_handler_args *args)
@@ -1117,17 +1130,19 @@ EC_HOST_CMD_HANDLER(EC_CMD_GSV_PAUSE_IN_S5, host_command_pause_in_s5,
 		    EC_VER_MASK(0), struct ec_params_get_set_value,
 		    struct ec_response_get_set_value);
 
-static int command_pause_in_s5(int argc, const char **argv)
+static int command_pause_in_s5(const struct shell *sh, size_t argc, char **argv)
 {
 	if (argc > 1 && !parse_bool(argv[1], &pause_in_s5))
-		return EC_ERROR_INVAL;
+		return -EINVAL;
 
-	ccprintf("pause_in_s5 = %s\n", pause_in_s5 ? "on" : "off");
+	shell_print(sh, "pause_in_s5 = %s", pause_in_s5 ? "on" : "off");
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(pause_in_s5, command_pause_in_s5, "[on|off]",
-			"Should the AP pause in S5 during shutdown?");
+SHELL_CMD_ARG_REGISTER(pause_in_s5, NULL,
+		       SHELL_HELP("Should the AP pause in S5 during shutdown?",
+				  "[on|off]"),
+		       command_pause_in_s5, 1, 1);
 #endif /* CONFIG_POWER_SHUTDOWN_PAUSE_IN_S5 */
 
 #ifdef CONFIG_POWER_PP5000_CONTROL
@@ -1186,11 +1201,11 @@ DECLARE_HOOK(HOOK_SYSJUMP, preserve_enable_5v_state, HOOK_PRIO_DEFAULT);
 #endif /* defined(CONFIG_POWER_PP5000_CONTROL) */
 
 #ifdef CONFIG_POWERSEQ_FAKE_CONTROL
-static int command_power_fake(int argc, const char **argv)
+static int command_power_fake(const struct shell *sh, size_t argc, char **argv)
 {
 	if (argc < 2) {
-		ccprints("Error: Argument required");
-		return EC_ERROR_PARAM_COUNT;
+		shell_error(sh, "Error: Argument required");
+		return -EINVAL;
 	}
 
 	if (strcasecmp(argv[1], "S0") == 0) {
@@ -1200,25 +1215,27 @@ static int command_power_fake(int argc, const char **argv)
 	} else if (strcasecmp(argv[1], "disable") == 0) {
 		power_fake_disable();
 	} else {
-		ccprints("Error: Unknown param");
-		return EC_ERROR_PARAM1;
+		shell_error(sh, "Error: Unknown param");
+		return -EINVAL;
 	}
 
 	power_update_signals();
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(powerfake, command_power_fake, "S0|disable",
-			"Force power inputs for early board bringup");
+SHELL_CMD_ARG_REGISTER(powerfake, NULL,
+		       SHELL_HELP("Force power inputs for early board bringup",
+				  "S0|disable"),
+		       command_power_fake, 2, 0);
 #endif /* defined(CONFIG_POWERSEQ_FAKE_CONTROL) */
 
 #ifdef CONFIG_PLATFORM_EC_CONSOLE_CMD_BOOTTIME
-static int command_boot_time(int argc, const char **argv)
+static int command_boot_time(const struct shell *sh, size_t argc, char **argv)
 {
 	const char *state_name;
 	uint64_t display_time;
 
 	if (argc != 2) {
-		return EC_ERROR_PARAM_COUNT;
+		return -EINVAL;
 	}
 
 	state_name = argv[1];
@@ -1227,17 +1244,19 @@ static int command_boot_time(int argc, const char **argv)
 	} else if (strcasecmp(state_name, "S5") == 0) {
 		display_time = first_S5_time;
 	} else {
-		return EC_ERROR_PARAM1;
+		return -EINVAL;
 	}
 
 	if (display_time == uninitialized_time) {
-		ccprints("first %s: %lldms", state_name, -1ll);
+		shell_print(sh, "first %s: %lldms", state_name, -1ll);
 	} else {
-		ccprints("first %s: %lldms", state_name,
-			 (int64_t)(display_time / MSEC));
+		shell_print(sh, "first %s: %lldms", state_name,
+			    (int64_t)(display_time / MSEC));
 	}
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(boottime, command_boot_time, "<S0|S5>",
-			"Expose boot time for firmware.BootTime.");
+SHELL_CMD_ARG_REGISTER(boottime, NULL,
+		       SHELL_HELP("Expose boot time for firmware.BootTime.",
+				  "<S0|S5>"),
+		       command_boot_time, 2, 0);
 #endif /* defined(CONFIG_PLATFORM_EC_CONSOLE_CMD_BOOTTIME) */

@@ -15,6 +15,8 @@
 #include "timer.h"
 #include "util.h"
 
+#include <zephyr/shell/shell.h>
+
 /* Console output macros */
 #define CPRINTS(format, args...) cprints(CC_CHIPSET, format, ##args)
 #define CPRINTF(format, args...) cprintf(CC_CHIPSET, format, ##args)
@@ -206,8 +208,8 @@ static void board_handle_hard_sleep_hang(void)
 	stop_hard_hang_timer();
 
 	if (shutdown_on_hard_hang) {
-		ccprints("Very hard S0ix/S3 sleep hang detected!!! "
-			 "Shutting down AP now!");
+		CPRINTS("Very hard S0ix/S3 sleep hang detected!!! "
+			"Shutting down AP now!");
 		chipset_force_shutdown(CHIPSET_SHUTDOWN_BOARD_CUSTOM);
 
 		return;
@@ -236,21 +238,21 @@ static void board_handle_hard_sleep_hang(void)
 		 */
 		k_msleep(SYSRQ_WAIT_MSEC);
 		host_send_sysrq('x');
-		ccprints("AP will be force reset in %dms if hang persists",
-			 CONFIG_HARD_SLEEP_HANG_TIMEOUT);
+		CPRINTS("AP will be force reset in %dms if hang persists",
+			CONFIG_HARD_SLEEP_HANG_TIMEOUT);
 		hook_call_deferred(&board_handle_hard_sleep_hang_data,
 				   CONFIG_HARD_SLEEP_HANG_TIMEOUT * MSEC);
 
 		return;
 	}
 
-	ccprints("Consecutive(%d) hard sleep hangs detected!",
-		 hard_sleep_hang_count);
-	ccprints("Hard S0ix/S3 sleep hang detected!! Resetting AP now!");
+	CPRINTS("Consecutive(%d) hard sleep hangs detected!",
+		hard_sleep_hang_count);
+	CPRINTS("Hard S0ix/S3 sleep hang detected!! Resetting AP now!");
 	/* If the AP continues to hang, force a shutdown */
 	shutdown_on_hard_hang = true;
-	ccprints("AP will be shutdown in %dms if hang persists",
-		 CONFIG_HARD_SLEEP_HANG_TIMEOUT);
+	CPRINTS("AP will be shutdown in %dms if hang persists",
+		CONFIG_HARD_SLEEP_HANG_TIMEOUT);
 	hook_call_deferred(&board_handle_hard_sleep_hang_data,
 			   CONFIG_HARD_SLEEP_HANG_TIMEOUT * MSEC);
 	chipset_reset(CHIPSET_RESET_HANG_REBOOT);
@@ -264,12 +266,12 @@ void power_sleep_hang_recovery(enum sleep_hang_type hang_type)
 	stop_hard_hang_timer();
 
 	if (hang_type == SLEEP_HANG_S0IX_SUSPEND)
-		ccprints("S0ix/S3 suspend sleep hang detected!");
+		CPRINTS("S0ix/S3 suspend sleep hang detected!");
 	else if (hang_type == SLEEP_HANG_S0IX_RESUME)
-		ccprints("S0ix/S3 resume sleep hang detected!");
+		CPRINTS("S0ix/S3 resume sleep hang detected!");
 
-	ccprints("Consecutive sleep hang count: soft=%d hard=%d",
-		 soft_sleep_hang_count, hard_sleep_hang_count);
+	CPRINTS("Consecutive sleep hang count: soft=%d hard=%d",
+		soft_sleep_hang_count, hard_sleep_hang_count);
 
 	/*
 	 * Start a timer to handle a hard sleep hang, in case the host event
@@ -306,9 +308,9 @@ void power_sleep_hang_recovery(enum sleep_hang_type hang_type)
 static void reset_hang_counters(void)
 {
 	if (hard_sleep_hang_count || soft_sleep_hang_count)
-		ccprints("Successful S0ix/S3 resume after consecutive hangs: "
-			 "soft=%d hard=%d",
-			 soft_sleep_hang_count, hard_sleep_hang_count);
+		CPRINTS("Successful S0ix/S3 resume after consecutive hangs: "
+			"soft=%d hard=%d",
+			soft_sleep_hang_count, hard_sleep_hang_count);
 	hard_sleep_hang_count = 0;
 	soft_sleep_hang_count = 0;
 	shutdown_on_hard_hang = false;
@@ -431,7 +433,8 @@ EC_HOST_CMD_HANDLER_RESP_ONLY(EC_CMD_HOST_SLEEP_SIGNAL_TRANSITIONS,
 			      EC_VER_MASK(0),
 			      struct ec_response_host_sleep_signal_transitions);
 
-static int command_sleep_fail_timeout(int argc, const char **argv)
+static int command_sleep_fail_timeout(const struct shell *sh, size_t argc,
+				      char **argv)
 {
 	if (argc < 2) {
 		/* no arguments - just print the current timeout */
@@ -445,33 +448,35 @@ static int command_sleep_fail_timeout(int argc, const char **argv)
 
 		val = strtoi(argv[1], &e, 10);
 		if (*e)
-			return EC_ERROR_PARAM1;
+			return -EINVAL;
 
 		if (val <= 0 || val >= EC_HOST_SLEEP_TIMEOUT_INFINITE) {
-			ccprintf("Error: timeout range is 1..%d [msec]\n",
-				 EC_HOST_SLEEP_TIMEOUT_INFINITE - 1);
-			return EC_ERROR_PARAM1;
+			shell_error(sh, "Error: timeout range is 1..%d [msec]",
+				    EC_HOST_SLEEP_TIMEOUT_INFINITE - 1);
+			return -EINVAL;
 		}
 
 		host_sleep_timeout_default = val;
 	}
 
 	if (host_sleep_timeout_default == EC_HOST_SLEEP_TIMEOUT_INFINITE)
-		ccprintf("Sleep failure detection timeout is disabled\n");
+		shell_print(sh, "Sleep failure detection timeout is disabled");
 	else
-		ccprintf("Sleep failure detection timeout is %d [msec]\n",
-			 host_sleep_timeout_default);
+		shell_print(sh, "Sleep failure detection timeout is %d [msec]",
+			    host_sleep_timeout_default);
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(sleeptimeout, command_sleep_fail_timeout,
-			"[default | infinite | <msec>]",
-			"Display or set host sleep failure detection timeout.\n"
-			"Valid arguments are:\n"
-			" default\n"
-			" infinite - disables the timeout\n"
-			" <msec> - custom length in milliseconds\n"
-			" <none> - prints the current setting");
+SHELL_CMD_ARG_REGISTER(
+	sleeptimeout, NULL,
+	SHELL_HELP("Display or set host sleep failure detection timeout.\n"
+		   "Valid arguments are:\n"
+		   " default\n"
+		   " infinite - disables the timeout\n"
+		   " <msec> - custom length in milliseconds\n"
+		   " <none> - prints the current setting",
+		   "[default | infinite | <msec>]"),
+	command_sleep_fail_timeout, 1, 1);
 
 #else /* !CONFIG_CROS_EC_RW && !CONFIG_POWER_SLEEP_FAILURE_DETECTION */
 

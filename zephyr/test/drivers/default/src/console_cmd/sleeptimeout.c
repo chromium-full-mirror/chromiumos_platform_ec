@@ -33,14 +33,12 @@ ZTEST_USER(console_cmd_sleeptimeout, test_bad_params)
 {
 	int rv = shell_execute_cmd(get_ec_shell(), "sleeptimeout 0");
 
-	zassert_equal(rv, EC_ERROR_PARAM1, "Expected %d, but got %d",
-		      EC_ERROR_PARAM1, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 
 	rv = shell_execute_cmd(get_ec_shell(),
 			       "sleeptimeout EC_HOST_SLEEP_TIMEOUT_INFINITE");
 
-	zassert_equal(rv, EC_ERROR_PARAM1, "Expected %d, but got %d",
-		      EC_ERROR_PARAM1, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_SUITE(console_cmd_sleeptimeout, NULL, NULL, NULL, NULL, NULL);

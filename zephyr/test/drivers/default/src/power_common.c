@@ -588,7 +588,7 @@ ZTEST_USER(power_common, test_powerinfo_console_cmd)
 #ifdef CONFIG_CMD_POWERINDEBUG
 ZTEST_USER(power_common, test_powerindebug_console_cmd)
 {
-	CHECK_CONSOLE_CMD("powerindebug invalid", NULL, EC_ERROR_PARAM1);
+	CHECK_CONSOLE_CMD("powerindebug invalid", NULL, -EINVAL);
 	CHECK_CONSOLE_CMD("powerindebug 16", "debug mask: 0x0010", EC_SUCCESS);
 	CHECK_CONSOLE_CMD("powerindebug", "debug mask: 0x0010", EC_SUCCESS);
 	CHECK_CONSOLE_CMD("powerindebug 0", "debug mask: 0x0000", EC_SUCCESS);
@@ -604,8 +604,8 @@ ZTEST_USER(power_common, test_boot_time_console_cmd)
 	int64_t time_S0;
 
 	/* Test invalid commands. */
-	CHECK_CONSOLE_CMD("boottime", NULL, EC_ERROR_PARAM_COUNT);
-	CHECK_CONSOLE_CMD("boottime 123", NULL, EC_ERROR_PARAM1);
+	CHECK_CONSOLE_CMD("boottime", NULL, -EINVAL);
+	CHECK_CONSOLE_CMD("boottime 123", NULL, -EINVAL);
 
 	/*
 	Example output:
@@ -798,7 +798,7 @@ ZTEST(power_common_hibernation, test_power_cmd_hibernation_delay)
 		      NULL);
 
 	/* Test error on hibernation delay argument that is not a number */
-	zassert_equal(EC_ERROR_PARAM1,
+	zassert_equal(-EINVAL,
 		      shell_execute_cmd(get_ec_shell(), "hibdelay test1"),
 		      NULL);
 

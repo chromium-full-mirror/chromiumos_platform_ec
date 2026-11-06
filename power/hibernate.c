@@ -12,6 +12,7 @@
 
 #include <zephyr/init.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/shell/shell.h>
 
 #include <ap_power/ap_power.h>
 #include <ap_power/ap_power_interface.h>
@@ -115,7 +116,8 @@ DECLARE_HOOK(HOOK_AC_CHANGE, change_detected, HOOK_PRIO_DEFAULT);
 /*
  * EC Console command to get/set the hibernation delay
  */
-static int command_hibernation_delay(int argc, const char **argv)
+static int command_hibernation_delay(const struct shell *sh, size_t argc,
+				     char **argv)
 {
 	char *e;
 	uint32_t remaining;
@@ -124,23 +126,25 @@ static int command_hibernation_delay(int argc, const char **argv)
 		uint32_t s = strtoi(argv[1], &e, 0);
 
 		if (*e)
-			return EC_ERROR_PARAM1;
+			return -EINVAL;
 
 		hibernate_delay = s;
 	}
 
 	/* Print the current setting */
-	ccprintf("Hibernation delay: %d s\n", hibernate_delay);
+	shell_print(sh, "Hibernation delay: %d s", hibernate_delay);
 	remaining = k_timer_remaining_get(&hibernate_timer);
 	if (remaining == 0) {
-		ccprintf("Timer not running\n");
+		shell_print(sh, "Timer not running");
 	} else {
-		ccprintf("Time remaining: %d s\n", remaining / 1000);
+		shell_print(sh, "Time remaining: %d s", remaining / 1000);
 	}
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(hibdelay, command_hibernation_delay, "[sec]",
-			"Set the delay before going into hibernation");
+SHELL_CMD_ARG_REGISTER(hibdelay, NULL,
+		       SHELL_HELP("Set the delay before going into hibernation",
+				  "[sec]"),
+		       command_hibernation_delay, 1, 1);
 /*
  * Host command to set the hibernation delay
  */
