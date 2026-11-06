@@ -399,12 +399,10 @@ BUILD_ASSERT(CONFIG_PLATFORM_EC_CONSOLE_INIT_PRIORITY >
 #endif /* CONFIG_POSIX_ARCH_CONSOLE */
 #endif /* CONFIG_LOG_MODE_MINIMAL */
 
-#ifdef TEST_BUILD
 const struct shell *get_ec_shell(void)
 {
 	return shell_zephyr;
 }
-#endif
 
 k_tid_t get_shell_thread(void)
 {

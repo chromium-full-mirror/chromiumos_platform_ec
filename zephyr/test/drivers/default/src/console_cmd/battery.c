@@ -40,10 +40,13 @@ static void console_cmd_battery_after(void *f)
 }
 
 /* Default battery command */
+void print_battery_debug_sh(const struct shell *sh);
+
 ZTEST_USER(console_cmd_battery, test_battery_default)
 {
 	zassert_ok(shell_execute_cmd(get_ec_shell(), "battery"),
 		   "Failed default print");
+	print_battery_debug_sh(NULL);
 }
 
 ZTEST_USER_F(console_cmd_battery, test_battery_status_i2c_error)
@@ -77,13 +80,11 @@ ZTEST_USER(console_cmd_battery, test_battery_bad_repeat_sleep)
 {
 	int rv = shell_execute_cmd(get_ec_shell(), "battery fish 400");
 
-	zassert_equal(rv, EC_ERROR_INVAL, "Expected %d, but got %d",
-		      EC_ERROR_INVAL, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 
 	rv = shell_execute_cmd(get_ec_shell(), "battery 2 fish");
 
-	zassert_equal(rv, EC_ERROR_INVAL, "Expected %d, but got %d",
-		      EC_ERROR_INVAL, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_SUITE(console_cmd_battery, drivers_predicate_post_main,

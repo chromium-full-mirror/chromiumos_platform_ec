@@ -53,8 +53,7 @@ ZTEST_USER(console_cmd_cutoff, test_invalid_arg1)
 {
 	int rv = shell_execute_cmd(get_ec_shell(), "cutoff bad_arg");
 
-	zassert_equal(EC_ERROR_INVAL, rv, "Expected %d, but got %d",
-		      EC_ERROR_INVAL, rv);
+	zassert_equal(-EINVAL, rv, "Expected %d, but got %d", -EINVAL, rv);
 	zassert_false(battery_is_cut_off(), NULL);
 }
 

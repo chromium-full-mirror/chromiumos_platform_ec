@@ -6,10 +6,12 @@
  */
 
 #include "battery_fuel_gauge.h"
+#include "console.h"
 #include "cros_board_info.h"
 #include "ec_commands.h"
 #include "test/drivers/test_state.h"
 
+#include <zephyr/shell/shell.h>
 #include <zephyr/ztest.h>
 
 const struct board_batt_params *get_batt_params(void);
@@ -193,4 +195,33 @@ ZTEST(battery_config_cbi, test_batt_conf_main_invalid)
 	cbi_set_board_info(CBI_TAG_BATTERY_CONFIG, (void *)&head, sizeof(head));
 	init_battery_type();
 	zassert_equal_ptr(get_batt_params(), &board_battery_info[0].config);
+}
+
+ZTEST(battery_config_cbi, test_bcfg_console_cmd)
+{
+	const struct shell *sh = get_ec_shell();
+	struct batt_conf_header head = {
+		.struct_version = EC_BATTERY_CONFIG_STRUCT_VERSION,
+		.manuf_name_size = 0xff,
+		.device_name_size = 0,
+	};
+	uint8_t short_buf[1] = { 0 };
+
+	init_battery_type();
+	zassert_ok(shell_execute_cmd(sh, "bcfg"));
+	zassert_equal(shell_execute_cmd(sh, "bcfg get abc"), -EINVAL);
+	zassert_equal(shell_execute_cmd(sh, "bcfg set abc"), -EINVAL);
+	zassert_equal(shell_execute_cmd(sh, "bcfg get 9"), -ENOENT);
+
+	zassert_ok(shell_execute_cmd(sh, "bcfg set 0"));
+	zassert_ok(shell_execute_cmd(sh, "bcfg get 0"));
+
+	/* Corrupt CBI entry shorter than sizeof(*head) */
+	cbi_set_board_info(CBI_TAG_BATTERY_CONFIG, short_buf,
+			   sizeof(short_buf));
+	zassert_equal(shell_execute_cmd(sh, "bcfg get 0"), -EINVAL);
+
+	/* Corrupt CBI entry with mismatched payload size */
+	cbi_set_board_info(CBI_TAG_BATTERY_CONFIG, (void *)&head, sizeof(head));
+	zassert_equal(shell_execute_cmd(sh, "bcfg get 0"), -EINVAL);
 }

@@ -29,12 +29,10 @@ int uart_shell_stop(void);
 void uart_shell_start(void);
 void uart_shell_rx_bypass(bool enable);
 
-#ifdef TEST_BUILD
 /* Gets the pointer to the zephyr shell, since it might not always be
  * the uart backend.
  */
 const struct shell *get_ec_shell(void);
-#endif
 
 /*
  * The EC code base has been using %h to print a hex buffer. Encode the

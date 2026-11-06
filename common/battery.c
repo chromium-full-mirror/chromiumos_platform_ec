@@ -25,6 +25,8 @@
 #include "util.h"
 #include "watchdog.h"
 
+#include <zephyr/shell/shell.h>
+
 #define CPRINTF(format, args...) cprintf(CC_CHARGER, format, ##args)
 #define CPRINTS(format, args...) cprints(CC_CHARGER, format, ##args)
 #define CUTOFFPRINTS(fmt, args...) CPRINTS("Battery cutoff " fmt, ##args)
@@ -70,19 +72,27 @@ static const char *get_error_text(int rv)
 		return "(error)";
 }
 
-static void print_item_name(const char *name)
+#define battery_printf(sh, fmt, ...)                                         \
+	do {                                                                 \
+		if (sh)                                                      \
+			shell_fprintf(sh, SHELL_NORMAL, fmt, ##__VA_ARGS__); \
+		else                                                         \
+			cprintf(CC_CHARGER, fmt, ##__VA_ARGS__);             \
+	} while (0)
+
+static void print_item_name(const struct shell *sh, const char *name)
 {
-	ccprintf("  %-14s", name);
+	battery_printf(sh, "  %-14s", name);
 }
 
-static int check_print_error(int rv)
+static int check_print_error(const struct shell *sh, int rv)
 {
 	if (rv != EC_SUCCESS)
-		ccprintf("%s\n", get_error_text(rv));
+		battery_printf(sh, "%s\n", get_error_text(rv));
 	return rv == EC_SUCCESS;
 }
 
-static void print_battery_status(void)
+static void print_battery_status(const struct shell *sh)
 {
 	/*
 	 * STATUS_FULLY_DISCHARGED BIT(4)
@@ -109,9 +119,9 @@ static void print_battery_status(void)
 
 	int value, i;
 
-	print_item_name("Status:");
-	if (check_print_error(battery_status(&value))) {
-		ccprintf("0x%04x", value);
+	print_item_name(sh, "Status:");
+	if (check_print_error(sh, battery_status(&value))) {
+		battery_printf(sh, "0x%04x", value);
 
 		/* bits 0-3 are only valid when the previous transaction
 		 * failed, so ignore them */
@@ -119,18 +129,18 @@ static void print_battery_status(void)
 		/* bits 4-7 are status */
 		for (i = 0; i < 4; i++)
 			if (value & (1 << (i + 4)))
-				ccprintf(" %s", st[i]);
+				battery_printf(sh, " %s", st[i]);
 
 		/* bits 15-8 are alarms */
 		for (i = 0; i < 8; i++)
 			if (value & (1 << (i + 8)))
-				ccprintf(" %s", al[i]);
+				battery_printf(sh, " %s", al[i]);
 
-		ccprintf("\n");
+		battery_printf(sh, "\n");
 	}
 }
 
-static void print_battery_strings(void)
+static void print_battery_strings(const struct shell *sh)
 {
 	char text[32];
 
@@ -139,24 +149,25 @@ static void print_battery_strings(void)
 		return;
 #endif
 
-	print_item_name("Manuf:");
-	if (check_print_error(battery_manufacturer_name(text, sizeof(text))))
-		ccprintf("%s\n", text);
+	print_item_name(sh, "Manuf:");
+	if (check_print_error(sh,
+			      battery_manufacturer_name(text, sizeof(text))))
+		battery_printf(sh, "%s\n", text);
 
 	if (IS_ENABLED(CONFIG_PLATFORM_EC_BATTERY_MANUF_INFO)) {
-		print_item_name("ManufInfo:");
+		print_item_name(sh, "ManufInfo:");
 		if (check_print_error(
-			    battery_manufacture_info(text, sizeof(text))))
-			ccprintf("%s\n", text);
+			    sh, battery_manufacture_info(text, sizeof(text))))
+			battery_printf(sh, "%s\n", text);
 	}
 
-	print_item_name("Device:");
-	if (check_print_error(battery_device_name(text, sizeof(text))))
-		ccprintf("%s\n", text);
+	print_item_name(sh, "Device:");
+	if (check_print_error(sh, battery_device_name(text, sizeof(text))))
+		battery_printf(sh, "%s\n", text);
 
-	print_item_name("Chem:");
-	if (check_print_error(battery_device_chemistry(text, sizeof(text))))
-		ccprintf("%s\n", text);
+	print_item_name(sh, "Chem:");
+	if (check_print_error(sh, battery_device_chemistry(text, sizeof(text))))
+		battery_printf(sh, "%s\n", text);
 }
 
 __attribute__((weak)) const struct batt_params *
@@ -175,57 +186,58 @@ int charge_get_display_charge(void)
 	return batt->display_charge;
 }
 
-static void print_battery_params(void)
+static void print_battery_params(const struct shell *sh)
 {
 	/* Ask charger so that we don't need to ask battery again. */
 	const struct batt_params *batt = charger_current_battery_params();
 
-	print_item_name("Param flags:");
-	ccprintf("%08x\n", batt->flags);
+	print_item_name(sh, "Param flags:");
+	battery_printf(sh, "%08x\n", batt->flags);
 
-	print_item_name("Temp:");
-	ccprintf("0x%04x = %d.%d K (%d.%d C)\n", batt->temperature,
-		 batt->temperature / 10, batt->temperature % 10,
-		 (batt->temperature - 2731) / 10,
-		 (batt->temperature - 2731) % 10);
+	print_item_name(sh, "Temp:");
+	battery_printf(sh, "0x%04x = %d.%d K (%d.%d C)\n", batt->temperature,
+		       batt->temperature / 10, batt->temperature % 10,
+		       (batt->temperature - 2731) / 10,
+		       (batt->temperature - 2731) % 10);
 
-	print_item_name("V:");
-	ccprintf("0x%04x = %d mV\n", batt->voltage, batt->voltage);
+	print_item_name(sh, "V:");
+	battery_printf(sh, "0x%04x = %d mV\n", batt->voltage, batt->voltage);
 
-	print_item_name("V-desired:");
-	ccprintf("0x%04x = %d mV\n", batt->desired_voltage,
-		 batt->desired_voltage);
+	print_item_name(sh, "V-desired:");
+	battery_printf(sh, "0x%04x = %d mV\n", batt->desired_voltage,
+		       batt->desired_voltage);
 
-	print_item_name("I:");
-	ccprintf("0x%04x = %d mA", batt->current & 0xffff, batt->current);
+	print_item_name(sh, "I:");
+	battery_printf(sh, "0x%04x = %d mA", batt->current & 0xffff,
+		       batt->current);
 	if (batt->current > 0)
-		ccputs("(CHG)");
+		battery_printf(sh, "(CHG)");
 	else if (batt->current < 0)
-		ccputs("(DISCHG)");
-	ccputs("\n");
+		battery_printf(sh, "(DISCHG)");
+	battery_printf(sh, "\n");
 
-	print_item_name("I-desired:");
-	ccprintf("0x%04x = %d mA\n", batt->desired_current,
-		 batt->desired_current);
+	print_item_name(sh, "I-desired:");
+	battery_printf(sh, "0x%04x = %d mA\n", batt->desired_current,
+		       batt->desired_current);
 
-	print_item_name("Charging:");
-	ccprintf("%sAllowed\n",
-		 batt->flags & BATT_FLAG_WANT_CHARGE ? "" : "Not ");
+	print_item_name(sh, "Charging:");
+	battery_printf(sh, "%sAllowed\n",
+		       batt->flags & BATT_FLAG_WANT_CHARGE ? "" : "Not ");
 
-	print_item_name("Charge:");
-	ccprintf("%d %%\n", batt->state_of_charge);
+	print_item_name(sh, "Charge:");
+	battery_printf(sh, "%d %%\n", batt->state_of_charge);
 
 	if (IS_ENABLED(CONFIG_CHARGER) ||
 	    IS_ENABLED(CONFIG_PLATFORM_EC_ADSP_CHARGE_MANAGER)) {
 		int value;
 
-		print_item_name("  Display:");
+		print_item_name(sh, "  Display:");
 		value = charge_get_display_charge();
-		ccprintf("%d.%d %%\n", value / 10, value % 10);
+		battery_printf(sh, "%d.%d %%\n", value / 10, value % 10);
 	}
 }
 
-static void print_battery_info(void)
+static void print_battery_info(const struct shell *sh)
 {
 	int value;
 	int hour, minute;
@@ -236,45 +248,46 @@ static void print_battery_info(void)
 		return;
 #endif
 
-	print_item_name("ManufDate:");
-	if (check_print_error(battery_manufacture_date(&year, &month, &day))) {
-		ccprintf("%04u-%02u-%02u\n", year, month, day);
+	print_item_name(sh, "ManufDate:");
+	if (check_print_error(sh,
+			      battery_manufacture_date(&year, &month, &day))) {
+		battery_printf(sh, "%04u-%02u-%02u\n", year, month, day);
 	}
 
-	print_item_name("Serial:");
-	if (check_print_error(battery_serial_number(&value)))
-		ccprintf("0x%04x\n", value);
+	print_item_name(sh, "Serial:");
+	if (check_print_error(sh, battery_serial_number(&value)))
+		battery_printf(sh, "0x%04x\n", value);
 
-	print_item_name("V-design:");
-	if (check_print_error(battery_design_voltage(&value)))
-		ccprintf("0x%04x = %d mV\n", value, value);
+	print_item_name(sh, "V-design:");
+	if (check_print_error(sh, battery_design_voltage(&value)))
+		battery_printf(sh, "0x%04x = %d mV\n", value, value);
 
-	print_item_name("Mode:");
-	if (check_print_error(battery_get_mode(&value)))
-		ccprintf("0x%04x\n", value);
+	print_item_name(sh, "Mode:");
+	if (check_print_error(sh, battery_get_mode(&value)))
+		battery_printf(sh, "0x%04x\n", value);
 
-	print_item_name("Abs charge:");
-	if (check_print_error(battery_state_of_charge_abs(&value)))
-		ccprintf("%d %%\n", value);
+	print_item_name(sh, "Abs charge:");
+	if (check_print_error(sh, battery_state_of_charge_abs(&value)))
+		battery_printf(sh, "%d %%\n", value);
 
-	print_item_name("Remaining:");
-	if (check_print_error(battery_remaining_capacity(&value)))
-		ccprintf("%d mAh\n", value);
+	print_item_name(sh, "Remaining:");
+	if (check_print_error(sh, battery_remaining_capacity(&value)))
+		battery_printf(sh, "%d mAh\n", value);
 
-	print_item_name("Cap-full:");
-	if (check_print_error(battery_full_charge_capacity(&value)))
-		ccprintf("%d mAh\n", value);
+	print_item_name(sh, "Cap-full:");
+	if (check_print_error(sh, battery_full_charge_capacity(&value)))
+		battery_printf(sh, "%d mAh\n", value);
 
-	print_item_name("  Design:");
-	if (check_print_error(battery_design_capacity(&value)))
-		ccprintf("%d mAh\n", value);
+	print_item_name(sh, "  Design:");
+	if (check_print_error(sh, battery_design_capacity(&value)))
+		battery_printf(sh, "%d mAh\n", value);
 
-	print_item_name("Charge Cycle:");
-	if (check_print_error(battery_cycle_count(&value)))
-		ccprintf("%d\n", value);
+	print_item_name(sh, "Charge Cycle:");
+	if (check_print_error(sh, battery_cycle_count(&value)))
+		battery_printf(sh, "%d\n", value);
 
-	print_item_name("Time-full:");
-	if (check_print_error(battery_time_to_full(&value))) {
+	print_item_name(sh, "Time-full:");
+	if (check_print_error(sh, battery_time_to_full(&value))) {
 		if (value == 65535) {
 			hour = 0;
 			minute = 0;
@@ -282,11 +295,11 @@ static void print_battery_info(void)
 			hour = value / 60;
 			minute = value % 60;
 		}
-		ccprintf("%dh:%d\n", hour, minute);
+		battery_printf(sh, "%dh:%d\n", hour, minute);
 	}
 
-	print_item_name("  Empty:");
-	if (check_print_error(battery_time_to_empty(&value))) {
+	print_item_name(sh, "  Empty:");
+	if (check_print_error(sh, battery_time_to_empty(&value))) {
 		if (value == 65535) {
 			hour = 0;
 			minute = 0;
@@ -294,41 +307,46 @@ static void print_battery_info(void)
 			hour = value / 60;
 			minute = value % 60;
 		}
-		ccprintf("%dh:%d\n", hour, minute);
+		battery_printf(sh, "%dh:%d\n", hour, minute);
 	}
 
-	print_item_name("Full Factor:");
-	ccprintf("0.%d\n", batt_host_full_factor);
+	print_item_name(sh, "Full Factor:");
+	battery_printf(sh, "0.%d\n", batt_host_full_factor);
 
-	print_item_name("Shutdown SoC:");
-	ccprintf("%d %%\n", batt_host_shutdown_pct);
+	print_item_name(sh, "Shutdown SoC:");
+	battery_printf(sh, "%d %%\n", batt_host_shutdown_pct);
 
 #ifdef CONFIG_BATTERY_FUEL_GAUGE
 	value = battery_is_charge_fet_disabled();
 	/* reverse the flag if no error */
 	if (value != -1)
 		value = !value;
-	print_item_name("C-FET:");
-	ccprintf("%d\n", value);
+	print_item_name(sh, "C-FET:");
+	battery_printf(sh, "%d\n", value);
 
 	value = battery_get_disconnect_state();
-	print_item_name("D-FET:");
+	print_item_name(sh, "D-FET:");
 	if (value == BATTERY_DISCONNECT_ERROR)
-		ccprintf("ERR\n");
+		battery_printf(sh, "ERR\n");
 	else
-		ccprintf("%d\n", value);
+		battery_printf(sh, "%d\n", value);
 #endif
+}
+
+test_export_static void print_battery_debug_sh(const struct shell *sh)
+{
+	print_battery_status(sh);
+	print_battery_params(sh);
+	print_battery_strings(sh);
+	print_battery_info(sh);
 }
 
 void print_battery_debug(void)
 {
-	print_battery_status();
-	print_battery_params();
-	print_battery_strings();
-	print_battery_info();
+	print_battery_debug_sh(get_ec_shell());
 }
 
-static int command_battery(int argc, const char **argv)
+static int command_battery(const struct shell *sh, size_t argc, char **argv)
 {
 	int repeat = 1;
 	int loop;
@@ -338,21 +356,21 @@ static int command_battery(int argc, const char **argv)
 	if (argc > 1) {
 		repeat = strtoi(argv[1], &e, 0);
 		if (*e) {
-			ccputs("Invalid repeat count\n");
-			return EC_ERROR_INVAL;
+			shell_error(sh, "Invalid repeat count");
+			return -EINVAL;
 		}
 	}
 
 	if (argc > 2) {
 		sleep_ms = strtoi(argv[2], &e, 0);
 		if (*e) {
-			ccputs("Invalid sleep ms\n");
-			return EC_ERROR_INVAL;
+			shell_error(sh, "Invalid sleep ms");
+			return -EINVAL;
 		}
 	}
 
 	for (loop = 0; loop < repeat; loop++) {
-		print_battery_debug();
+		print_battery_debug_sh(sh);
 
 		/*
 		 * Running with a high repeat count will take so long the
@@ -365,10 +383,12 @@ static int command_battery(int argc, const char **argv)
 			k_msleep(sleep_ms);
 	}
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(battery, command_battery, "<repeat_count> <sleep_ms>",
-			"Print battery info");
+SHELL_CMD_ARG_REGISTER(battery, NULL,
+		       SHELL_HELP("Print battery info",
+				  "<repeat_count> <sleep_ms>"),
+		       command_battery, 1, 2);
 
 #ifdef CONFIG_BATTERY_CUT_OFF
 test_mockable int battery_is_cut_off(void)
@@ -609,30 +629,51 @@ static void check_pending_cutoff(void)
 DECLARE_HOOK(HOOK_CHIPSET_SHUTDOWN_COMPLETE, check_pending_cutoff,
 	     HOOK_PRIO_LAST);
 
-static int command_cutoff(int argc, const char **argv)
+static int cmd_cutoff_at_shutdown(const struct shell *sh, size_t argc,
+				  char **argv)
 {
+	ARG_UNUSED(sh);
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	battery_cutoff_state = BATTERY_CUTOFF_STATE_SCHEDULED;
+	if (IS_ENABLED(CONFIG_BATTERY_FORCE_CUTOFF_AT_SHUTDOWN) &&
+	    !chipset_in_state(CHIPSET_STATE_ANY_OFF)) {
+		chipset_force_shutdown(CHIPSET_SHUTDOWN_BATTERY_CUTOFF);
+	}
+
+	return 0;
+}
+
+static int command_cutoff(const struct shell *sh, size_t argc, char **argv)
+{
+	ARG_UNUSED(sh);
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
 	if (IS_ENABLED(CONFIG_BATTERY_FORCE_CUTOFF_AT_SHUTDOWN)) {
 		battery_cutoff_state = BATTERY_CUTOFF_STATE_SCHEDULED;
 		if (!chipset_in_state(CHIPSET_STATE_ANY_OFF)) {
 			chipset_force_shutdown(CHIPSET_SHUTDOWN_BATTERY_CUTOFF);
-			return EC_SUCCESS;
+			return 0;
 		}
 	}
 
-	if (argc > 1) {
-		if (!strcasecmp(argv[1], "at-shutdown")) {
-			battery_cutoff_state = BATTERY_CUTOFF_STATE_SCHEDULED;
-			return EC_SUCCESS;
-		} else {
-			return EC_ERROR_INVAL;
-		}
-	}
-
-	return battery_cutoff_start() == EC_RES_SUCCESS ? EC_SUCCESS :
-							  EC_ERROR_UNKNOWN;
+	return battery_cutoff_start() == EC_RES_SUCCESS ? 0 : -EIO;
 }
-DECLARE_CONSOLE_COMMAND(cutoff, command_cutoff, "[at-shutdown]",
-			"Cut off the battery output");
+
+/* clang-format off */
+SHELL_STATIC_SUBCMD_SET_CREATE(
+	sub_cutoff_cmds,
+	SHELL_CMD_ARG(at-shutdown, NULL, "Schedule battery cutoff at shutdown",
+		      cmd_cutoff_at_shutdown, 1, 0),
+	SHELL_SUBCMD_SET_END);
+/* clang-format on */
+
+SHELL_CMD_ARG_REGISTER(cutoff, &sub_cutoff_cmds,
+		       SHELL_HELP("Cut off the battery output",
+				  "[at-shutdown]"),
+		       command_cutoff, 1, 0);
 #else
 test_mockable int battery_is_cut_off(void)
 {
@@ -673,43 +714,42 @@ __overridable int battery_set_vendor_param(uint32_t param, uint32_t value)
 	return EC_ERROR_UNIMPLEMENTED;
 }
 
-static int console_command_battery_vendor_param(int argc, const char **argv)
+static int console_command_battery_vendor_param(const struct shell *sh,
+						size_t argc, char **argv)
 {
 	uint32_t param;
 	uint32_t value;
 	char *e;
 	int rv;
 
-	if (argc < 2)
-		return EC_ERROR_INVAL;
-
 	param = strtoi(argv[1], &e, 0);
 	if (*e) {
-		ccputs("Invalid param\n");
-		return EC_ERROR_INVAL;
+		shell_error(sh, "Invalid param");
+		return -EINVAL;
 	}
 
 	if (argc > 2) {
 		value = strtoi(argv[2], &e, 0);
 		if (*e) {
-			ccputs("Invalid value\n");
-			return EC_ERROR_INVAL;
+			shell_error(sh, "Invalid value");
+			return -EINVAL;
 		}
 		rv = battery_set_vendor_param(param, value);
 		if (rv != EC_SUCCESS)
-			return rv;
+			return -EINVAL;
 	}
 
 	rv = battery_get_vendor_param(param, &value);
 	if (rv != EC_SUCCESS)
-		return rv;
+		return -EINVAL;
 
-	ccprintf("0x%08x\n", value);
-	return EC_SUCCESS;
+	shell_print(sh, "0x%08x", value);
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(battparam, console_command_battery_vendor_param,
-			"<param> [value]",
-			"Get or set battery vendor parameters");
+SHELL_CMD_ARG_REGISTER(battparam, NULL,
+		       SHELL_HELP("Get or set battery vendor parameters",
+				  "<param> [value]"),
+		       console_command_battery_vendor_param, 2, 1);
 
 static enum ec_host_cmd_status
 host_command_battery_vendor_param(struct ec_host_cmd_handler_args *args)
@@ -1002,7 +1042,7 @@ void battery_apply_fake_params(struct batt_params *batt)
 }
 
 #if defined(CONFIG_CMD_BATTFAKE)
-static int command_battfake(int argc, const char **argv)
+static int command_battfake(const struct shell *sh, size_t argc, char **argv)
 {
 	char *e;
 	int v;
@@ -1010,21 +1050,23 @@ static int command_battfake(int argc, const char **argv)
 	if (argc == 2) {
 		v = strtoi(argv[1], &e, 0);
 		if (*e || v < -1 || v > 100)
-			return EC_ERROR_PARAM1;
+			return -EINVAL;
 
 		fake_state_of_charge = v;
 	}
 
 	if (fake_state_of_charge >= 0)
-		ccprintf("Fake batt %d%%\n", fake_state_of_charge);
+		shell_print(sh, "Fake batt %d%%", fake_state_of_charge);
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(battfake, command_battfake,
-			"percent (-1 = use real level)",
-			"Set fake battery level");
+SHELL_CMD_ARG_REGISTER(battfake, NULL,
+		       SHELL_HELP("Set fake battery level",
+				  "percent (-1 = use real level)"),
+		       command_battfake, 1, 1);
 
-static int command_batttempfake(int argc, const char **argv)
+static int command_batttempfake(const struct shell *sh, size_t argc,
+				char **argv)
 {
 	char *e;
 	int t;
@@ -1032,21 +1074,23 @@ static int command_batttempfake(int argc, const char **argv)
 	if (argc == 2) {
 		t = strtoi(argv[1], &e, 0);
 		if (*e || t < -1 || t > 5000)
-			return EC_ERROR_PARAM1;
+			return -EINVAL;
 
 		fake_temperature = t;
 	}
 
 	if (fake_temperature >= 0)
-		ccprintf("Fake batt temperature %d.%d K\n",
-			 fake_temperature / 10, fake_temperature % 10);
+		shell_print(sh, "Fake batt temperature %d.%d K",
+			    fake_temperature / 10, fake_temperature % 10);
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(
-	batttempfake, command_batttempfake,
-	"temperature (-1 = use real temperature)",
-	"Set fake battery temperature in deciKelvin (2731 = 273.1 K = 0 deg C)");
+SHELL_CMD_ARG_REGISTER(
+	batttempfake, NULL,
+	SHELL_HELP(
+		"Set fake battery temperature in deciKelvin (2731 = 273.1 K = 0 deg C)",
+		"temperature (-1 = use real temperature)"),
+	command_batttempfake, 1, 1);
 #endif
 
 void battery_validate_params(struct batt_params *batt)

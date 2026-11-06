@@ -535,15 +535,15 @@ ZTEST_USER(smart_battery, test_battery_fake_charge)
 		      NULL);
 
 	/* Fail on command with argument which is not a number */
-	zassert_equal(EC_ERROR_PARAM1,
+	zassert_equal(-EINVAL,
 		      shell_execute_cmd(get_ec_shell(), "battfake test"), NULL);
 
 	/* Fail on command with charge level above 100% */
-	zassert_equal(EC_ERROR_PARAM1,
+	zassert_equal(-EINVAL,
 		      shell_execute_cmd(get_ec_shell(), "battfake 123"), NULL);
 
 	/* Fail on command with charge level below 0% */
-	zassert_equal(EC_ERROR_PARAM1,
+	zassert_equal(-EINVAL,
 		      shell_execute_cmd(get_ec_shell(), "battfake -23"), NULL);
 
 	/* Set fake charge level */
@@ -609,17 +609,17 @@ ZTEST_USER(smart_battery, test_battery_fake_temperature)
 		      shell_execute_cmd(get_ec_shell(), "batttempfake"), NULL);
 
 	/* Fail on command with argument which is not a number */
-	zassert_equal(EC_ERROR_PARAM1,
+	zassert_equal(-EINVAL,
 		      shell_execute_cmd(get_ec_shell(), "batttempfake test"),
 		      NULL);
 
 	/* Fail on command with too high temperature (above 500.0 K) */
-	zassert_equal(EC_ERROR_PARAM1,
+	zassert_equal(-EINVAL,
 		      shell_execute_cmd(get_ec_shell(), "batttempfake 5001"),
 		      NULL);
 
 	/* Fail on command with too low temperature (below 0 K) */
-	zassert_equal(EC_ERROR_PARAM1,
+	zassert_equal(-EINVAL,
 		      shell_execute_cmd(get_ec_shell(), "batttempfake -23"),
 		      NULL);
 

@@ -16,6 +16,7 @@
 #include "util.h"
 
 #include <zephyr/kernel.h>
+#include <zephyr/shell/shell.h>
 
 #define CPRINTS(format, args...) cprints(CC_CHARGER, format, ##args)
 #define BCFGPRT(format, args...) cprints(CC_CHARGER, "BCFG " format, ##args)
@@ -597,7 +598,8 @@ EC_HOST_CMD_HANDLER_RESP_ONLY(EC_CMD_BATTERY_CONFIG, hc_battery_config,
 
 #ifdef CONFIG_CMD_BATTERY_CONFIG
 
-void batt_conf_dump(const struct batt_conf_export *conf)
+static void batt_conf_dump(const struct shell *sh,
+			   const struct batt_conf_embed *conf)
 {
 	const struct board_batt_params *info = &conf->config;
 	const struct fuel_gauge_info *fg = &info->fuel_gauge;
@@ -606,104 +608,162 @@ void batt_conf_dump(const struct batt_conf_export *conf)
 	const struct fet_info *fet = &info->fuel_gauge.fet;
 	const struct battery_info *batt = &info->batt_info;
 
-	ccprintf(".manuf_name = \"%s\",\n", conf->manuf_name);
-	ccprintf(".device_name= \"%s\",\n", conf->device_name);
-	ccprintf(".fuel_gauge = {\n");
-	ccprintf("\t.flags = 0x%x,\n", fg->flags);
+	shell_print(sh, ".manuf_name = \"%s\",", conf->manuf_name);
+	shell_print(sh, ".device_name= \"%s\",", conf->device_name);
+	shell_print(sh, ".fuel_gauge = {");
+	shell_print(sh, "\t.flags = 0x%x,", fg->flags);
 
-	ccprintf("\t.ship_mode = {\n");
-	ccprintf("\t\t.reg_addr = 0x%02x,\n", ship->reg_addr);
-	ccprintf("\t\t.reg_data = { 0x%04x, 0x%04x },\n", ship->reg_data[0],
-		 ship->reg_data[1]);
-	ccprintf("\t},\n");
+	shell_print(sh, "\t.ship_mode = {");
+	shell_print(sh, "\t\t.reg_addr = 0x%02x,", ship->reg_addr);
+	shell_print(sh, "\t\t.reg_data = { 0x%04x, 0x%04x },",
+		    ship->reg_data[0], ship->reg_data[1]);
+	shell_print(sh, "\t},");
 
-	ccprintf("\t.sleep_mode = {\n");
-	ccprintf("\t\t.reg_addr = 0x%02x,\n", sleep->reg_addr);
-	ccprintf("\t\t.reg_data = 0x%04x,\n", sleep->reg_data);
-	ccprintf("\t},\n");
+	shell_print(sh, "\t.sleep_mode = {");
+	shell_print(sh, "\t\t.reg_addr = 0x%02x,", sleep->reg_addr);
+	shell_print(sh, "\t\t.reg_data = 0x%04x,", sleep->reg_data);
+	shell_print(sh, "\t},");
 
-	ccprintf("\t.fet = {\n");
-	ccprintf("\t\t.reg_addr = 0x%02x,\n", fet->reg_addr);
-	ccprintf("\t\t.reg_mask = 0x%04x,\n", fet->reg_mask);
-	ccprintf("\t\t.disconnect_val = 0x%04x,\n", fet->disconnect_val);
-	ccprintf("\t\t.cfet_mask = 0x%04x,\n", fet->cfet_mask);
-	ccprintf("\t\t.cfet_off_val = 0x%04x,\n", fet->cfet_off_val);
-	ccprintf("\t},\n");
+	shell_print(sh, "\t.fet = {");
+	shell_print(sh, "\t\t.reg_addr = 0x%02x,", fet->reg_addr);
+	shell_print(sh, "\t\t.reg_mask = 0x%04x,", fet->reg_mask);
+	shell_print(sh, "\t\t.disconnect_val = 0x%04x,", fet->disconnect_val);
+	shell_print(sh, "\t\t.cfet_mask = 0x%04x,", fet->cfet_mask);
+	shell_print(sh, "\t\t.cfet_off_val = 0x%04x,", fet->cfet_off_val);
+	shell_print(sh, "\t},");
 
-	ccprintf("},\n"); /* end of fuel_gauge */
+	shell_print(sh, "},"); /* end of fuel_gauge */
 
-	ccprintf(".batt_info = {\n");
-	ccprintf("\t.voltage_max = %d,\n", batt->voltage_max);
-	ccprintf("\t.voltage_normal = %d,\n", batt->voltage_normal);
-	ccprintf("\t.voltage_min = %d,\n", batt->voltage_min);
-	ccprintf("\t.precharge_voltage= %d,\n", batt->precharge_voltage);
-	ccprintf("\t.precharge_current = %d,\n", batt->precharge_current);
-	ccprintf("\t.start_charging_min_c = %d,\n", batt->start_charging_min_c);
-	ccprintf("\t.start_charging_max_c = %d,\n", batt->start_charging_max_c);
-	ccprintf("\t.charging_min_c = %d,\n", batt->charging_min_c);
-	ccprintf("\t.charging_max_c = %d,\n", batt->charging_max_c);
-	ccprintf("\t.discharging_min_c = %d,\n", batt->discharging_min_c);
-	ccprintf("\t.discharging_max_c = %d,\n", batt->discharging_max_c);
-	ccprintf("},\n"); /* end of batt_info */
+	shell_print(sh, ".batt_info = {");
+	shell_print(sh, "\t.voltage_max = %d,", batt->voltage_max);
+	shell_print(sh, "\t.voltage_normal = %d,", batt->voltage_normal);
+	shell_print(sh, "\t.voltage_min = %d,", batt->voltage_min);
+	shell_print(sh, "\t.precharge_voltage= %d,", batt->precharge_voltage);
+	shell_print(sh, "\t.precharge_current = %d,", batt->precharge_current);
+	shell_print(sh, "\t.start_charging_min_c = %d,",
+		    batt->start_charging_min_c);
+	shell_print(sh, "\t.start_charging_max_c = %d,",
+		    batt->start_charging_max_c);
+	shell_print(sh, "\t.charging_min_c = %d,", batt->charging_min_c);
+	shell_print(sh, "\t.charging_max_c = %d,", batt->charging_max_c);
+	shell_print(sh, "\t.discharging_min_c = %d,", batt->discharging_min_c);
+	shell_print(sh, "\t.discharging_max_c = %d,", batt->discharging_max_c);
+	shell_print(sh, "},"); /* end of batt_info */
 }
 
-static int cc_bcfg(int argc, const char *argv[])
+static int cmd_bcfg_get(const struct shell *sh, size_t argc, char **argv)
 {
-	if (argc == 1) {
-		batt_conf_dump(get_batt_params());
-	} else if (argc == 3) {
-		struct batt_conf_header head = {};
-		uint8_t size = sizeof(head);
-		int index;
-		int rv;
-		char *e;
+	uint8_t buf[BATT_CONF_MAX_SIZE];
+	struct batt_conf_header *head = (void *)buf;
+	struct batt_conf_embed conf = {};
+	char manuf_name[SBS_MAX_STR_OBJ_SIZE] = {};
+	char device_name[SBS_MAX_STR_OBJ_SIZE] = {};
+	uint8_t size = sizeof(buf);
+	uint8_t *p;
+	int index;
+	int rv;
+	char *e;
 
-		index = strtoi(argv[2], &e, 0);
-		if (*e)
-			return EC_ERROR_PARAM1;
+	ARG_UNUSED(argc);
 
-		if (strcasecmp(argv[1], "get") == 0) {
-			rv = cbi_get_board_info(index + CBI_TAG_BATTERY_CONFIG,
-						(void *)&head, &size);
-			if (rv) {
-				ccprintf("#%d not found (rv=%d)\n", index, rv);
-				return EC_ERROR_UNAVAILABLE;
-			}
-			ccprintf("struct_ver = 0x%02x\n", head.struct_version);
-			ccprintf("manuf = \"%s\"\n", head.manuf_name);
-			ccprintf("name = \"%s\"\n", head.device_name);
-			ccprintf("size = %u (expect %u)\n", size, sizeof(head));
-			batt_conf_dump(&head.config);
-		} else if (strcasecmp(argv[1], "set") == 0) {
-			const struct board_batt_params *conf =
-				get_batt_params();
-			head.struct_version = 0;
-			strncpy(head.manuf_name, conf->fuel_gauge.manuf_name,
-				sizeof(head.manuf_name));
-			if (conf->fuel_gauge.device_name)
-				strncpy(head.device_name,
-					conf->fuel_gauge.device_name,
-					sizeof(head.device_name));
-			memcpy(&head.config, conf, sizeof(head.config));
-			rv = cbi_set_board_info(index + CBI_TAG_BATTERY_CONFIG,
-						(void *)&head, size);
-			if (rv) {
-				ccprintf("Failed to write #%d (rv=%d)\n", index,
-					 rv);
-				return EC_ERROR_UNKNOWN;
-			}
-		} else {
-			return EC_ERROR_PARAM2;
-		}
-	} else {
-		return EC_ERROR_PARAM_COUNT;
+	index = strtoi(argv[1], &e, 0);
+	if (*e)
+		return -EINVAL;
+
+	rv = cbi_get_board_info(index + CBI_TAG_BATTERY_CONFIG, buf, &size);
+	if (rv) {
+		shell_print(sh, "#%d not found (rv=%d)", index, rv);
+		return -ENOENT;
+	}
+	if (size < sizeof(*head)) {
+		shell_print(sh, "Invalid header size: %u", size);
+		return -EINVAL;
+	}
+	if (size != sizeof(*head) + head->manuf_name_size +
+			    head->device_name_size + sizeof(conf.config)) {
+		shell_print(sh, "Size mismatch: %u", size);
+		return -EINVAL;
+	}
+	p = buf + sizeof(*head);
+	memcpy(manuf_name, p,
+	       MIN(head->manuf_name_size, sizeof(manuf_name) - 1));
+	p += head->manuf_name_size;
+	memcpy(device_name, p,
+	       MIN(head->device_name_size, sizeof(device_name) - 1));
+	p += head->device_name_size;
+	conf.manuf_name = manuf_name;
+	conf.device_name = device_name;
+	memcpy(&conf.config, p, sizeof(conf.config));
+
+	shell_print(sh, "struct_ver = 0x%02x", head->struct_version);
+	shell_print(sh, "manuf = \"%s\"", manuf_name);
+	shell_print(sh, "name = \"%s\"", device_name);
+	shell_print(sh, "size = %u", size);
+	batt_conf_dump(sh, &conf);
+
+	return 0;
+}
+
+static int cmd_bcfg_set(const struct shell *sh, size_t argc, char **argv)
+{
+	const struct batt_conf_embed *conf = get_batt_conf();
+	uint8_t buf[BATT_CONF_MAX_SIZE];
+	struct batt_conf_header *head = (void *)buf;
+	uint8_t *p = buf;
+	uint8_t size;
+	int index;
+	int rv;
+	char *e;
+
+	ARG_UNUSED(argc);
+
+	index = strtoi(argv[1], &e, 0);
+	if (*e)
+		return -EINVAL;
+
+	head->struct_version = EC_BATTERY_CONFIG_STRUCT_VERSION;
+	head->manuf_name_size = strlen(conf->manuf_name);
+	head->device_name_size = conf->device_name ? strlen(conf->device_name) :
+						     0;
+	p += sizeof(*head);
+	memcpy(p, conf->manuf_name, head->manuf_name_size);
+	p += head->manuf_name_size;
+	if (head->device_name_size > 0)
+		memcpy(p, conf->device_name, head->device_name_size);
+	p += head->device_name_size;
+	memcpy(p, &conf->config, sizeof(conf->config));
+	size = p - buf + sizeof(conf->config);
+
+	rv = cbi_set_board_info(index + CBI_TAG_BATTERY_CONFIG, buf, size);
+	if (rv) {
+		shell_print(sh, "Failed to write #%d (rv=%d)", index, rv);
+		return -EIO;
 	}
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(
-	bcfg, cc_bcfg, "[get/set <index>]",
-	"\n"
-	"Dump effective battery config or config #<index> in CBI.\n"
-	"Read from or write to CBI effective battery config.\n");
+
+static int cc_bcfg(const struct shell *sh, size_t argc, char **argv)
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	batt_conf_dump(sh, get_batt_conf());
+	return 0;
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(
+	sub_bcfg_cmds,
+	SHELL_CMD_ARG(get, NULL, "Dump config #<index> in CBI", cmd_bcfg_get, 2,
+		      0),
+	SHELL_CMD_ARG(set, NULL, "Write effective battery config to CBI",
+		      cmd_bcfg_set, 2, 0),
+	SHELL_SUBCMD_SET_END);
+
+SHELL_CMD_ARG_REGISTER(
+	bcfg, &sub_bcfg_cmds,
+	SHELL_HELP("Dump effective battery config or config #<index> in CBI.\n"
+		   "Read from or write to CBI effective battery config.",
+		   "[get/set <index>]"),
+	cc_bcfg, 1, 0);
 #endif /* CONFIG_CMD_BATTERY_CONFIG */

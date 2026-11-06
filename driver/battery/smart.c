@@ -14,6 +14,8 @@
 #include "timer.h"
 #include "util.h"
 
+#include <zephyr/shell/shell.h>
+
 /* Console output macros */
 #define CPUTS(outstr) cputs(CC_CHARGER, outstr);
 #define CPRINTS(format, args...) cprints(CC_CHARGER, "SBS " format, ##args)
@@ -613,47 +615,46 @@ int battery_wait_for_stable(void)
 }
 
 #ifdef CONFIG_CMD_BATT_MFG_ACCESS
-static int command_batt_mfg_access_read(int argc, const char **argv)
+static int command_batt_mfg_access_read(const struct shell *sh, size_t argc,
+					char **argv)
 {
 	char *e;
 	uint8_t data[32];
 	int cmd, block, len = 6;
 	int rv;
 
-	if (argc < 3 || argc > 4)
-		return EC_ERROR_PARAM_COUNT;
-
 	cmd = strtoi(argv[1], &e, 0);
 	if (*e || cmd < 0)
-		return EC_ERROR_PARAM1;
+		return -EINVAL;
 
 	block = strtoi(argv[2], &e, 0);
 	if (*e || block < 0)
-		return EC_ERROR_PARAM2;
+		return -EINVAL;
 
 	if (argc > 3) {
 		len = strtoi(argv[3], &e, 0);
 		len += 2;
 		if (*e || len < 3 || len > sizeof(data))
-			return EC_ERROR_PARAM3;
+			return -EINVAL;
 	}
 
 	rv = sb_read_mfgacc(cmd, block, data, len);
 	if (rv)
-		return rv;
+		return -EIO;
 
-	ccprintf("data[MSB->LSB]=0x");
+	shell_fprintf(sh, SHELL_NORMAL, "data[MSB->LSB]=0x");
 	do {
 		len--;
-		ccprintf("%02x ", data[len]);
+		shell_fprintf(sh, SHELL_NORMAL, "%02x ", data[len]);
 	} while (len > 2);
-	ccprintf("\n");
+	shell_fprintf(sh, SHELL_NORMAL, "\n");
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(battmfgacc, command_batt_mfg_access_read,
-			"cmd block | len",
-			"Read battery manufacture access data");
+SHELL_CMD_ARG_REGISTER(battmfgacc, NULL,
+		       SHELL_HELP("Read battery manufacture access data",
+				  "cmd block | len"),
+		       command_batt_mfg_access_read, 3, 1);
 #endif /* CONFIG_CMD_BATT_MFG_ACCESS */
 
 #ifdef CONFIG_CMD_I2C_STRESS_TEST_BATTERY
