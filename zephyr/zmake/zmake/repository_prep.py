@@ -17,6 +17,7 @@ import sys
 import tempfile
 
 import zmake.modules
+import zmake.util
 
 
 logger = logging.getLogger("zmake.repository_prep")
@@ -62,10 +63,7 @@ def find_checkout():
     """Find the path to the base of the checkout (e.g., ~/chromiumos)."""
     if _CONFIG["checkout_path"]:
         return _CONFIG["checkout_path"]
-    for path in pathlib.Path(__file__).resolve().parents:
-        if (path / ".repo").is_dir():
-            return path
-    raise FileNotFoundError("Unable to locate the root of the checkout")
+    return zmake.util.locate_cros_checkout()
 
 
 def _get_default_dirs(checkout_root, subdir):

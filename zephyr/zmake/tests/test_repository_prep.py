@@ -12,12 +12,15 @@ from unittest import mock
 
 # pylint: disable=import-error
 import pytest
+from zmake import util
+from zmake.repository_prep import _CONFIG
 from zmake.repository_prep import _find_override_files
 from zmake.repository_prep import _find_patch_files
 from zmake.repository_prep import _has_files
 from zmake.repository_prep import CodebasePreparer
 from zmake.repository_prep import copy_outputs_back
 from zmake.repository_prep import create_shadow_checkout
+from zmake.repository_prep import find_checkout
 from zmake.repository_prep import find_git_repo
 from zmake.repository_prep import fix_lcov_info_paths
 from zmake.repository_prep import fix_symlinks
@@ -807,3 +810,13 @@ def test_prepared_workspace_shadow_and_partial_failure(
                 pass
     finally:
         set_checkout(old_co)
+
+
+def test_find_checkout(tmp_path, monkeypatch):
+    """Test find_checkout uses set_checkout override or locate_cros_checkout."""
+    monkeypatch.setattr(util, "locate_cros_checkout", lambda: tmp_path / "auto")
+    monkeypatch.setitem(_CONFIG, "checkout_path", None)
+    assert find_checkout() == tmp_path / "auto"
+
+    set_checkout(tmp_path / "override")
+    assert find_checkout() == tmp_path / "override"
