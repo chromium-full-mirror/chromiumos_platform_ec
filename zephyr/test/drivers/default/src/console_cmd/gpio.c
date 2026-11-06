@@ -13,6 +13,7 @@
 
 ZTEST_USER(console_cmd_gpio, test_read_invoke_success)
 {
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "gpioget"), NULL);
 	zassert_ok(shell_execute_cmd(get_ec_shell(), "gpioget test"), NULL);
 }
 
@@ -32,6 +33,12 @@ ZTEST_USER(console_cmd_gpio, test_set_gpio)
 	zassert_equal(gpio_pin_get_dt(gp), 1, NULL);
 	zassert_ok(shell_execute_cmd(get_ec_shell(), "gpioset test 0"), NULL);
 	zassert_equal(gpio_pin_get_dt(gp), 0, NULL);
+	zassert_not_ok(shell_execute_cmd(get_ec_shell(),
+					 "gpioset DOES_NOT_EXIST 1"),
+		       NULL);
+	zassert_not_ok(shell_execute_cmd(get_ec_shell(),
+					 "gpioset test INVALID"),
+		       NULL);
 }
 
 ZTEST_SUITE(console_cmd_gpio, drivers_predicate_post_main, NULL, NULL, NULL,

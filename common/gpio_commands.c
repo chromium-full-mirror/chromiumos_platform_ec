@@ -92,7 +92,7 @@ __maybe_unused static const struct gpio_flag_description gpio_descriptions[] = {
 #endif
 };
 
-static void print_gpio_info(int gpio)
+static void print_gpio_info(const struct shell *sh, int gpio)
 {
 	int changed, v, i;
 
@@ -104,24 +104,25 @@ static void print_gpio_info(int gpio)
 
 	/* Split the printf call into multiple calls to reduce the stack usage.
 	 */
-	ccprintf("  %d%c ", v, (changed ? '*' : ' '));
+	shell_fprintf(sh, SHELL_NORMAL, "  %d%c ", v, (changed ? '*' : ' '));
 
 	if (IS_ENABLED(CONFIG_CMD_GPIO_EXTENDED)) {
 		int flags = gpio_get_flags(gpio);
 
 		for (i = 0; i < ARRAY_SIZE(gpio_descriptions); i++) {
 			if (flags & gpio_descriptions[i].bitfield)
-				ccprintf("%s ", gpio_descriptions[i].name);
+				shell_fprintf(sh, SHELL_NORMAL, "%s ",
+					      gpio_descriptions[i].name);
 		}
 	}
 
-	ccprintf("%s\n", gpio_get_name(gpio));
+	shell_print(sh, "%s", gpio_get_name(gpio));
 
 	/* Flush console to avoid truncating output */
 	cflush();
 }
 
-static int command_gpio_get(int argc, const char **argv)
+static int command_gpio_get(const struct shell *sh, size_t argc, char **argv)
 {
 	int i;
 
@@ -129,10 +130,10 @@ static int command_gpio_get(int argc, const char **argv)
 	if (argc == 2) {
 		i = find_signal_by_name(argv[1]);
 		if (i == GPIO_COUNT)
-			return EC_ERROR_PARAM1;
-		print_gpio_info(i);
+			return -EINVAL;
+		print_gpio_info(sh, i);
 
-		return EC_SUCCESS;
+		return 0;
 	}
 
 	/* Otherwise print them all */
@@ -140,31 +141,33 @@ static int command_gpio_get(int argc, const char **argv)
 		if (!gpio_is_implemented(i))
 			continue; /* Skip unsupported signals */
 
-		print_gpio_info(i);
+		print_gpio_info(sh, i);
 	}
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_SAFE_CONSOLE_COMMAND(gpioget, command_gpio_get, "[name]",
-			     "Read GPIO value(s)");
+SHELL_CMD_ARG_REGISTER(gpioget, NULL,
+		       "[name]\n"
+		       "Read GPIO value(s)",
+		       command_gpio_get, 1, 1);
 
-static int command_gpio_set(int argc, const char **argv)
+static int command_gpio_set(const struct shell *sh, size_t argc, char **argv)
 {
+	ARG_UNUSED(sh);
 #ifdef CONFIG_CMD_GPIO_EXTENDED
 	int gpio;
 	int flags = 0;
 
 #ifdef CONFIG_BOARD_FINGERPRINT
 	if (system_is_locked())
-		return EC_ERROR_ACCESS_DENIED;
+		return -EACCES;
 #endif /* CONFIG_BOARD_FINGERPRINT */
 
-	if (argc < 3)
-		return EC_ERROR_PARAM_COUNT;
+	ARG_UNUSED(argc);
 
 	gpio = find_signal_by_name(argv[1]);
 	if (gpio == GPIO_COUNT)
-		return EC_ERROR_PARAM1;
+		return -EINVAL;
 
 	if (strcasecmp(argv[2], "IN") == 0)
 		flags = GPIO_INPUT;
@@ -173,7 +176,7 @@ static int command_gpio_set(int argc, const char **argv)
 	else if (strcasecmp(argv[2], "0") == 0)
 		flags = GPIO_OUT_LOW;
 	else
-		return EC_ERROR_PARAM2;
+		return -EINVAL;
 
 	/* Update GPIO flags. */
 	gpio_set_flags(gpio, flags);
@@ -181,25 +184,25 @@ static int command_gpio_set(int argc, const char **argv)
 	char *e;
 	int v;
 
-	if (argc < 3)
-		return EC_ERROR_PARAM_COUNT;
+	ARG_UNUSED(argc);
 
 	v = strtoi(argv[2], &e, 0);
 	if (*e)
-		return EC_ERROR_PARAM2;
+		return -EINVAL;
 
 	if (set(argv[1], v) != EC_SUCCESS)
-		return EC_ERROR_PARAM1;
+		return -EINVAL;
 #endif
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND_FLAGS(gpioset, command_gpio_set,
+SHELL_CMD_ARG_REGISTER(gpioset, NULL,
 #ifdef CONFIG_CMD_GPIO_EXTENDED
-			      "name <0 | 1 | IN>",
+		       "name <0 | 1 | IN>\n"
 #else
-			      "name <0 | 1>",
+		       "name <0 | 1>\n"
 #endif
-			      "Set a GPIO", CMD_FLAG_RESTRICTED);
+		       "Set a GPIO",
+		       command_gpio_set, 3, 0);
 
 /*****************************************************************************/
 /* Host commands */
