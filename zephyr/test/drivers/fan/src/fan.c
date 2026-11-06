@@ -44,7 +44,7 @@ static void fan_common_before(void *data)
 	test_set_chipset_to_s0();
 
 	/* Restore how many fans we have */
-	fan_set_count(CONFIG_FANS);
+	fan_set_count(1);
 
 	/* Ensure PGOOD pin is set */
 	zassert_ok(gpio_emul_input_set(fixture->pgood_pin, GPIO_PG_PORT, 1));
@@ -56,6 +56,9 @@ ZTEST_SUITE(fan_common, drivers_predicate_post_main, fan_common_setup,
 ZTEST(fan_common, test_faninfo)
 {
 	CHECK_CONSOLE_CMD("faninfo", "Duty:", EC_SUCCESS);
+
+	fan_set_count(2);
+	CHECK_CONSOLE_CMD("faninfo", "Fan 0 Duty:", EC_SUCCESS);
 }
 
 ZTEST(fan_common, test_fan_init_speed)
@@ -70,6 +73,12 @@ ZTEST(fan_common, test_fan_init_speed)
 ZTEST(fan_common, test_fanauto)
 {
 	CHECK_CONSOLE_CMD("fanauto", NULL, EC_SUCCESS);
+
+	fan_set_count(2);
+	CHECK_CONSOLE_CMD("fanauto", "fan number is required", -EINVAL);
+	CHECK_CONSOLE_CMD("fanauto 99", NULL, -EINVAL);
+	CHECK_CONSOLE_CMD("fanauto abc", NULL, -EINVAL);
+	CHECK_CONSOLE_CMD("fanauto 0", NULL, EC_SUCCESS);
 }
 
 ZTEST(fan_common, test_fanset_no_fans)
@@ -77,22 +86,28 @@ ZTEST(fan_common, test_fanset_no_fans)
 	/* Pretend we have no fans */
 	fan_set_count(0);
 
-	CHECK_CONSOLE_CMD("fanset", "zero", EC_ERROR_INVAL);
+	CHECK_CONSOLE_CMD("fanset 0", "zero", -EINVAL);
 }
 
 ZTEST(fan_common, test_fanset_no_arg)
 {
-	CHECK_CONSOLE_CMD("fanset", NULL, EC_ERROR_PARAM_COUNT);
+	CHECK_CONSOLE_CMD("fanset", NULL, -EINVAL);
+	CHECK_CONSOLE_CMD("fanset abc", NULL, -EINVAL);
+	CHECK_CONSOLE_CMD("fanset -10%", "Setting fan", EC_SUCCESS);
+	CHECK_CONSOLE_CMD("fanset 120%", "Setting fan", EC_SUCCESS);
+
+	fan_set_count(2);
+	CHECK_CONSOLE_CMD("fanset 0", "fan number is required", -EINVAL);
 }
 
 ZTEST(fan_common, test_fanset_too_many_args)
 {
-	CHECK_CONSOLE_CMD("fanset 1 2 3 4 5", NULL, EC_ERROR_PARAM_COUNT);
+	CHECK_CONSOLE_CMD("fanset 1 2 3 4 5", NULL, -EINVAL);
 }
 
 ZTEST(fan_common, test_fanset_bad_fan)
 {
-	CHECK_CONSOLE_CMD("fanset 80 0", NULL, EC_ERROR_PARAM1);
+	CHECK_CONSOLE_CMD("fanset 80 0", NULL, -EINVAL);
 }
 
 ZTEST(fan_common, test_fanset_valid_2_arg)
@@ -110,22 +125,26 @@ ZTEST(fan_common, test_fanduty_no_fans)
 	/* Pretend we have no fans */
 	fan_set_count(0);
 
-	CHECK_CONSOLE_CMD("fanduty", "zero", EC_ERROR_INVAL);
+	CHECK_CONSOLE_CMD("fanduty 0", "zero", -EINVAL);
 }
 
 ZTEST(fan_common, test_fanduty_no_arg)
 {
-	CHECK_CONSOLE_CMD("fanduty", NULL, EC_ERROR_PARAM_COUNT);
+	CHECK_CONSOLE_CMD("fanduty", NULL, -EINVAL);
+	CHECK_CONSOLE_CMD("fanduty abc", NULL, -EINVAL);
+
+	fan_set_count(2);
+	CHECK_CONSOLE_CMD("fanduty 0", "fan number is required", -EINVAL);
 }
 
 ZTEST(fan_common, test_fanduty_too_many_args)
 {
-	CHECK_CONSOLE_CMD("fanduty 1 2 3 4 5", NULL, EC_ERROR_PARAM_COUNT);
+	CHECK_CONSOLE_CMD("fanduty 1 2 3 4 5", NULL, -EINVAL);
 }
 
 ZTEST(fan_common, test_fanduty_bad_fan)
 {
-	CHECK_CONSOLE_CMD("fanduty 80 0", NULL, EC_ERROR_PARAM1);
+	CHECK_CONSOLE_CMD("fanduty 80 0", NULL, -EINVAL);
 }
 
 ZTEST(fan_common, test_fanduty_valid_2_arg)

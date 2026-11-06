@@ -18,6 +18,16 @@
 			pgood-gpio = <&gpio_test>;
 			fan-force-off;
 		};
+		fan1: fan_1 {
+			pwms = <&pwm_fan 0 PWM_KHZ(25) PWM_POLARITY_NORMAL>;
+			rpm-min = <3100>;
+			rpm-start = <3100>;
+			rpm-max = <8000>;
+			tach = <&tach_fan>;
+			enable-gpio = <&gpio_test>;
+			pgood-gpio = <&gpio_test>;
+			fan-force-off;
+		};
 	};
 	pwms {
 		pwm_fan: pwm@6 {

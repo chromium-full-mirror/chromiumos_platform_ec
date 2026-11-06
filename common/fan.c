@@ -8,7 +8,6 @@
 #include "builtin/assert.h"
 #include "chipset.h"
 #include "common.h"
-#include "console.h"
 #include "fan.h"
 #include "gpio.h"
 #include "hooks.h"
@@ -16,6 +15,8 @@
 #include "printf.h"
 #include "system.h"
 #include "util.h"
+
+#include <zephyr/shell/shell.h>
 
 /* True if we're listening to the thermal control task. False if we're setting
  * things manually. */
@@ -198,28 +199,30 @@ static void set_duty_cycle(int fan, int percent)
 /*****************************************************************************/
 /* Console commands */
 
-static int cc_fanauto(int argc, const char **argv)
+static int cc_fanauto(const struct shell *sh, size_t argc, char **argv)
 {
 	char *e;
 	int fan = 0;
 
 	if (fan_count > 1) {
 		if (argc < 2) {
-			ccprintf("fan number is required as the first arg\n");
-			return EC_ERROR_PARAM_COUNT;
+			shell_print(sh,
+				    "fan number is required as the first arg");
+			return -EINVAL;
 		}
 		fan = strtoi(argv[1], &e, 0);
 		if (*e || fan >= fan_count)
-			return EC_ERROR_PARAM1;
+			return -EINVAL;
 		argc--;
 		argv++;
 	}
 
 	set_thermal_control_enabled(fan, 1);
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(fanauto, cc_fanauto, "{fan}",
-			"Enable thermal fan control");
+SHELL_CMD_ARG_REGISTER(fanauto, NULL,
+		       SHELL_HELP("Enable thermal fan control", "{fan}"),
+		       cc_fanauto, 1, 1);
 
 /* Return 0 for off, 1 for on, -1 for unknown */
 static int is_powered(int fan)
@@ -236,7 +239,7 @@ static int is_powered(int fan)
 	return is_pgood;
 }
 
-static int cc_faninfo(int argc, const char **argv)
+static int cc_faninfo(const struct shell *sh, size_t argc, char **argv)
 {
 	static const char *const human_status[] = { "not spinning", "changing",
 						    "locked", "frustrated" };
@@ -249,31 +252,33 @@ static int cc_faninfo(int argc, const char **argv)
 			    0)
 				leader[0] = '\0';
 		if (fan)
-			ccprintf("\n");
-		ccprintf("%sActual: %4d rpm\n", leader,
-			 fan_get_rpm_actual(FAN_CH(fan)));
-		ccprintf("%sTarget: %4d rpm\n", leader,
-			 fan_get_rpm_target(FAN_CH(fan)));
-		ccprintf("%sDuty:   %d%%\n", leader, fan_get_duty(FAN_CH(fan)));
+			shell_fprintf(sh, SHELL_NORMAL, "\n");
+		shell_print(sh, "%sActual: %4d rpm", leader,
+			    fan_get_rpm_actual(FAN_CH(fan)));
+		shell_print(sh, "%sTarget: %4d rpm", leader,
+			    fan_get_rpm_target(FAN_CH(fan)));
+		shell_print(sh, "%sDuty:   %d%%", leader,
+			    fan_get_duty(FAN_CH(fan)));
 		tmp = fan_get_status(FAN_CH(fan));
-		ccprintf("%sStatus: %d (%s)\n", leader, tmp, human_status[tmp]);
-		ccprintf("%sMode:   %s\n", leader,
-			 fan_get_rpm_mode(FAN_CH(fan)) ? "rpm" : "duty");
-		ccprintf("%sAuto:   %s\n", leader,
-			 is_thermal_control_enabled(fan) ? "yes" : "no");
-		ccprintf("%sEnable: %s\n", leader,
-			 fan_get_enabled(FAN_CH(fan)) ? "yes" : "no");
+		shell_print(sh, "%sStatus: %d (%s)", leader, tmp,
+			    human_status[tmp]);
+		shell_print(sh, "%sMode:   %s", leader,
+			    fan_get_rpm_mode(FAN_CH(fan)) ? "rpm" : "duty");
+		shell_print(sh, "%sAuto:   %s", leader,
+			    is_thermal_control_enabled(fan) ? "yes" : "no");
+		shell_print(sh, "%sEnable: %s", leader,
+			    fan_get_enabled(FAN_CH(fan)) ? "yes" : "no");
 		is_pgood = is_powered(fan);
 		if (is_pgood >= 0)
-			ccprintf("%sPower:  %s\n", leader,
-				 is_pgood ? "yes" : "no");
+			shell_print(sh, "%sPower:  %s", leader,
+				    is_pgood ? "yes" : "no");
 	}
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(faninfo, cc_faninfo, NULL, "Print fan info");
+SHELL_CMD_REGISTER(faninfo, NULL, "Print fan info", cc_faninfo);
 
-static int cc_fanset(int argc, const char **argv)
+static int cc_fanset(const struct shell *sh, size_t argc, char **argv)
 {
 	const char *rpm_str;
 	int rpm;
@@ -281,38 +286,37 @@ static int cc_fanset(int argc, const char **argv)
 	int fan = 0;
 
 	if (fan_count == 0) {
-		ccprintf("Fan count is zero\n");
-		return EC_ERROR_INVAL;
+		shell_print(sh, "Fan count is zero");
+		return -EINVAL;
 	}
 
 	if (fan_count > 1) {
 		if (argc < 3) {
-			ccprintf("fan number is required as the first arg\n");
-			return EC_ERROR_PARAM_COUNT;
+			shell_print(sh,
+				    "fan number is required as the first arg");
+			return -EINVAL;
 		}
 	}
 
 	if (argc == 3) {
 		fan = strtoi(argv[1], &e, 0);
 		if (*e || fan >= fan_count)
-			return EC_ERROR_PARAM1;
+			return -EINVAL;
 		rpm_str = argv[2];
-	} else if (argc == 2) {
-		rpm_str = argv[1];
 	} else {
-		return EC_ERROR_PARAM_COUNT;
+		rpm_str = argv[1];
 	}
 
 	rpm = strtoi(rpm_str, &e, 0);
 	if (*e == '%') { /* Wait, that's a percentage */
-		ccprintf("Fan rpm given as %d%%\n", rpm);
+		shell_print(sh, "Fan rpm given as %d%%", rpm);
 		if (rpm < 0)
 			rpm = 0;
 		else if (rpm > 100)
 			rpm = 100;
 		rpm = fan_percent_to_rpm(fan, rpm);
 	} else if (*e) {
-		return EC_ERROR_PARAM1;
+		return -EINVAL;
 	}
 
 	/* Move the fan to automatic control */
@@ -326,14 +330,15 @@ static int cc_fanset(int argc, const char **argv)
 
 	fan_set_rpm_target(FAN_CH(fan), rpm);
 
-	ccprintf("Setting fan %d rpm target to %d\n", fan, rpm);
+	shell_print(sh, "Setting fan %d rpm target to %d", fan, rpm);
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(fanset, cc_fanset, "[fan] (rpm | pct%)",
-			"Set fan speed");
+SHELL_CMD_ARG_REGISTER(fanset, NULL,
+		       SHELL_HELP("Set fan speed", "[fan] (rpm | pct%)"),
+		       cc_fanset, 2, 1);
 
-static int cc_fanduty(int argc, const char **argv)
+static int cc_fanduty(const struct shell *sh, size_t argc, char **argv)
 {
 	const char *percent_str;
 	int percent = 0;
@@ -341,39 +346,39 @@ static int cc_fanduty(int argc, const char **argv)
 	int fan = 0;
 
 	if (fan_count == 0) {
-		ccprintf("Fan count is zero\n");
-		return EC_ERROR_INVAL;
+		shell_print(sh, "Fan count is zero");
+		return -EINVAL;
 	}
 
 	if (fan_count > 1) {
 		if (argc < 3) {
-			ccprintf("fan number is required as the first arg\n");
-			return EC_ERROR_PARAM_COUNT;
+			shell_print(sh,
+				    "fan number is required as the first arg");
+			return -EINVAL;
 		}
 	}
 
 	if (argc == 3) {
 		fan = strtoi(argv[1], &e, 0);
 		if (*e || fan >= fan_count)
-			return EC_ERROR_PARAM1;
+			return -EINVAL;
 		percent_str = argv[2];
-	} else if (argc == 2) {
-		percent_str = argv[1];
 	} else {
-		return EC_ERROR_PARAM_COUNT;
+		percent_str = argv[1];
 	}
 
 	percent = strtoi(percent_str, &e, 0);
 	if (*e)
-		return EC_ERROR_PARAM1;
+		return -EINVAL;
 
-	ccprintf("Setting fan %d duty cycle to %d%%\n", fan, percent);
+	shell_print(sh, "Setting fan %d duty cycle to %d%%", fan, percent);
 	set_duty_cycle(fan, percent);
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(fanduty, cc_fanduty, "[fan] percent",
-			"Set fan duty cycle");
+SHELL_CMD_ARG_REGISTER(fanduty, NULL,
+		       SHELL_HELP("Set fan duty cycle", "[fan] percent"),
+		       cc_fanduty, 2, 1);
 
 /*****************************************************************************/
 /* DPTF interface functions */
