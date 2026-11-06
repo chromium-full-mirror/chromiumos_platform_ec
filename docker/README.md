@@ -1,16 +1,26 @@
-# EC Firmware Docker for Dagwood Testing
+# EC Firmware Docker Environment (`ec-builder`)
 
 This directory contains the Docker and scripting configuration to set up an
 isolated, automated build and test environment for building ChromiumOS EC
 firmware and running tests on the Dagwood test fixture.
 
-The docker build is set up to clone all repositories needed to build EC
-firmware images and run the twister based tests.
+The Docker build clones all repositories needed to build EC firmware images and
+run Twister-based tests.
 
 When entering the container, `entrypoint.sh` populates `/workspace` from the
 repositories cached in the image on first run and leaves existing checkouts
 untouched on subsequent entries. Pass `--update` to pull the latest upstream
 changes.
+
+## Documentation
+
+*   **`README.md`** (this file): Building and running the `ec-builder`
+    container, `zmake` builds, and host-based Twister tests.
+*   **[`DAGWOOD.md`](./DAGWOOD.md)**: Building and flashing Dagwood fixture
+    firmware and running hardware-in-the-loop (HIL) EC Add-In Card (AIC) tests.
+*   **[`SATLAB.md`](./SATLAB.md)**: Provisioning a Satlab test station,
+    deploying and persisting `ec-builder`, and automated Artifact Registry
+    publishing.
 
 ---
 
@@ -84,23 +94,26 @@ Or using the helper script:
 
 ### 3. Hardware Access (Flashing and Device Testing)
 The plain `docker run` above is enough for building. Flashing and device
-testing additionally need the host's USB devices and serial ports, which
-`run_docker.sh` configures automatically. To do the same from a raw
-`docker run`, add:
+testing additionally need the host's USB devices, serial ports, and `udev`
+hotplug events, which `run_docker.sh` configures automatically. To do the same
+from a raw `docker run`, add:
 
 ```bash
 docker run -it --rm \
+  --net=host \
   --device-cgroup-rule="c *:* rmw" \
   -v $(pwd)/workspace:/workspace \
   -v /dev:/dev \
+  -v /run/udev:/run/udev:ro \
   ec-builder
 ```
 
-Bind mounting `/dev` keeps devices visible across hotplug and
-re-enumeration, so a board that resets into its bootloader and returns
-under a different `ttyACM` number stays usable. The cgroup rule is
-required because Docker denies `open()` on devices outside a small
-default allowlist; limiting it to character devices leaves block devices
+Bind mounting `/dev` keeps device nodes visible across hotplug and
+re-enumeration, while `--net=host` and `-v /run/udev:/run/udev:ro` allow
+`libusb` (via `libudev` netlink events) to detect when a board resets into its
+USB DFU bootloader and returns under a different USB address or `ttyACM` number.
+The cgroup rule is required because Docker denies `open()` on devices outside a
+small default allowlist; limiting it to character devices leaves block devices
 (disks) inaccessible. `--privileged` is not needed.
 
 ---
@@ -121,15 +134,13 @@ To build a specific board configuration (e.g., `skyrim`):
 zmake --checkout /workspace build skyrim
 ```
 
-Because zmake is not running inside a full cros_sdk checkout, you must always
-specify the `--checkout /workspace` option when running `zmake` commands.
+Because `zmake` is not running inside a full `cros_sdk` checkout, you must
+always specify the `--checkout /workspace` option when running `zmake` commands.
 
 The final firmware image will be populated on your host filesystem at
 `workspace/src/platform/ec/build/zephyr/skyrim/output/ec.bin`.
 
-### Run Twister Tests
-
-#### 1. Host-based Emulation Testing
+### Run Host-Based Twister Emulation Tests
 To run host-based emulation tests using Zephyr's Twister inside the container:
 
 1. Navigate to the EC platform directory:
@@ -142,55 +153,7 @@ To run host-based emulation tests using Zephyr's Twister inside the container:
    python3 ./twister -ivc -s hibernate_z5.default
    ```
 
-#### 2. Real Device Testing on Dagwood (using Helper Script)
-To run tests against a Dagwood board and EC Add-in-card (AIC) connected to the
-host, you can use the `run_dagwood_tests.py` helper script. It automatically
-handles device forwarding and configures twister with the required parameters
-(toolchain, flash command, etc.).
-
-Test results are available on your host filesystem at
-`workspace/src/platform/ec/twister-out/`.
-
-##### Realtek (RTS5912) Example
-For Realtek boards, the container automatically builds and pre-installs the
-`rtkupdate` utility and the `rts5915_flash_upload.bin` monitor binary on
-startup.
-
-To run all EC-AIC tests on `realtek/rts5912`:
-```bash
-./run_dagwood_tests.py -p realtek/rts5912
-```
-
-##### Nuvoton (NPCX9) Example
-For Nuvoton boards, the container automatically builds and pre-installs the
-`uartupdatetool` utility and the `npcx_monitor.bin` monitor binary on
-startup.
-
-To run all EC-AIC tests on `npcx9/npcx9m7f`:
-```bash
-./run_dagwood_tests.py -p npcx9/npcx9m7f
-```
-
-##### Customizing the Run
-You can override the defaults using the script options:
-
-*   **Specify one or more test directories**:
-    ```bash
-    ./run_dagwood_tests.py -p realtek/rts5912 -T zephyr/test/ec-aic -T zephyr/test/another-test
-    ```
-*   **Run one or more specific test scenarios**:
-    ```bash
-    ./run_dagwood_tests.py -p realtek/rts5912 -s aic.i2c -s another.scenario
-    ```
-*   **Specify a different serial port**:
-    ```bash
-    ./run_dagwood_tests.py -p realtek/rts5912 -d /dev/ttyACM0
-    ```
-
-For help on options:
-```bash
-./run_dagwood_tests.py -h
-```
+*(For running on-device tests on a Dagwood fixture, see [`DAGWOOD.md`](./DAGWOOD.md).)*
 
 ### Direct Command Execution (Without Entering Container)
 You can trigger builds or run tests directly from your host machine:
@@ -209,25 +172,6 @@ docker run --rm \
   ec-builder bash -c "cd /workspace/src/platform/ec && python3 ./twister -ivc -s hibernate_z5.default"
 ```
 
-### Building and Flashing Dagwood Firmware (OpenOCD & ST-Link)
-The container includes `openocd` and the `hal_stm32` Zephyr module to build
-and flash the Dagwood fixture MCU firmware directly using an attached ST-Link
-debugger:
-
-1. **Inside the container**:
-   ```bash
-   cd /workspace/src/platform/dagwood
-   # Build and flash via OpenOCD & ST-Link:
-   ./build_from_chroot.py -f
-   # Or flash existing build without rebuilding:
-   ./build_from_chroot.py --flash-only
-   ```
-
-2. **Direct from host via `run_docker.sh`**:
-   ```bash
-   ./run_docker.sh bash -c "cd /workspace/src/platform/dagwood && ./build_from_chroot.py -f"
-   ```
-
 ---
 
 ## Local Development vs. CI
@@ -242,167 +186,5 @@ checkouts and local edits untouched for fast, offline startup.
 CI workflows can download a prebuilt Docker image independently of the host
 SDK checkout and always pass `--update`. On initial run, this populates the
 workspace checkouts from the image cache and then fetches the latest upstream
-changes before running builds or tests.
-
----
-
-## Deploying to Satlab
-
-When changes are made to the `ec-builder` Dockerfile or dependencies locally,
-use the following procedure to package and deploy the updated image to a Satlab
-test station.
-
-> **Note**: In the commands below, replace `mysatlab` with the real Satlab
-> hostname found in the **`ec-dagwood`** swarming pool (e.g. from the ChromeOS
-> Swarming bot list for `pool:ec-dagwood` or UFS inventory).
-
-### Architecture Overview
-
-When connecting via SSH (`ssh mysatlab`), the session logs in as user `moblab`
-inside an isolated `remote-access` container. The host's Docker daemon socket
-(`/var/run/docker.sock`) is mounted directly inside the container with
-read/write permissions (0666). This allows the standard Linux `docker` CLI
-inside the session to interact directly with the host's Docker daemon without
-requiring root SSH access to the base host OS.
-
-### Automated Deployment Helper (Recommended)
-
-Use `deploy_satlab.py` to package, transfer, load, and configure persistence
-automatically:
-
-```bash
-# Deploy local image to remote Satlab station:
-./deploy_satlab.py mysatlab
-
-# Or pull the released image directly from Artifact Registry on Satlab:
-./deploy_satlab.py --pull mysatlab
-```
-
----
-
-### Manual Deployment Procedure
-
-#### 1. Save and Compress the Image Locally
-From your local workstation:
-```bash
-docker save ec-builder:latest | gzip > /tmp/ec-builder_image.tar.gz
-```
-
-#### 2. Transfer to Satlab
-Copy the tarball to Satlab's `/tmp`:
-```bash
-scp /tmp/ec-builder_image.tar.gz mysatlab:/tmp/ec-builder_image.tar.gz
-```
-
-#### 3. Load Image into Docker on Satlab
-Load the image into the Docker daemon:
-```bash
-ssh mysatlab 'PATH=/usr/local/bin:$PATH docker load -i /tmp/ec-builder_image.tar.gz'
-```
-
-#### 4. Configure Reboot Persistence (Critical)
-
-> **Why this step is required**:
-> On Satlab boot, the startup script (`/compose_startup.sh`) executes:
-> ```bash
-> docker system prune --filter "label!=skip.while.pruning.docker.system=yes" -f
-> docker image prune -a -f
-> ```
-> `docker image prune -a -f` deletes **all unused images** (any image without an
-> associated running or stopped container). Because `ec-builder` is typically
-> run interactively with `--rm`, no container exists on reboot, causing the
-> image to be deleted during boot up.
-
-To protect `ec-builder` from being pruned across reboots, create a permanent
-sentinel container bearing Satlab's prune-exemption label:
-
-```bash
-ssh mysatlab '
-export PATH=/usr/local/bin:$PATH
-docker rm -f ec-builder-keepalive 2>/dev/null || true
-docker create \
-  --name ec-builder-keepalive \
-  --label "skip.while.pruning.docker.system=yes" \
-  ec-builder:latest
-'
-```
-
-#### 5. Verify the New Image and Sentinel Container
-```bash
-ssh mysatlab '
-export PATH=/usr/local/bin:$PATH
-docker images | grep ec-builder
-docker ps -a --filter "name=ec-builder-keepalive"
-'
-```
-
----
-
-### Automated CI Publishing and Distribution (Artifact Registry & Watchtower)
-
-For fleet-wide deployment across Satlab bots without manual `docker load` steps:
-
-1. **Publish to Google Artifact Registry**:
-   Use `publish_image.py` (or CI CloudBuild/Kokoro) to build and push to the
-   partner Satlab registry:
-   ```bash
-   ./publish_image.py --build
-   # Pushes to:
-   #   us-docker.pkg.dev/chromeos-partner-moblab/satlab/ec-builder:release
-   ```
-
-2. **Satlab Auto-Updates via Watchtower**:
-   On Satlab, Watchtower periodically scans registered containers for image
-   updates from Artifact Registry (`WATCHTOWER_POLL_INTERVAL=3600`).
-   Once `ec-builder` is launched from the remote registry:
-   ```bash
-   REGISTRY_IMG="us-docker.pkg.dev/chromeos-partner-moblab/satlab/ec-builder:release"
-   docker pull "${REGISTRY_IMG}"
-   docker tag "${REGISTRY_IMG}" ec-builder:latest
-   docker create \
-     --name ec-builder-keepalive \
-     --label "skip.while.pruning.docker.system=yes" \
-     "${REGISTRY_IMG}"
-   ```
-   Watchtower will automatically detect new releases pushed to the registry,
-   download the updated layer blobs, and keep the image up to date.
-
----
-
-### Running Tests on Satlab
-
-Once the image is deployed, connect to the Satlab unit and launch the container
-with `--privileged` access to interact with the Dagwood hardware:
-
-1. **Connect to Satlab**:
-   ```bash
-   ssh mysatlab
-   ```
-
-2. **Launch `ec-builder`**: Include docker run options to include a bindmount
-to the satlab stateful partition and the options needed to access the Dagwood
-TTY and USB endpoints. Because the `remote-access` SSH container does not
-expose `/dev/ttyACM*` in its own `/dev`, query `/sys/class/tty/ttyACM*` to
-dynamically bind-mount only the `/dev/ttyACM` devices currently present on the
-Satlab host:
-   ```bash
-   docker run -it --rm \
-     --privileged \
-     -v /usr/local/ec-workspace:/workspace \
-     -v /dev/bus/usb:/dev/bus/usb \
-     $(for d in /sys/class/tty/ttyACM*; do [ -e "$d" ] && echo "-v /dev/${d##*/}:/dev/${d##*/}"; done) \
-     ec-builder:latest \
-     --update \
-     bash
-   ```
-
-3. **Verify endpoints and execute tests**: Inside the running container:
-   ```bash
-   # Verify Dagwood TTY nodes are present
-   ls -la /dev/ttyACM*
-
-   # Run all the Dagwood tests on the connected EC (e.g. ITE or Realtek)
-   cd /workspace/src/platform/ec
-   ./dagwood -p it8xxx2/it82002aw
-   # or: ./dagwood -p realtek/rts5912
-   ```
+changes before running builds or tests. See [`SATLAB.md`](./SATLAB.md) for
+deploying and running `ec-builder` on Satlab bots.
