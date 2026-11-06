@@ -14,6 +14,8 @@
 #include "util.h"
 #include "watchdog.h"
 
+#include <zephyr/shell/shell.h>
+
 #ifndef CONFIG_CROS_EC_RO
 
 /**
@@ -140,13 +142,15 @@ DECLARE_DEFERRED(run_chargen);
  *
  * Hitting 'x' on the keyboard stops the generator.
  */
-static int command_chargen(int argc, const char **argv)
+static int command_chargen(const struct shell *sh, size_t argc, char **argv)
 {
 	int wrap_value = 0;
 	uint32_t seq_number = 0;
 
 	int (*putc_)(int c) = uart_putc;
 	int (*tx_is_blocked_)(void) = uart_buffer_full;
+
+	ARG_UNUSED(sh);
 
 	if (argc > 1)
 		wrap_value = atoi(argv[1]);
@@ -157,7 +161,7 @@ static int command_chargen(int argc, const char **argv)
 #if defined(CONFIG_USB_CONSOLE) || defined(CONFIG_USB_CONSOLE_STREAM)
 	if (argc > 3) {
 		if (memcmp(argv[3], "usb", 3))
-			return EC_ERROR_PARAM3;
+			return -EINVAL;
 
 		putc_ = usb_putc;
 		tx_is_blocked_ = usb_console_tx_blocked;
@@ -171,13 +175,22 @@ static int command_chargen(int argc, const char **argv)
 
 	return hook_call_deferred(&run_chargen_data, 0);
 }
-DECLARE_SAFE_CONSOLE_COMMAND(chargen, command_chargen,
+SHELL_CMD_ARG_REGISTER(
+	chargen, NULL,
+	SHELL_HELP("Generate a constant stream of characters on the UART "
+		   "console,\nrepeating every 'seq_length' characters, up to "
+		   "'num_chars' total.",
 #if defined(CONFIG_USB_CONSOLE) || defined(CONFIG_USB_CONSOLE_STREAM)
-			     "[seq_length [num_chars [usb]]]",
+		   "[seq_length [num_chars [usb]]]"
 #else
-			     "[seq_length [num_chars]]",
+		   "[seq_length [num_chars]]"
 #endif
-			     "Generate a constant stream of characters on the "
-			     "UART console,\nrepeating every 'seq_length' "
-			     "characters, up to 'num_chars' total.");
+		   ),
+	command_chargen, 1,
+#if defined(CONFIG_USB_CONSOLE) || defined(CONFIG_USB_CONSOLE_STREAM)
+	3
+#else
+	2
+#endif
+);
 #endif /* !CONFIG_CROS_EC_RO */
