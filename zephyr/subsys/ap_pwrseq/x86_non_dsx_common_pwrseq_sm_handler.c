@@ -7,9 +7,9 @@
 #include "common.h"
 #include "system_boot_time.h"
 #include "task_id.h"
-#include "zephyr_console_shim.h"
 
 #include <zephyr/init.h>
+#include <zephyr/shell/shell.h>
 #include <zephyr/sys/atomic.h>
 #ifndef CONFIG_AP_PWRSEQ_DRIVER
 #include <x86_non_dsx_common_pwrseq_sm_handler.h>
@@ -17,7 +17,6 @@
 #include "ap_power/ap_pwrseq.h"
 #include "ap_power/ap_pwrseq_sm.h"
 #include "x86_non_dsx_common_pwrseq_sm_handler.h"
-#include "zephyr_console_shim.h"
 #endif
 
 /* Delay in ms when starting from G3 */
@@ -1011,22 +1010,41 @@ AP_POWER_ARCH_STATE_DEFINE(S0, x86_non_dsx_s0_entry, x86_non_dsx_s0_run,
  * during this time EC may lose Sx lines, Adding this console
  * command to avoid force shutdown.
  */
-static int disable_force_shutdown(int argc, const char **argv)
+static int disable_force_shutdown(const struct shell *sh, size_t argc,
+				  char **argv)
 {
-	if (argc > 1) {
-		if (!strcmp(argv[1], "enable")) {
-			in_debug_mode = true;
-		} else if (!strcmp(argv[1], "disable")) {
-			in_debug_mode = false;
-		} else {
-			return EC_ERROR_PARAM1;
-		}
-	}
-	LOG_INF("debug_mode = %s", (in_debug_mode ? "enabled" : "disabled"));
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
 
-	return EC_SUCCESS;
+	shell_print(sh, "debug_mode = %s",
+		    (in_debug_mode ? "enabled" : "disabled"));
+
+	return 0;
 }
 
-DECLARE_CONSOLE_COMMAND(debug_mode, disable_force_shutdown, "[enable|disable]",
-			"Prevents force shutdown if enabled");
+static int cmd_debug_mode_enable(const struct shell *sh, size_t argc,
+				 char **argv)
+{
+	in_debug_mode = true;
+	return disable_force_shutdown(sh, argc, argv);
+}
+
+static int cmd_debug_mode_disable(const struct shell *sh, size_t argc,
+				  char **argv)
+{
+	in_debug_mode = false;
+	return disable_force_shutdown(sh, argc, argv);
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(sub_debug_mode_cmds,
+			       SHELL_CMD_ARG(enable, NULL, "Enable debug mode",
+					     cmd_debug_mode_enable, 1, 0),
+			       SHELL_CMD_ARG(disable, NULL,
+					     "Disable debug mode",
+					     cmd_debug_mode_disable, 1, 0),
+			       SHELL_SUBCMD_SET_END);
+
+SHELL_CMD_ARG_REGISTER(debug_mode, &sub_debug_mode_cmds,
+		       "Prevents force shutdown if enabled",
+		       disable_force_shutdown, 1, 0);
 #endif /* CONFIG_AP_PWRSEQ_DEBUG_MODE_COMMAND */
