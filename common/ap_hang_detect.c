@@ -17,6 +17,8 @@
 
 #include <stdbool.h>
 
+#include <zephyr/shell/shell.h>
+
 /* Console output macro */
 #define CPRINTS(format, args...) cprints(CC_CHIPSET, "APHD: " format, ##args)
 
@@ -260,12 +262,15 @@ EC_HOST_CMD_HANDLER(EC_CMD_HANG_DETECT, hang_detect_host_command,
 /*****************************************************************************/
 /* Console command */
 
-static int command_hang_detect(int argc, const char **argv)
+static int command_hang_detect(const struct shell *sh, size_t argc, char **argv)
 {
-	ccprintf("reboot timeout: %d(s)\n", reboot_timeout_sec);
-	ccprintf("bootstatus: %02x\n", bootstatus);
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
 
-	return EC_SUCCESS;
+	shell_print(sh, "reboot timeout: %d(s)", reboot_timeout_sec);
+	shell_print(sh, "bootstatus: %02x", bootstatus);
+
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(hangdet, command_hang_detect, NULL,
-			"Print hang detect state");
+SHELL_CMD_ARG_REGISTER(hangdet, NULL, "Print hang detect state",
+		       command_hang_detect, 1, 0);
