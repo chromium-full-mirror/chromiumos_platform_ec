@@ -14,26 +14,25 @@ ZTEST_SUITE(console_cmd_rw, drivers_predicate_post_main, NULL, NULL, NULL,
 
 ZTEST_USER(console_cmd_rw, test_too_few_args)
 {
-	zassert_equal(EC_ERROR_PARAM_COUNT,
-		      shell_execute_cmd(get_ec_shell(), "rw"), NULL);
+	zassert_equal(-EINVAL, shell_execute_cmd(get_ec_shell(), "rw"), NULL);
 }
 
 ZTEST_USER(console_cmd_rw, test_error_param1)
 {
-	zassert_equal(EC_ERROR_PARAM1,
-		      shell_execute_cmd(get_ec_shell(), "rw .j"), NULL);
+	zassert_equal(-EINVAL, shell_execute_cmd(get_ec_shell(), "rw .j"),
+		      NULL);
 
-	zassert_equal(EC_ERROR_PARAM1,
+	zassert_equal(-EINVAL,
 		      shell_execute_cmd(get_ec_shell(), "rw .j not_an_address"),
 		      NULL);
 }
 
 ZTEST_USER(console_cmd_rw, test_error_bad_address)
 {
-	zassert_equal(EC_ERROR_PARAM1,
+	zassert_equal(-EINVAL,
 		      shell_execute_cmd(get_ec_shell(), "rw not_an_address"),
 		      NULL);
-	zassert_equal(EC_ERROR_PARAM2,
+	zassert_equal(-EINVAL,
 		      shell_execute_cmd(get_ec_shell(), "rw .b not_an_address"),
 		      NULL);
 }
@@ -58,10 +57,10 @@ ZTEST_USER(console_cmd_rw, test_read)
 
 ZTEST_USER(console_cmd_rw, test_write_invalid_value)
 {
-	zassert_equal(EC_ERROR_PARAM2,
+	zassert_equal(-EINVAL,
 		      shell_execute_cmd(get_ec_shell(), "rw 0 not-a-value"),
 		      NULL);
-	zassert_equal(EC_ERROR_PARAM3,
+	zassert_equal(-EINVAL,
 		      shell_execute_cmd(get_ec_shell(), "rw .b 0 not-a-value"),
 		      NULL);
 }

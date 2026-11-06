@@ -41,7 +41,9 @@ ZTEST(restricted_console, test_command_mem_dump)
 
 	is_locked = 1;
 	rv = shell_execute_cmd(get_ec_shell(), console_input);
-	zassert_equal(rv, EC_ERROR_ACCESS_DENIED);
+	zassert_equal(rv, -EACCES);
+
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "shmem"));
 }
 
 ZTEST(restricted_console, test_command_read_write_word)
@@ -68,6 +70,6 @@ ZTEST(restricted_console, test_command_read_write_word)
 	/* Reset valid word */
 	valid_word = old_value;
 	rv = shell_execute_cmd(get_ec_shell(), console_input);
-	zassert_equal(rv, EC_ERROR_ACCESS_DENIED);
+	zassert_equal(rv, -EACCES);
 	zassert_equal(old_value, valid_word);
 }

@@ -47,7 +47,7 @@ void shared_mem_release(void *ptr)
 }
 
 #ifdef CONFIG_CMD_SHMEM
-static int command_shmem(int argc, const char **argv)
+static int command_shmem(const struct shell *sh, size_t argc, const char **argv)
 {
 	/* This function is deprecated in glibc, in preference for mallinfo2,
 	 * since mallinfo2 provides information as a series of `size_t`s instead
@@ -61,15 +61,14 @@ static int command_shmem(int argc, const char **argv)
 	ENABLE_COMPILER_WARNING("-Wdeprecated-declarations")
 
 	/* The max size of shared mem region, for a given image. */
-	ccprintf("System Total:     %d\n", shared_mem_size());
+	shell_print(sh, "System Total:     %d", shared_mem_size());
 	/* The total size currently reserved from system for malloc. */
-	ccprintf("Malloc Reserved:  %d\n", info.arena);
+	shell_print(sh, "Malloc Reserved:  %d", info.arena);
 	/* The total allocated space, of the reserved space. */
-	ccprintf("Malloc Allocated: %d\n", info.uordblks);
+	shell_print(sh, "Malloc Allocated: %d", info.uordblks);
 	/* The total unused space, of the reserved space. */
-	ccprintf("Malloc Free:      %d\n", info.fordblks + info.fsmblks);
-	return EC_SUCCESS;
+	shell_print(sh, "Malloc Free:      %d", info.fordblks + info.fsmblks);
+	return 0;
 }
-DECLARE_SAFE_CONSOLE_COMMAND(shmem, command_shmem, NULL,
-			     "Print shared memory stats");
+SHELL_CMD_REGISTER(shmem, NULL, "Print shared memory stats", command_shmem);
 #endif /* CONFIG_CMD_SHMEM */

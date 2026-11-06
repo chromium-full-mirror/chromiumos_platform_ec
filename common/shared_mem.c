@@ -67,13 +67,12 @@ void shared_mem_release(void *ptr)
 }
 
 #ifdef CONFIG_CMD_SHMEM
-static int command_shmem(int argc, const char **argv)
+static int command_shmem(const struct shell *sh, size_t argc, const char **argv)
 {
-	ccprintf("Size:%6d\n", shared_mem_size());
-	ccprintf("Used:%6d\n", buf_in_use);
-	ccprintf("Max: %6d\n", max_used);
-	return EC_SUCCESS;
+	shell_print(sh, "Size:%6d", shared_mem_size());
+	shell_print(sh, "Used:%6d", buf_in_use);
+	shell_print(sh, "Max: %6d", max_used);
+	return 0;
 }
-DECLARE_SAFE_CONSOLE_COMMAND(shmem, command_shmem, NULL,
-			     "Print shared memory stats");
+SHELL_CMD_REGISTER(shmem, NULL, "Print shared memory stats", command_shmem);
 #endif
