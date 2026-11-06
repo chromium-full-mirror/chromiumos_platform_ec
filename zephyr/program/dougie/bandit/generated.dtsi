@@ -144,7 +144,7 @@
 		gpio_spi_ap_ec_sck: spi_ap_ec_sck {
 			gpios = <&gpiom 4 (GPIO_INPUT | GPIO_VOLTAGE_1P8)>;
 		};
-		gpio_sys_in_suspend_l: sys_in_suspend_l {
+		gpio_sys_in_suspend: sys_in_suspend {
 			gpios = <&gpiof 1 (GPIO_INPUT | GPIO_VOLTAGE_1P8)>;
 			enum-name = "GPIO_AP_SUSPEND";
 		};
@@ -415,7 +415,7 @@
 &gpiof {
 	gpio-line-names =
 		"ec_l18b_pwr_detect",
-		"sys_in_suspend_l",
+		"sys_in_suspend",
 		"ec_s1b_pwr_detect",
 		"",
 		"",
