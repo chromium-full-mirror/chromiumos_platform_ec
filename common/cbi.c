@@ -19,6 +19,8 @@
 #include "i2c.h"
 #include "timer.h"
 #include "util.h"
+
+#include <zephyr/shell/shell.h>
 #endif
 
 #define CBI_END(h) ((const uint8_t *)(h) + (h)->total_size)
@@ -573,43 +575,45 @@ EC_HOST_CMD_HANDLER_REQ_ONLY(EC_CMD_CBI_BIN_WRITE, hc_cbi_bin_write,
 			     EC_VER_MASK(0), struct ec_params_set_cbi_bin);
 
 #ifdef CONFIG_CMD_CBI
-static void print_tag(const char *const tag, int rv, const uint32_t *val)
+static void print_tag(const struct shell *sh, const char *const tag, int rv,
+		      const uint32_t *val)
 {
-	ccprintf("%s", tag);
+	shell_fprintf(sh, SHELL_NORMAL, "%s", tag);
 	if (rv == EC_SUCCESS && val)
-		ccprintf(": %u (0x%x)\n", *val, *val);
+		shell_print(sh, ": %u (0x%x)", *val, *val);
 	else
-		ccprintf(": (Error %d)\n", rv);
+		shell_print(sh, ": (Error %d)", rv);
 }
 
-static void print_uint64_tag(const char *const tag, int rv,
-			     const uint64_t *lval)
+static void print_uint64_tag(const struct shell *sh, const char *const tag,
+			     int rv, const uint64_t *lval)
 {
-	ccprintf("%s", tag);
+	shell_fprintf(sh, SHELL_NORMAL, "%s", tag);
 	if (rv == EC_SUCCESS && lval)
-		ccprintf(": %llu (0x%llx)\n", *(unsigned long long *)lval,
-			 *(unsigned long long *)lval);
+		shell_print(sh, ": %llu (0x%llx)", *(unsigned long long *)lval,
+			    *(unsigned long long *)lval);
 	else
-		ccprintf(": (Error %d)\n", rv);
+		shell_print(sh, ": (Error %d)", rv);
 }
 
-static void print_ufsc(const char *const tag, int rv,
+static void print_ufsc(const struct shell *sh, const char *const tag, int rv,
 		       const struct cbi_ufsc *ufsc)
 {
 	int i;
 
-	ccprintf("%s", tag);
+	shell_fprintf(sh, SHELL_NORMAL, "%s", tag);
 	if (rv == EC_SUCCESS && ufsc) {
-		ccprintf(": ");
+		shell_fprintf(sh, SHELL_NORMAL, ": ");
 		for (i = 0; i < sizeof(*ufsc); i++)
-			ccprintf("%02x", ((uint8_t *)ufsc)[i]);
-		ccprintf("\n");
+			shell_fprintf(sh, SHELL_NORMAL, "%02x",
+				      ((uint8_t *)ufsc)[i]);
+		shell_fprintf(sh, SHELL_NORMAL, "\n");
 	} else {
-		ccprintf(": (Error %d)\n", rv);
+		shell_print(sh, ": (Error %d)", rv);
 	}
 }
 
-static void dump_cbi(void)
+static void dump_cbi(const struct shell *sh)
 {
 	uint32_t val;
 	uint64_t lval;
@@ -620,23 +624,23 @@ static void dump_cbi(void)
 	cbi_read();
 
 	if (cbi_get_cache_status() != CBI_CACHE_STATUS_SYNCED) {
-		ccprintf("Cannot Read CBI (Error %d)\n",
-			 cbi_get_cache_status());
+		shell_print(sh, "Cannot Read CBI (Error %d)",
+			    cbi_get_cache_status());
 		return;
 	}
 
-	ccprintf("CBI_VERSION: 0x%04x\n", head->version);
-	ccprintf("TOTAL_SIZE: %u\n", head->total_size);
+	shell_print(sh, "CBI_VERSION: 0x%04x", head->version);
+	shell_print(sh, "TOTAL_SIZE: %u", head->total_size);
 
-	print_tag("BOARD_VERSION", cbi_get_board_version(&val), &val);
-	print_tag("OEM_ID", cbi_get_oem_id(&val), &val);
-	print_tag("MODEL_ID", cbi_get_model_id(&val), &val);
-	print_tag("SKU_ID", cbi_get_sku_id(&val), &val);
-	print_tag("FW_CONFIG", cbi_get_fw_config(&val), &val);
-	print_tag("PCB_SUPPLIER", cbi_get_pcb_supplier(&val), &val);
-	print_tag("SSFC", cbi_get_ssfc(&val), &val);
-	print_uint64_tag("REWORK_ID", cbi_get_rework_id(&lval), &lval);
-	print_ufsc("UFSC", cbi_get_ufsc(&ufsc), &ufsc);
+	print_tag(sh, "BOARD_VERSION", cbi_get_board_version(&val), &val);
+	print_tag(sh, "OEM_ID", cbi_get_oem_id(&val), &val);
+	print_tag(sh, "MODEL_ID", cbi_get_model_id(&val), &val);
+	print_tag(sh, "SKU_ID", cbi_get_sku_id(&val), &val);
+	print_tag(sh, "FW_CONFIG", cbi_get_fw_config(&val), &val);
+	print_tag(sh, "PCB_SUPPLIER", cbi_get_pcb_supplier(&val), &val);
+	print_tag(sh, "SSFC", cbi_get_ssfc(&val), &val);
+	print_uint64_tag(sh, "REWORK_ID", cbi_get_rework_id(&lval), &lval);
+	print_ufsc(sh, "UFSC", cbi_get_ufsc(&ufsc), &ufsc);
 }
 
 /*
@@ -646,156 +650,158 @@ static void dump_cbi(void)
 static uint8_t
 	buf[sizeof(struct ec_params_set_cbi) + CONFIG_CONSOLE_INPUT_LINE_SIZE];
 
-static int cc_cbi(int argc, const char **argv)
+static int
+cbi_parse_options_and_set(const struct shell *sh, size_t argc, char **argv,
+			  int last_arg,
+			  struct __ec_align4 ec_params_set_cbi *setter)
 {
-	struct __ec_align4 ec_params_set_cbi *setter =
-		(struct __ec_align4 ec_params_set_cbi *)buf;
-	int last_arg;
-	char *e;
-
-	if (argc == 1) {
-		dump_cbi();
-		if (cbi_get_cache_status() == CBI_CACHE_STATUS_SYNCED)
-			hexdump(cbi, CBI_IMAGE_SIZE);
-		return EC_SUCCESS;
-	}
-
-	if (strcasecmp(argv[1], "set") == 0) {
-		if (argc < 3) {
-			ccprintf("Set requires: <tag> \n");
-			return EC_ERROR_PARAM_COUNT;
-		}
-
-		setter->tag = strtoi(argv[2], &e, 0);
-		if (*e)
-			return EC_ERROR_PARAM2;
-
-		if (setter->tag == CBI_TAG_UFSC) {
-			if (argc < 4) {
-				ccprintf("Set requires: <tag> <hex_string>\n");
-				return EC_ERROR_PARAM_COUNT;
-			}
-		} else if (setter->tag == CBI_TAG_DRAM_PART_NUM ||
-			   setter->tag == CBI_TAG_OEM_NAME) {
-			if (argc < 4) {
-				ccprintf("Set requires: <tag> <string>\n");
-				return EC_ERROR_PARAM_COUNT;
-			}
-		} else {
-			if (argc < 5) {
-				ccprintf(
-					"Set requires: <tag> <value> <size>\n");
-				return EC_ERROR_PARAM_COUNT;
-			}
-		}
-
-		if (setter->tag == CBI_TAG_DRAM_PART_NUM ||
-		    setter->tag == CBI_TAG_OEM_NAME) {
-			setter->size = strlen(argv[3]) + 1;
-			if (setter->size > CONFIG_CONSOLE_INPUT_LINE_SIZE) {
-				ccprintf("String too long\n");
-				return EC_ERROR_PARAM3;
-			}
-			memcpy(setter->data, argv[3], setter->size);
-
-			last_arg = 4;
-
-		} else if (setter->tag == CBI_TAG_UFSC) {
-			const char *val_str = argv[3];
-			int len = strlen(val_str);
-
-			if (len % 2 != 0) {
-				ccprintf("Hex length must be even\n");
-				return EC_ERROR_PARAM3;
-			}
-
-			setter->size = len / 2;
-
-			if (setter->size != sizeof(struct cbi_ufsc)) {
-				ccprintf("Data is not equal to ufsc\n");
-				return EC_ERROR_PARAM3;
-			}
-
-			for (int i = 0; i < setter->size; i++) {
-				char tmp[3] = { val_str[i * 2],
-						val_str[i * 2 + 1], '\0' };
-				char *err;
-				setter->data[i] =
-					(uint8_t)strtoi(tmp, &err, 16);
-				if (*err) {
-					ccprintf("Invalid hex: %s\n", tmp);
-					return EC_ERROR_PARAM3;
-				}
-			}
-
-			last_arg = 4;
-
-		} else {
-			uint64_t val = strtoull(argv[3], &e, 0);
-			if (*e)
-				return EC_ERROR_PARAM3;
-
-			setter->size = strtoi(argv[4], &e, 0);
-			if (*e)
-				return EC_ERROR_PARAM4;
-
-			if (setter->size < 1) {
-				ccprintf("Set size too small\n");
-				return EC_ERROR_PARAM4;
-			} else if ((setter->size > 8) ||
-				   (setter->size > 4 &&
-				    setter->tag != CBI_TAG_REWORK_ID)) {
-				ccprintf("Set size too large\n");
-				return EC_ERROR_PARAM4;
-			}
-
-			memcpy(setter->data, &val, setter->size);
-			last_arg = 5;
-		}
-
-	} else if (strcasecmp(argv[1], "remove") == 0) {
-		if (argc < 3) {
-			ccprintf("Remove requires: <tag>\n");
-			return EC_ERROR_PARAM_COUNT;
-		}
-		setter->tag = strtoi(argv[2], &e, 0);
-		if (*e)
-			return EC_ERROR_PARAM2;
-		setter->size = 0;
-		last_arg = 3;
-	} else {
-		return EC_ERROR_PARAM1;
-	}
-
 	setter->flag = 0;
-	if (argc > last_arg) {
-		int i;
-		for (i = last_arg; i < argc; i++) {
+	if ((int)argc > last_arg) {
+		for (int i = last_arg; i < (int)argc; i++) {
 			if (strcasecmp(argv[i], "init") == 0) {
 				setter->flag |= CBI_SET_INIT;
 			} else {
-				ccprintf("Invalid option: %s\n", argv[i]);
-				return EC_ERROR_PARAM1 + i - 1;
+				shell_print(sh, "Invalid option: %s", argv[i]);
+				return -EINVAL;
 			}
 		}
 	}
 
 	switch (common_cbi_set(setter)) {
 	case EC_RES_SUCCESS:
-		return EC_SUCCESS;
+		return 0;
 	case EC_RES_INVALID_PARAM:
-		return EC_ERROR_INVAL;
+		return -EINVAL;
 	case EC_RES_ACCESS_DENIED:
-		return EC_ERROR_ACCESS_DENIED;
+		return -EACCES;
 	default:
-		return EC_ERROR_UNKNOWN;
+		return -EIO;
 	}
 }
 
-DECLARE_CONSOLE_COMMAND(cbi, cc_cbi,
-			"[set <tag> <value> <size> | "
-			"remove <tag>] [init]",
-			"Print or change Cros Board Info from flash");
+static int cmd_cbi_set(const struct shell *sh, size_t argc, char **argv)
+{
+	struct __ec_align4 ec_params_set_cbi *setter =
+		(struct __ec_align4 ec_params_set_cbi *)buf;
+	int last_arg;
+	char *e;
+
+	setter->tag = strtoi(argv[1], &e, 0);
+	if (*e)
+		return -EINVAL;
+
+	if (setter->tag == CBI_TAG_DRAM_PART_NUM ||
+	    setter->tag == CBI_TAG_OEM_NAME) {
+		setter->size = strlen(argv[2]) + 1;
+		if (setter->size > CONFIG_CONSOLE_INPUT_LINE_SIZE) {
+			shell_print(sh, "String too long");
+			return -EINVAL;
+		}
+		memcpy(setter->data, argv[2], setter->size);
+
+		last_arg = 3;
+	} else if (setter->tag == CBI_TAG_UFSC) {
+		const char *val_str = argv[2];
+		int len = strlen(val_str);
+
+		if (len % 2 != 0) {
+			shell_print(sh, "Hex length must be even");
+			return -EINVAL;
+		}
+
+		setter->size = len / 2;
+
+		if (setter->size != sizeof(struct cbi_ufsc)) {
+			shell_print(sh, "Data is not equal to ufsc");
+			return -EINVAL;
+		}
+
+		for (int i = 0; i < setter->size; i++) {
+			char tmp[3] = { val_str[i * 2], val_str[i * 2 + 1],
+					'\0' };
+			char *err;
+			setter->data[i] = (uint8_t)strtoi(tmp, &err, 16);
+			if (*err) {
+				shell_print(sh, "Invalid hex: %s", tmp);
+				return -EINVAL;
+			}
+		}
+
+		last_arg = 3;
+	} else {
+		uint64_t val;
+
+		if (argc < 4) {
+			shell_print(sh, "Set requires: <tag> <value> <size>");
+			return -EINVAL;
+		}
+
+		val = strtoull(argv[2], &e, 0);
+		if (*e)
+			return -EINVAL;
+
+		setter->size = strtoi(argv[3], &e, 0);
+		if (*e)
+			return -EINVAL;
+
+		if (setter->size < 1) {
+			shell_print(sh, "Set size too small");
+			return -EINVAL;
+		} else if ((setter->size > 8) ||
+			   (setter->size > 4 &&
+			    setter->tag != CBI_TAG_REWORK_ID)) {
+			shell_print(sh, "Set size too large");
+			return -EINVAL;
+		}
+
+		memcpy(setter->data, &val, setter->size);
+		last_arg = 4;
+	}
+
+	return cbi_parse_options_and_set(sh, argc, argv, last_arg, setter);
+}
+
+static int cmd_cbi_remove(const struct shell *sh, size_t argc, char **argv)
+{
+	struct __ec_align4 ec_params_set_cbi *setter =
+		(struct __ec_align4 ec_params_set_cbi *)buf;
+	char *e;
+
+	setter->tag = strtoi(argv[1], &e, 0);
+	if (*e)
+		return -EINVAL;
+	setter->size = 0;
+
+	return cbi_parse_options_and_set(sh, argc, argv, 2, setter);
+}
+
+static int cc_cbi(const struct shell *sh, size_t argc, char **argv)
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	dump_cbi(sh);
+	if (cbi_get_cache_status() == CBI_CACHE_STATUS_SYNCED)
+		hexdump(cbi, CBI_IMAGE_SIZE);
+	return 0;
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(
+	sub_cbi_cmds,
+	SHELL_CMD_ARG(set, NULL,
+		      SHELL_HELP("Set CBI tag",
+				 "<tag> <value> [<size>] [init]"),
+		      cmd_cbi_set, 3, 3),
+	SHELL_CMD_ARG(remove, NULL,
+		      SHELL_HELP("Remove CBI tag", "<tag> [init]"),
+		      cmd_cbi_remove, 2, 1),
+	SHELL_SUBCMD_SET_END);
+
+SHELL_CMD_ARG_REGISTER(
+	cbi, &sub_cbi_cmds,
+	SHELL_HELP("Print or change Cros Board Info from flash",
+		   "[set <tag> <value> <size> | remove <tag>] [init]"),
+	cc_cbi, 1, 0);
 #endif /* CONFIG_CMD_CBI */
 
 int cbi_set_model_id(uint32_t model_id)
@@ -839,7 +845,7 @@ int cbi_set_fw_config(uint32_t fw_config)
 	if (cbi_write())
 		return EC_ERROR_UNKNOWN;
 
-	dump_cbi();
+	dump_cbi(get_ec_shell());
 
 	return EC_SUCCESS;
 }
@@ -862,7 +868,7 @@ int cbi_set_ssfc(uint32_t ssfc)
 	if (cbi_write())
 		return EC_ERROR_UNKNOWN;
 
-	dump_cbi();
+	dump_cbi(get_ec_shell());
 
 	return EC_SUCCESS;
 }

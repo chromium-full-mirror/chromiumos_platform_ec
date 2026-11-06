@@ -62,7 +62,34 @@ ZTEST_USER(console_cmd_cbi, test_set)
 	zassert_not_ok(shell_execute_cmd(get_ec_shell(), "cbi set"), NULL);
 	zassert_not_ok(shell_execute_cmd(get_ec_shell(), "cbi set 10"), NULL);
 	zassert_not_ok(shell_execute_cmd(get_ec_shell(), "cbi set 11 1"), NULL);
+	zassert_not_ok(shell_execute_cmd(get_ec_shell(), "cbi set abc 1 4"),
+		       NULL);
+	zassert_not_ok(shell_execute_cmd(get_ec_shell(), "cbi set 12 abc 4"),
+		       NULL);
+	zassert_not_ok(shell_execute_cmd(get_ec_shell(), "cbi set 12 1 abc"),
+		       NULL);
+	zassert_not_ok(shell_execute_cmd(get_ec_shell(), "cbi set 12 1 0"),
+		       NULL);
 	zassert_ok(shell_execute_cmd(get_ec_shell(), "cbi set 12 1 4"), NULL);
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "cbi set 12 1 4 init"),
+		   NULL);
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "cbi set 3 DRAM_PART"),
+		   NULL);
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "cbi set 9 0x12345678 8"),
+		   NULL);
+	zassert_not_ok(shell_execute_cmd(get_ec_shell(), "cbi set 29 123"),
+		       NULL);
+	zassert_not_ok(shell_execute_cmd(get_ec_shell(), "cbi set 29 1234"),
+		       NULL);
+	zassert_not_ok(shell_execute_cmd(
+			       get_ec_shell(),
+			       "cbi set 29 0102030405060708090a0b0c0d0e0fzz"),
+		       NULL);
+	zassert_ok(shell_execute_cmd(
+			   get_ec_shell(),
+			   "cbi set 29 0102030405060708090a0b0c0d0e0f10"),
+		   NULL);
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "cbi"), NULL);
 	zassert_not_ok(shell_execute_cmd(get_ec_shell(), "cbi set 13 1 4 4"),
 		       NULL);
 	zassert_not_ok(shell_execute_cmd(get_ec_shell(), "cbi set 14 1 10"),
