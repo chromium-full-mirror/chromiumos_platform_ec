@@ -297,21 +297,24 @@ host_command_ap_fw_state(struct ec_host_cmd_handler_args *args)
 EC_HOST_CMD_HANDLER_REQ_ONLY(EC_CMD_AP_FW_STATE, host_command_ap_fw_state,
 			     EC_VER_MASK(0), struct ec_params_ap_fw_state);
 
-static int command_ap_fw_states(int argc, const char **argv)
+static int command_ap_fw_states(const struct shell *sh, size_t argc,
+				char **argv)
 {
 	if (argc > 1 && !strcasecmp(argv[1], "clear")) {
 		last_ap_fw_state = 0;
-		return EC_SUCCESS;
+		return 0;
 	}
 
 	if (last_ap_fw_state != 0) {
-		ccprintf("AP_FW %x\n", last_ap_fw_state);
+		shell_print(sh, "AP_FW %x", last_ap_fw_state);
 	} else {
-		ccprintf("No AP fw state\n");
+		shell_print(sh, "No AP fw state");
 	}
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_SAFE_CONSOLE_COMMAND(apfwscreens, command_ap_fw_states, "[clear]",
-			     "Print/clear last AP FW state");
+SHELL_CMD_ARG_REGISTER(apfwscreens, NULL,
+		       "[clear]\n"
+		       "Print/clear last AP FW state",
+		       command_ap_fw_states, 1, 1);
 
 #endif /* CONFIG_PLATFORM_EC_AP_FW_STATE */

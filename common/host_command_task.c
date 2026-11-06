@@ -638,7 +638,8 @@ static int parse_params(const char *s, uint8_t *params)
 	return len;
 }
 
-static int command_host_command(int argc, const char **argv)
+static int command_host_command(const struct shell *sh, size_t argc,
+				char **argv)
 {
 	struct host_cmd_handler_args args;
 	char *cmd_params;
@@ -648,8 +649,8 @@ static int command_host_command(int argc, const char **argv)
 
 	/* Use shared memory for command params space */
 	if (shared_mem_acquire(EC_PROTO2_MAX_PARAM_SIZE, &cmd_params)) {
-		ccputs("Can't acquire shared memory buffer.\n");
-		return EC_ERROR_UNKNOWN;
+		shell_print(sh, "Can't acquire shared memory buffer.");
+		return -ENOMEM;
 	}
 
 	/* Assume no version or params unless proven otherwise */
@@ -657,22 +658,17 @@ static int command_host_command(int argc, const char **argv)
 	args.params_size = 0;
 	args.params = cmd_params;
 
-	if (argc < 2) {
-		shared_mem_release(cmd_params);
-		return EC_ERROR_PARAM_COUNT;
-	}
-
 	args.command = strtoi(argv[1], &e, 0);
 	if (*e) {
 		shared_mem_release(cmd_params);
-		return EC_ERROR_PARAM1;
+		return -EINVAL;
 	}
 
 	if (argc > 2) {
 		args.version = strtoi(argv[2], &e, 0);
 		if (*e) {
 			shared_mem_release(cmd_params);
-			return EC_ERROR_PARAM2;
+			return -EINVAL;
 		}
 	}
 
@@ -680,7 +676,7 @@ static int command_host_command(int argc, const char **argv)
 		rv = parse_params(argv[3], cmd_params);
 		if (rv < 0) {
 			shared_mem_release(cmd_params);
-			return EC_ERROR_PARAM3;
+			return -EINVAL;
 		}
 		args.params_size = rv;
 	}
@@ -692,28 +688,30 @@ static int command_host_command(int argc, const char **argv)
 	res = host_command_process(&args);
 
 	if (res != EC_RES_SUCCESS)
-		ccprintf("Command returned %d\n", res);
+		shell_print(sh, "Command returned %d", res);
 	else if (args.response_size) {
 		char str_buf[hex_str_buf_size(args.response_size)];
 
 		snprintf_hex_buffer(str_buf, sizeof(str_buf),
 				    HEX_BUF(cmd_params, args.response_size));
-		ccprintf("Response: %s\n", str_buf);
+		shell_print(sh, "Response: %s", str_buf);
 	} else
-		ccprintf("Command succeeded; no response.\n");
+		shell_print(sh, "Command succeeded; no response.");
 
 	shared_mem_release(cmd_params);
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(hostcmd, command_host_command, "cmd ver param",
-			"Fake host command");
+SHELL_CMD_ARG_REGISTER(hostcmd, NULL,
+		       "cmd ver param\n"
+		       "Fake host command",
+		       command_host_command, 2, 2);
 #endif /* CONFIG_CMD_HOSTCMD */
 
 #ifdef CONFIG_CMD_HCDEBUG
-static int command_hcdebug(int argc, const char **argv)
+static int command_hcdebug(const struct shell *sh, size_t argc, char **argv)
 {
 	if (argc >= 3)
-		return EC_ERROR_PARAM_COUNT;
+		return -EINVAL;
 	if (argc > 1) {
 		int i;
 
@@ -724,16 +722,17 @@ static int command_hcdebug(int argc, const char **argv)
 			}
 		}
 		if (i == HCDEBUG_MODES)
-			return EC_ERROR_PARAM1;
+			return -EINVAL;
 	}
 
-	ccprintf("Host command debug mode is %s\n",
-		 hcdebug_mode_names[hcdebug]);
+	shell_print(sh, "Host command debug mode is %s",
+		    hcdebug_mode_names[hcdebug]);
 	dump_host_command_suppressed(1);
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(hcdebug, command_hcdebug,
-			"hcdebug [off | normal | every | params]",
-			"Set host command debug output mode");
+SHELL_CMD_ARG_REGISTER(hcdebug, NULL,
+		       "hcdebug [off | normal | every | params]\n"
+		       "Set host command debug output mode",
+		       command_hcdebug, 1, 1);
 #endif /* CONFIG_CMD_HCDEBUG */

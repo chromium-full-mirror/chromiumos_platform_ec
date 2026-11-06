@@ -69,13 +69,11 @@ ZTEST_USER(console_cmd_hostevent, test_hostevent_invalid)
 
 	/* Test invalid sub-command */
 	rv = console_cmd_hostevent("invalid", mask);
-	zassert_equal(rv, EC_ERROR_PARAM1, "Expected %d, but got %d",
-		      EC_ERROR_PARAM1, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 
 	/* Test invalid mask */
 	rv = shell_execute_cmd(get_ec_shell(), "hostevent set invalid-mask");
-	zassert_equal(rv, EC_ERROR_PARAM2, "Expected %d, but got %d",
-		      EC_ERROR_PARAM2, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 /* hostevent with sub-commands and verification */

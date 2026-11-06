@@ -48,8 +48,7 @@ ZTEST_USER(console_cmd_hcdebug, test_invalid_arg)
 {
 	int rv = shell_execute_cmd(get_ec_shell(), "hcdebug bar");
 
-	zassert_equal(rv, EC_ERROR_PARAM1, "Expected %d, but got %d",
-		      EC_ERROR_PARAM1, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_USER(console_cmd_hcdebug, test_valid_args)

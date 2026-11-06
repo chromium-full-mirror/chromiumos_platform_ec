@@ -136,7 +136,8 @@ struct host_cmd_handler_args {
 
 typedef uint64_t host_event_t;
 #define HOST_EVENT_CPRINTS(str, e) CPRINTS("%s 0x%016" PRIx64, str, e)
-#define HOST_EVENT_CCPRINTF(str, e) ccprintf("%s 0x%016" PRIx64 "\n", str, e)
+#define HOST_EVENT_CCPRINTF(sh, str, e) \
+	shell_print(sh, "%s 0x%016" PRIx64 "", str, e)
 
 /**
  * Initialize Host Command

@@ -456,14 +456,14 @@ DECLARE_HOOK(HOOK_CHIPSET_SHUTDOWN, clear_events_copy_b, HOOK_PRIO_DEFAULT);
 
 /*****************************************************************************/
 /* Console commands */
-static int command_host_event(int argc, const char **argv)
+static int command_host_event(const struct shell *sh, size_t argc, char **argv)
 {
 	/* Handle sub-commands */
 	if (argc == 3) {
 		char *e;
 		host_event_t i = strtoull(argv[2], &e, 0);
 		if (*e)
-			return EC_ERROR_PARAM2;
+			return -EINVAL;
 
 		if (!strcasecmp(argv[1], "set"))
 			host_set_events(i);
@@ -483,29 +483,30 @@ static int command_host_event(int argc, const char **argv)
 						i);
 #endif
 		else
-			return EC_ERROR_PARAM1;
+			return -EINVAL;
 	}
 
 	/* Print current SMI/SCI status */
-	HOST_EVENT_CCPRINTF("Events:             ", host_get_events());
-	HOST_EVENT_CCPRINTF("Events-B:           ", events_copy_b);
+	HOST_EVENT_CCPRINTF(sh, "Events:             ", host_get_events());
+	HOST_EVENT_CCPRINTF(sh, "Events-B:           ", events_copy_b);
 #ifdef CONFIG_HOSTCMD_X86
-	HOST_EVENT_CCPRINTF("SMI mask:           ",
+	HOST_EVENT_CCPRINTF(sh, "SMI mask:           ",
 			    lpc_get_host_event_mask(LPC_HOST_EVENT_SMI));
-	HOST_EVENT_CCPRINTF("SCI mask:           ",
+	HOST_EVENT_CCPRINTF(sh, "SCI mask:           ",
 			    lpc_get_host_event_mask(LPC_HOST_EVENT_SCI));
-	HOST_EVENT_CCPRINTF("Wake mask:          ",
+	HOST_EVENT_CCPRINTF(sh, "Wake mask:          ",
 			    lpc_get_host_event_mask(LPC_HOST_EVENT_WAKE));
 	HOST_EVENT_CCPRINTF(
-		"Always report mask: ",
+		sh, "Always report mask: ",
 		lpc_get_host_event_mask(LPC_HOST_EVENT_ALWAYS_REPORT));
 #endif
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(
-	hostevent, command_host_event,
-	"[set | clear | clearb | smi | sci | wake | always_report] [mask]",
-	"Print / set host event state");
+SHELL_CMD_ARG_REGISTER(
+	hostevent, NULL,
+	"[set | clear | clearb | smi | sci | wake | always_report] [mask]\n"
+	"Print / set host event state",
+	command_host_event, 1, 2);
 
 /*****************************************************************************/
 /* Host commands */
