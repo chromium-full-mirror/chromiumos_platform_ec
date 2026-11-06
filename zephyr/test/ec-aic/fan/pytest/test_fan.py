@@ -8,26 +8,32 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 import re
-import sys
 import time
+from typing import Generator
 
+import dagwood_utils
 import pytest
 from twister_harness import DeviceAdapter
 from twister_harness import Shell
 import usb.core
 
 
-DAGWOOD_DIR = Path(__file__).resolve().parents[6] / "dagwood"
-if str(DAGWOOD_DIR) not in sys.path:
-    sys.path.append(str(DAGWOOD_DIR))
-
-# pylint: disable=import-error, wrong-import-position
-import dagwood_utils
-
-
 logger = logging.getLogger(__name__)
+
+
+@pytest.fixture(autouse=True)
+def reset_fan_tach(
+    dagwood_dev: usb.core.Device,
+) -> Generator[None, None, None]:
+    """Reset the simulated fan tachometer to 0 RPM after each test."""
+    try:
+        yield
+    finally:
+        try:
+            dagwood_utils.dw_fan_set_tach(dagwood_dev, 0)
+        except Exception:
+            pass
 
 
 def get_actual_rpm(shell: Shell, timeout: float = 3.0) -> int:

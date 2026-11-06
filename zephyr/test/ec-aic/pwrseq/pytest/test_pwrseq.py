@@ -8,20 +8,11 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
-import sys
 import time
 
+import dagwood_utils
 from twister_harness import Shell
 import usb.core
-
-
-DAGWOOD_DIR = Path(__file__).resolve().parents[6] / "dagwood"
-if str(DAGWOOD_DIR) not in sys.path:
-    sys.path.append(str(DAGWOOD_DIR))
-
-# pylint: disable=import-error, wrong-import-position
-import dagwood_utils
 
 
 logger = logging.getLogger(__name__)

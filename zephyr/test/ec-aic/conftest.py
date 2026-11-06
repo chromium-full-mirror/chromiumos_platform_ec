@@ -2,15 +2,26 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-"""Common pytest utilities for EC AIC tests."""
+"""Common pytest fixtures and configuration for EC AIC tests."""
 
 # pylint: disable=import-error
 from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
+import sys
 
 import pytest
+import usb.core
+
+
+DAGWOOD_DIR = Path(__file__).resolve().parents[4] / "dagwood"
+if str(DAGWOOD_DIR) not in sys.path:
+    sys.path.append(str(DAGWOOD_DIR))
+
+# pylint: disable=wrong-import-position
+import dagwood_utils
 
 
 logger = logging.getLogger(__name__)
@@ -37,3 +48,10 @@ def get_board_id(config: pytest.Config) -> str | None:
         board_id = os.environ.get("DAGWOOD_BOARD_ID")
     logger.info("Selected board-id: %s", board_id)
     return board_id
+
+
+@pytest.fixture(scope="session")
+def dagwood_dev(pytestconfig: pytest.Config) -> usb.core.Device:
+    """Pytest fixture providing the Dagwood USB device."""
+    board_id = get_board_id(pytestconfig)
+    return dagwood_utils.find_usb_device(board_id)
