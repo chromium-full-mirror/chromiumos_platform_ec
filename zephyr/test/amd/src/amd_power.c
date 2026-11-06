@@ -5,6 +5,8 @@
 
 #include "console.h"
 #include "driver/amd_stb.h"
+#include "driver/amd_stt.h"
+#include "driver/sb_rmi.h"
 #include "ec_app_main.h"
 #include "gpio.h"
 #include "gpio/gpio_int.h"
@@ -33,6 +35,10 @@
 #include <dt-bindings/buttons.h>
 
 void set_initial_pwrbtn_state(void);
+
+FAKE_VALUE_FUNC(int, sb_rmi_mailbox_xfer, int, uint32_t, uint32_t *);
+FAKE_VALUE_FUNC(int, board_get_soc_temp_mk, int *);
+FAKE_VALUE_FUNC(int, board_get_ambient_temp_mk, int *);
 
 /* All emulated GPIOS are on one device */
 #define GPIO_DEVICE \
@@ -553,6 +559,12 @@ ZTEST(amd_power, test_power_stb_dump_cmd)
 
 	zassert_ok(shell_execute_cmd(get_ec_shell(), "amdstbdump"));
 	zassert_true(amd_stb_dump_in_progress());
+
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "stt debug"));
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "stt apu 300000"));
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "stt ambient 300000"));
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "stt gpu 300000"));
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "stt debug"));
 }
 
 ZTEST(amd_power, test_power_stb_dump_interrupt)

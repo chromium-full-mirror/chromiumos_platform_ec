@@ -13,6 +13,8 @@
 #include "temp_sensor.h"
 #include "util.h"
 
+#include <zephyr/shell/shell.h>
+
 /* Debug flag can be toggled with console command: stt debug */
 static bool amd_stt_debug;
 
@@ -114,34 +116,57 @@ static void amd_stt_handler(void)
 }
 DECLARE_HOOK(HOOK_SECOND, amd_stt_handler, HOOK_PRIO_TEMP_SENSOR + 1);
 
-static int command_stt(int argc, const char **argv)
+static int cmd_stt_debug(const struct shell *sh, size_t argc, char **argv)
 {
-	int sensor_id;
-	int temp;
+	ARG_UNUSED(sh);
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
 
-	if (argc < 2)
-		return EC_ERROR_PARAM1;
-	else if (!strcasecmp(argv[1], "debug")) {
-		amd_stt_debug = !amd_stt_debug;
-		return EC_SUCCESS;
-	} else if (argc != 3)
-		return EC_ERROR_PARAM2;
-	else if (!strcasecmp(argv[1],
-			     amd_stt_sensor_name[AMD_STT_PCB_SENSOR_APU]))
-		sensor_id = AMD_STT_PCB_SENSOR_APU;
-	else if (!strcasecmp(argv[1],
-			     amd_stt_sensor_name[AMD_STT_PCB_SENSOR_REMOTE]))
-		sensor_id = AMD_STT_PCB_SENSOR_REMOTE;
-	else if (!strcasecmp(argv[1],
-			     amd_stt_sensor_name[AMD_STT_PCB_SENSOR_GPU]))
-		sensor_id = AMD_STT_PCB_SENSOR_GPU;
-	else
-		return EC_ERROR_PARAM2;
-
-	temp = atoi(argv[2]);
-
-	return write_stt_sensor_val(sensor_id, temp);
+	amd_stt_debug = !amd_stt_debug;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(stt, command_stt,
-			"<apu|ambient|gpu|debug> <temp in mK>",
-			"Write an STT mK temperature to AP");
+
+static int cmd_stt_apu(const struct shell *sh, size_t argc, char **argv)
+{
+	ARG_UNUSED(sh);
+	ARG_UNUSED(argc);
+
+	return write_stt_sensor_val(AMD_STT_PCB_SENSOR_APU, atoi(argv[1]));
+}
+
+static int cmd_stt_ambient(const struct shell *sh, size_t argc, char **argv)
+{
+	ARG_UNUSED(sh);
+	ARG_UNUSED(argc);
+
+	return write_stt_sensor_val(AMD_STT_PCB_SENSOR_REMOTE, atoi(argv[1]));
+}
+
+static int cmd_stt_gpu(const struct shell *sh, size_t argc, char **argv)
+{
+	ARG_UNUSED(sh);
+	ARG_UNUSED(argc);
+
+	return write_stt_sensor_val(AMD_STT_PCB_SENSOR_GPU, atoi(argv[1]));
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(
+	sub_stt_cmds,
+	SHELL_CMD_ARG(apu, NULL,
+		      SHELL_HELP("Write APU STT temperature", "<temp in mK>"),
+		      cmd_stt_apu, 2, 0),
+	SHELL_CMD_ARG(ambient, NULL,
+		      SHELL_HELP("Write Ambient STT temperature",
+				 "<temp in mK>"),
+		      cmd_stt_ambient, 2, 0),
+	SHELL_CMD_ARG(gpu, NULL,
+		      SHELL_HELP("Write GPU STT temperature", "<temp in mK>"),
+		      cmd_stt_gpu, 2, 0),
+	SHELL_CMD_ARG(debug, NULL, "Toggle STT debug logging", cmd_stt_debug, 1,
+		      0),
+	SHELL_SUBCMD_SET_END);
+
+SHELL_CMD_REGISTER(stt, &sub_stt_cmds,
+		   SHELL_HELP("Write an STT mK temperature to AP",
+			      "<apu|ambient|gpu|debug> <temp in mK>"),
+		   NULL);

@@ -8,6 +8,8 @@
 #include "driver/amd_stb.h"
 #include "hooks.h"
 
+#include <zephyr/shell/shell.h>
+
 #ifndef CONFIG_ZTEST
 #define CPRINTS(format, args...) cprints(CC_CHIPSET, format, ##args)
 #else
@@ -66,10 +68,14 @@ void amd_stb_dump_interrupt(enum gpio_signal signal)
 	hook_call_deferred(&stb_dump_interrupt_deferred_data, 0);
 }
 
-static int command_amdstbdump(int argc, const char **argv)
+static int command_amdstbdump(const struct shell *sh, size_t argc, char **argv)
 {
+	ARG_UNUSED(sh);
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
 	amd_stb_dump_trigger();
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(amdstbdump, command_amdstbdump, NULL,
-			"Trigger an STB dump");
+SHELL_CMD_ARG_REGISTER(amdstbdump, NULL, "Trigger an STB dump",
+		       command_amdstbdump, 1, 0);
