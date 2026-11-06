@@ -8,6 +8,8 @@
 #include "hooks.h"
 #include "host_command.h"
 
+#include <zephyr/shell/shell.h>
+
 #define CPRINTS(format, args...) cprints(CC_MOTION_LID, format, ##args)
 
 #ifdef CONFIG_BASE_ATTACHED_SWITCH
@@ -33,24 +35,54 @@ void base_set_state(int state)
 }
 #endif
 
-static int command_setbasestate(int argc, const char **argv)
+static int cmd_basestate_attach(const struct shell *sh, size_t argc,
+				char **argv)
 {
-	if (argc != 2)
-		return EC_ERROR_PARAM_COUNT;
-	if (argv[1][0] == 'a')
-		base_force_state(EC_SET_BASE_STATE_ATTACH);
-	else if (argv[1][0] == 'd')
-		base_force_state(EC_SET_BASE_STATE_DETACH);
-	else if (argv[1][0] == 'r')
-		base_force_state(EC_SET_BASE_STATE_RESET);
-	else
-		return EC_ERROR_PARAM1;
+	ARG_UNUSED(sh);
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
 
-	return EC_SUCCESS;
+	base_force_state(EC_SET_BASE_STATE_ATTACH);
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(
-	basestate, command_setbasestate, "[attach | detach | reset]",
-	"Manually force base state to attached, detached or reset.");
+
+static int cmd_basestate_detach(const struct shell *sh, size_t argc,
+				char **argv)
+{
+	ARG_UNUSED(sh);
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	base_force_state(EC_SET_BASE_STATE_DETACH);
+	return 0;
+}
+
+static int cmd_basestate_reset(const struct shell *sh, size_t argc, char **argv)
+{
+	ARG_UNUSED(sh);
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	base_force_state(EC_SET_BASE_STATE_RESET);
+	return 0;
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(sub_basestate_cmds,
+			       SHELL_CMD_ARG(attach, NULL,
+					     "Force base state attached",
+					     cmd_basestate_attach, 1, 0),
+			       SHELL_CMD_ARG(detach, NULL,
+					     "Force base state detached",
+					     cmd_basestate_detach, 1, 0),
+			       SHELL_CMD_ARG(reset, NULL, "Reset base state",
+					     cmd_basestate_reset, 1, 0),
+			       SHELL_SUBCMD_SET_END);
+
+SHELL_CMD_REGISTER(
+	basestate, &sub_basestate_cmds,
+	SHELL_HELP("Manually force base state to attached, detached or reset.",
+		   "[attach | detach | reset]"),
+	NULL);
 
 static enum ec_host_cmd_status
 hostcmd_setbasestate(struct ec_host_cmd_handler_args *args)
