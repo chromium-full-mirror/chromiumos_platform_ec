@@ -7,26 +7,28 @@
 
 #include "adc.h"
 #include "common.h"
-#include "console.h"
 #include "ec_commands.h"
 #include "host_command.h"
 #include "util.h"
 
+#include <zephyr/shell/shell.h>
+
 /* 'adc' console command is not supported in continuous mode */
 #ifndef CONFIG_ADC_PROFILE_FAST_CONTINUOUS
 
-static int print_one_adc(int channel)
+static int print_one_adc(const struct shell *sh, int channel)
 {
 	int v;
 
 	v = adc_read_channel(channel);
 	if (v == ADC_READ_ERROR)
-		return EC_ERROR_UNKNOWN;
-	ccprintf("[%d] %s = %d mV\n", channel, adc_channels[channel].name, v);
-	return EC_SUCCESS;
+		return -EIO;
+	shell_print(sh, "[%d] %s = %d mV", channel, adc_channels[channel].name,
+		    v);
+	return 0;
 }
 
-static int command_adc(int argc, const char **argv)
+static int command_adc(const struct shell *sh, size_t argc, char **argv)
 {
 	int i, ret;
 
@@ -36,19 +38,20 @@ static int command_adc(int argc, const char **argv)
 
 		i = strtoi(argv[1], &end, 0);
 		if (*end || i < 0 || i >= ADC_CH_COUNT)
-			return EC_ERROR_PARAM1;
-		return print_one_adc(i);
+			return -EINVAL;
+		return print_one_adc(sh, i);
 	} else {
 		/* Otherwise print them all */
 		for (i = 0; i < ADC_CH_COUNT; ++i) {
-			ret = print_one_adc(i);
+			ret = print_one_adc(sh, i);
 			if (ret)
 				return ret;
 		}
-		return EC_SUCCESS;
+		return 0;
 	}
 }
-DECLARE_CONSOLE_COMMAND(adc, command_adc, "[id]", NULL);
+SHELL_CMD_ARG_REGISTER(adc, NULL, SHELL_HELP("Print ADC channels", "[id]"),
+		       command_adc, 1, 1);
 
 static enum ec_host_cmd_status
 hc_adc_read(struct ec_host_cmd_handler_args *args)

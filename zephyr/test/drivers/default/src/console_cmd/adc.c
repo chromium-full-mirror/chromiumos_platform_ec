@@ -36,8 +36,7 @@ ZTEST_USER(console_cmd_adc, test_adc_wrong_name)
 {
 	int rv = shell_execute_cmd(get_ec_shell(), "adc 9");
 
-	zassert_equal(rv, EC_ERROR_PARAM1, "Expected %d, but got %d",
-		      EC_ERROR_PARAM1, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_SUITE(console_cmd_adc, NULL, NULL, NULL, NULL, NULL);
