@@ -144,27 +144,31 @@ void enable_lid_detect(bool enable)
 	}
 }
 
-static int command_lidopen(int argc, const char **argv)
+static int command_lidopen(const struct shell *sh, size_t argc,
+			   const char **argv)
 {
 	lid_switch_open();
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(lidopen, command_lidopen, NULL, "Simulate lid open");
+SHELL_CMD_REGISTER(lidopen, NULL, "Simulate lid open", command_lidopen);
 
-static int command_lidclose(int argc, const char **argv)
+static int command_lidclose(const struct shell *sh, size_t argc,
+			    const char **argv)
 {
 	lid_switch_close();
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(lidclose, command_lidclose, NULL, "Simulate lid close");
+SHELL_CMD_REGISTER(lidclose, NULL, "Simulate lid close", command_lidclose);
 
-static int command_lidstate(int argc, const char **argv)
+static int command_lidstate(const struct shell *sh, size_t argc,
+			    const char **argv)
 {
-	ccprintf("lid state: %s\n", debounced_lid_open ? "open" : "closed");
+	shell_print(sh, "lid state: %s",
+		    debounced_lid_open ? "open" : "closed");
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(lidstate, command_lidstate, NULL, "Get state of lid");
+SHELL_CMD_REGISTER(lidstate, NULL, "Get state of lid", command_lidstate);
 
 /**
  * Host command to enable/disable lid opened.
