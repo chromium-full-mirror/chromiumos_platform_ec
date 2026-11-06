@@ -4,13 +4,13 @@
  */
 
 #include "common.h"
-#include "console.h"
 #include "event_log.h"
 #include "hooks.h"
 #include "timer.h"
 #include "util.h"
 
 #include <zephyr/irq.h>
+#include <zephyr/shell/shell.h>
 
 /* Event log FIFO */
 #define UNIT_SIZE sizeof(struct event_log_entry)
@@ -113,29 +113,26 @@ int log_dequeue_event(struct event_log_entry *r)
 }
 
 #ifdef CONFIG_CMD_DLOG
+static int command_dlog_clear(const struct shell *sh, size_t argc, char **argv)
+{
+	uint32_t lock_key = irq_lock();
+
+	log_head = log_tail = 0;
+	irq_unlock(lock_key);
+
+	return 0;
+}
+
 /*
  * Display TPM event logs.
  */
-static int command_dlog(int argc, const char **argv)
+static int command_dlog(const struct shell *sh, size_t argc, char **argv)
 {
 	size_t log_cur;
 	const uint8_t *const log_events_end =
 		(uint8_t *)&log_events[UNIT_COUNT];
 
-	if (argc > 1) {
-		if (!strcasecmp(argv[1], "clear")) {
-			uint32_t lock_key = irq_lock();
-
-			log_head = log_tail = 0;
-			irq_unlock(lock_key);
-
-			return EC_SUCCESS;
-		}
-		/* Too many parameters */
-		return EC_ERROR_PARAM1;
-	}
-
-	ccprintf(" TIMESTAMP | TYPE |  DATA | SIZE | PAYLOAD\n");
+	shell_print(sh, " TIMESTAMP | TYPE |  DATA | SIZE | PAYLOAD");
 	log_cur = log_head;
 	while (log_cur != log_tail) {
 		struct event_log_entry *r;
@@ -146,8 +143,8 @@ static int command_dlog(int argc, const char **argv)
 		payload_bytes = EVENT_LOG_SIZE(r->size);
 		log_cur += ENTRY_SIZE(payload_bytes);
 
-		ccprintf("%10d   %4d  0x%04X   %4d   ", r->timestamp, r->type,
-			 r->data, payload_bytes);
+		shell_fprintf(sh, SHELL_NORMAL, "%10d   %4d  0x%04X   %4d   ",
+			      r->timestamp, r->type, r->data, payload_bytes);
 
 		/* display payload if exists */
 		payload = r->payload;
@@ -155,13 +152,19 @@ static int command_dlog(int argc, const char **argv)
 			if (payload >= log_events_end)
 				payload = (uint8_t *)&log_events[0];
 
-			ccprintf("%02X", *payload);
+			shell_fprintf(sh, SHELL_NORMAL, "%02X", *payload);
 			payload++;
 		}
-		ccprintf("\n");
+		shell_fprintf(sh, SHELL_NORMAL, "\n");
 	}
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(dlog, command_dlog, "[clear]",
-			"Display/clear TPM event logs");
+
+SHELL_STATIC_SUBCMD_SET_CREATE(sub_dlog,
+			       SHELL_CMD(clear, NULL, "Clear TPM event logs",
+					 command_dlog_clear),
+			       SHELL_SUBCMD_SET_END);
+
+SHELL_CMD_REGISTER(dlog, &sub_dlog, "Display/clear TPM event logs",
+		   command_dlog);
 #endif
