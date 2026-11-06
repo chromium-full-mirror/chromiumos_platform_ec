@@ -12,6 +12,7 @@
 #include <zephyr/drivers/ipm.h>
 #include <zephyr/kernel.h>
 
+#include <../drivers/ipm/ipm_sedi.h>
 #include <host_bsp_service.h>
 #include <sedi_driver_ipc.h>
 #include <sedi_soc_funcs.h>
@@ -43,10 +44,21 @@ static int read_host_msg(uint32_t *drbl, uint8_t *msg, uint32_t msg_size)
 
 static int send_host_msg(uint32_t drbl, uint8_t *msg, uint32_t msg_size)
 {
+	struct ipm_sedi_context *ipm_ctx = dev->data;
 	int ret;
 
 	k_mutex_lock(&host_write_lock, K_FOREVER);
 	ret = ipm_send(dev, 1, drbl, msg, msg_size);
+	if (ret != 0) {
+		/*
+		 * Clear any stale completion token left in device_write_msg_sem
+		 * when ipm_sedi_send()'s timeout cleanup
+		 * (sedi_ipc_write_dbl(device, 0)) triggers
+		 * SEDI_IPC_EVENT_MSG_PEER_ACKED before clearing
+		 * IPM_WRITE_IN_PROC_BIT.
+		 */
+		k_sem_reset(&ipm_ctx->device_write_msg_sem);
+	}
 
 	/*
 	 * Reset VNN_ID_IPC_HOST_W so both the write-1-to-toggle PMU_VNN_REQ
