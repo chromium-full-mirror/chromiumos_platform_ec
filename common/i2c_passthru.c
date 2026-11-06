@@ -445,16 +445,16 @@ EC_HOST_CMD_HANDLER(EC_CMD_I2C_PASSTHRU_PROTECT, i2c_command_passthru_protect,
 /* Console commands */
 
 #ifdef CONFIG_CMD_I2C_PROTECT
-static int command_i2cprotect(int argc, const char **argv)
+static int command_i2cprotect(const struct shell *sh, size_t argc, char **argv)
 {
 	if (argc == 1) {
 		int i, port;
 
 		for (i = 0; i < i2c_ports_used; i++) {
 			port = i2c_ports[i].port;
-			ccprintf("Port %d: %s\n", port,
-				 port_protected[port] ? "Protected" :
-							"Unprotected");
+			shell_print(sh, "Port %d: %s", port,
+				    port_protected[port] ? "Protected" :
+							   "Unprotected");
 		}
 	} else if (argc == 2) {
 		int port;
@@ -462,21 +462,21 @@ static int command_i2cprotect(int argc, const char **argv)
 
 		port = strtoi(argv[1], &e, 0);
 		if (*e)
-			return EC_ERROR_PARAM2;
+			return -EINVAL;
 
 		if (!get_i2c_port(port)) {
-			ccprintf("i2c passthru protect invalid port %d\n",
-				 port);
-			return EC_RES_INVALID_PARAM;
+			shell_print(sh, "i2c passthru protect invalid port %d",
+				    port);
+			return -EINVAL;
 		}
 
 		port_protected[port] = 1;
-	} else {
-		return EC_ERROR_PARAM_COUNT;
 	}
 
-	return EC_RES_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(i2cprotect, command_i2cprotect, "[port]",
-			"Protect I2C bus");
+SHELL_CMD_ARG_REGISTER(i2cprotect, NULL,
+		       "[port]\n"
+		       "Protect I2C bus",
+		       command_i2cprotect, 1, 1);
 #endif

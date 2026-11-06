@@ -874,16 +874,17 @@ EC_HOST_CMD_HANDLER(EC_CMD_I2C_CONTROL, i2c_command_control, EC_VER_MASK(0),
 /* Console commands */
 
 #ifdef CONFIG_CMD_I2C_STRESS_TEST
-static void i2c_test_status(struct i2c_test_results *i2c_test, int test_dev)
+static void i2c_test_status(const struct shell *sh,
+			    struct i2c_test_results *i2c_test, int test_dev)
 {
-	ccprintf("test_dev=%2d, ", test_dev);
-	ccprintf("r=%5d, rs=%5d, rf=%5d, ",
-		 i2c_test->read_success + i2c_test->read_fail,
-		 i2c_test->read_success, i2c_test->read_fail);
+	shell_fprintf(sh, SHELL_NORMAL, "test_dev=%2d, ", test_dev);
+	shell_fprintf(sh, SHELL_NORMAL, "r=%5d, rs=%5d, rf=%5d, ",
+		      i2c_test->read_success + i2c_test->read_fail,
+		      i2c_test->read_success, i2c_test->read_fail);
 
-	ccprintf("w=%5d, ws=%5d, wf=%5d\n",
-		 i2c_test->write_success + i2c_test->write_fail,
-		 i2c_test->write_success, i2c_test->write_fail);
+	shell_print(sh, "w=%5d, ws=%5d, wf=%5d",
+		    i2c_test->write_success + i2c_test->write_fail,
+		    i2c_test->write_success, i2c_test->write_fail);
 
 	i2c_test->read_success = 0;
 	i2c_test->read_fail = 0;
@@ -891,7 +892,7 @@ static void i2c_test_status(struct i2c_test_results *i2c_test, int test_dev)
 }
 
 #define I2C_STRESS_TEST_DATA_VERIFY_RETRY_COUNT 3
-static int command_i2ctest(int argc, const char **argv)
+static int command_i2ctest(const struct shell *sh, size_t argc, char **argv)
 {
 	char *e;
 	int i, j, rv;
@@ -907,19 +908,19 @@ static int command_i2ctest(int argc, const char **argv)
 	if (argc > 1) {
 		count = strtoi(argv[1], &e, 0);
 		if (*e)
-			return EC_ERROR_PARAM2;
+			return -EINVAL;
 	}
 
 	if (argc > 2) {
 		udelay = strtoi(argv[2], &e, 0);
 		if (*e)
-			return EC_ERROR_PARAM3;
+			return -EINVAL;
 	}
 
 	if (argc > 3) {
 		test_dev = strtoi(argv[3], &e, 0);
 		if (*e || test_dev < 1 || test_dev > i2c_test_dev_used)
-			return EC_ERROR_PARAM4;
+			return -EINVAL;
 		test_dev--;
 	}
 
@@ -928,7 +929,7 @@ static int command_i2ctest(int argc, const char **argv)
 		uint16_t addr_flags;
 
 		if (!(i % 1000))
-			ccprintf("running test %d\n", i);
+			shell_print(sh, "running test %d", i);
 
 		if (argc < 4) {
 			rand = get_time().val;
@@ -1021,22 +1022,24 @@ static int command_i2ctest(int argc, const char **argv)
 		k_usleep(udelay);
 	}
 
-	ccprintf("\n**********final result **********\n");
+	shell_print(sh, "\n**********final result **********");
 
 	cflush();
 	if (argc > 3) {
-		i2c_test_status(&i2c_s_test->test_results, test_dev + 1);
+		i2c_test_status(sh, &i2c_s_test->test_results, test_dev + 1);
 	} else {
 		for (i = 0; i < i2c_test_dev_used; i++) {
 			i2c_s_test = i2c_stress_tests[i].i2c_test;
-			i2c_test_status(&i2c_s_test->test_results, i + 1);
+			i2c_test_status(sh, &i2c_s_test->test_results, i + 1);
 			k_msleep(100);
 		}
 	}
 	cflush();
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(i2ctest, command_i2ctest, "i2ctest count|udelay|dev",
-			"I2C stress test");
+SHELL_CMD_ARG_REGISTER(i2ctest, NULL,
+		       "i2ctest count|udelay|dev\n"
+		       "I2C stress test",
+		       command_i2ctest, 1, 3);
 #endif /* CONFIG_CMD_I2C_STRESS_TEST */

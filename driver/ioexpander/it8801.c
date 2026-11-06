@@ -521,32 +521,34 @@ const struct ioexpander_drv it8801_ioexpander_drv = {
 #endif
 };
 
-static void dump_register(int reg)
+static void dump_register(const struct shell *sh, int reg)
 {
 	int rv;
 	int data;
 
-	ccprintf("[%Xh] = ", reg);
+	shell_fprintf(sh, SHELL_NORMAL, "[%Xh] = ", reg);
 
 	rv = it8801_read(reg, &data);
 
 	if (!rv)
-		ccprintf("0x%02x\n", data);
+		shell_print(sh, "0x%02x", data);
 	else
-		ccprintf("ERR (%d)\n", rv);
+		shell_print(sh, "ERR (%d)", rv);
 }
 
-static int it8801_dump(int argc, const char **argv)
+static int it8801_dump(const struct shell *sh, size_t argc, char **argv)
 {
-	dump_register(IT8801_REG_KSIIER);
-	dump_register(IT8801_REG_KSIEER);
-	dump_register(IT8801_REG_KSIDR);
-	dump_register(IT8801_REG_KSOMCR);
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
 
-	return EC_SUCCESS;
+	dump_register(sh, IT8801_REG_KSIIER);
+	dump_register(sh, IT8801_REG_KSIEER);
+	dump_register(sh, IT8801_REG_KSIDR);
+	dump_register(sh, IT8801_REG_KSOMCR);
+
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(it8801_dump, it8801_dump, "NULL",
-			"Dumps IT8801 registers");
+SHELL_CMD_REGISTER(it8801_dump, NULL, "Dumps IT8801 registers", it8801_dump);
 
 #ifdef CONFIG_IO_EXPANDER_IT8801_PWM
 

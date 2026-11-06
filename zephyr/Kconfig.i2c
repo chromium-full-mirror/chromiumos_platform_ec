@@ -49,6 +49,12 @@ config PLATFORM_EC_CONSOLE_CMD_I2C_PORTMAP
 	  display the mapping of the I2C ports defined by the named-i2c-ports
 	  node to the physical port and remote port indexes.
 
+config PLATFORM_EC_CONSOLE_CMD_I2C_PROTECT
+	bool "Console command: i2cprotect"
+	help
+	  Enable the 'i2cprotect' console command to protect I2C buses from
+	  passthrough access.
+
 config PLATFORM_EC_CONSOLE_CMD_I2C_SPEED
 	bool "Console command: i2cspeed"
 	help

@@ -70,23 +70,25 @@ int i2c_get_port_from_remote_port(int remote_port)
 }
 
 #ifdef CONFIG_PLATFORM_EC_CONSOLE_CMD_I2C_PORTMAP
-static int command_i2c_portmap(int argc, const char **argv)
+static int command_i2c_portmap(const struct shell *sh, size_t argc, char **argv)
 {
 	int i;
 
+	ARG_UNUSED(argv);
+
 	if (argc > 1) {
-		return EC_ERROR_PARAM_COUNT;
+		return -EINVAL;
 	}
 
-	ccprintf("Zephyr remote I2C ports (%d):\n", I2C_PORT_COUNT);
+	shell_print(sh, "Zephyr remote I2C ports (%d):", I2C_PORT_COUNT);
 	for (i = 0; i < I2C_PORT_COUNT; i++) {
-		ccprintf("  %d : %d\n", i, i2c_remote_ports[i]);
+		shell_print(sh, "  %d : %d", i, i2c_remote_ports[i]);
 	}
 
-	return EC_RES_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(i2c_portmap, command_i2c_portmap, NULL,
-			"Show I2C port mapping");
+SHELL_CMD_REGISTER(i2c_portmap, NULL, "Show I2C port mapping",
+		   command_i2c_portmap);
 #endif /* CONFIG_PLATFORM_EC_CONSOLE_CMD_I2C_PORTMAP */
 
 int chip_i2c_set_freq(int port, enum i2c_freq freq)

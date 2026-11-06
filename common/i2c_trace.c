@@ -54,46 +54,49 @@ trace_enabled:
 	CPRINTF("\n");
 }
 
-static int command_i2ctrace_list(void)
+static int command_i2ctrace_list(const struct shell *sh)
 {
 	size_t i;
 
-	ccprintf("id port       address\n");
-	ccprintf("-- ----       -------\n");
+	shell_print(sh, "id port       address");
+	shell_print(sh, "-- ----       -------");
 
 	for (i = 0; i < ARRAY_SIZE(trace_entries); i++) {
 		if (trace_entries[i].enabled) {
-			ccprintf("%-2zd %d %-8s 0x%X", i, trace_entries[i].port,
-				 "", trace_entries[i].addr_lo);
+			shell_fprintf(sh, SHELL_NORMAL, "%-2zd %d %-8s 0x%X", i,
+				      trace_entries[i].port, "",
+				      trace_entries[i].addr_lo);
 			if (trace_entries[i].addr_hi !=
 			    trace_entries[i].addr_lo)
-				ccprintf(" to 0x%X", trace_entries[i].addr_hi);
-			ccprintf("\n");
+				shell_fprintf(sh, SHELL_NORMAL, " to 0x%X",
+					      trace_entries[i].addr_hi);
+			shell_fprintf(sh, SHELL_NORMAL, "\n");
 		}
 	}
 
-	return EC_SUCCESS;
+	return 0;
 }
 
 static int command_i2ctrace_disable(size_t id)
 {
 	if (id >= ARRAY_SIZE(trace_entries))
-		return EC_ERROR_PARAM2;
+		return -EINVAL;
 
 	trace_entries[id].enabled = 0;
-	return EC_SUCCESS;
+	return 0;
 }
 
-static int command_i2ctrace_enable(int port, int addr_lo, int addr_hi)
+static int command_i2ctrace_enable(const struct shell *sh, int port,
+				   int addr_lo, int addr_hi)
 {
 	struct i2c_trace_range *t;
 	struct i2c_trace_range *new_entry = NULL;
 
 	if (!get_i2c_port(port))
-		return EC_ERROR_PARAM2;
+		return -EINVAL;
 
 	if (addr_lo > addr_hi)
-		return EC_ERROR_PARAM3;
+		return -EINVAL;
 
 	/*
 	 * Scan thru existing entries to see if there is one we can
@@ -104,29 +107,29 @@ static int command_i2ctrace_enable(int port, int addr_lo, int addr_hi)
 		if (t->enabled && t->port == port) {
 			/* Subset of existing range, do nothing */
 			if (t->addr_lo <= addr_lo && t->addr_hi >= addr_hi)
-				return EC_SUCCESS;
+				return 0;
 
 			/* Extends exising range on both directions, replace */
 			if (t->addr_lo >= addr_lo && t->addr_hi <= addr_hi) {
 				t->enabled = 0;
-				return command_i2ctrace_enable(port, addr_lo,
-							       addr_hi);
+				return command_i2ctrace_enable(
+					sh, port, addr_lo, addr_hi);
 			}
 
 			/* Extends existing range below */
 			if (t->addr_lo - 1 <= addr_hi &&
 			    t->addr_hi >= addr_hi) {
 				t->enabled = 0;
-				return command_i2ctrace_enable(port, addr_lo,
-							       t->addr_hi);
+				return command_i2ctrace_enable(
+					sh, port, addr_lo, t->addr_hi);
 			}
 
 			/* Extends existing range above */
 			if (t->addr_lo <= addr_lo &&
 			    t->addr_hi + 1 >= addr_lo) {
 				t->enabled = 0;
-				return command_i2ctrace_enable(port, t->addr_lo,
-							       addr_hi);
+				return command_i2ctrace_enable(
+					sh, port, t->addr_lo, addr_hi);
 			}
 		} else if (!t->enabled && !new_entry) {
 			new_entry = t;
@@ -139,58 +142,58 @@ static int command_i2ctrace_enable(int port, int addr_lo, int addr_hi)
 		new_entry->port = port;
 		new_entry->addr_lo = addr_lo;
 		new_entry->addr_hi = addr_hi;
-		return EC_SUCCESS;
+		return 0;
 	}
 
-	ccprintf("No space to allocate new trace entry. Delete some first.\n");
-	return EC_ERROR_MEMORY_ALLOCATION;
+	shell_print(sh,
+		    "No space to allocate new trace entry. Delete some first.");
+	return -ENOMEM;
 }
 
-static int command_i2ctrace(int argc, const char **argv)
+static int command_i2ctrace(const struct shell *sh, size_t argc, char **argv)
 {
 	int id_or_port;
 	int address_low;
 	int address_high;
 	char *end;
 
-	if (argc < 2)
-		return EC_ERROR_PARAM_COUNT;
-
 	if (!strcasecmp(argv[1], "list") && argc == 2)
-		return command_i2ctrace_list();
+		return command_i2ctrace_list(sh);
 
 	if (argc < 3)
-		return EC_ERROR_PARAM_COUNT;
+		return -EINVAL;
 
 	id_or_port = strtoi(argv[2], &end, 0);
 	if (*end || id_or_port < 0)
-		return EC_ERROR_PARAM2;
+		return -EINVAL;
 
 	if (!strcasecmp(argv[1], "disable") && argc == 3)
 		return command_i2ctrace_disable(id_or_port);
 
 	if (!strcasecmp(argv[1], "enable")) {
+		if (argc < 4)
+			return -EINVAL;
+
 		address_low = strtoi(argv[3], &end, 0);
 		if (*end || address_low < 0)
-			return EC_ERROR_PARAM3;
+			return -EINVAL;
 
 		if (argc == 4) {
 			address_high = address_low;
-		} else if (argc == 5) {
+		} else {
 			address_high = strtoi(argv[4], &end, 0);
 			if (*end || address_high < 0)
-				return EC_ERROR_PARAM4;
-		} else {
-			return EC_ERROR_PARAM_COUNT;
+				return -EINVAL;
 		}
 
-		return command_i2ctrace_enable(id_or_port, address_low,
+		return command_i2ctrace_enable(sh, id_or_port, address_low,
 					       address_high);
 	}
 
-	return EC_ERROR_PARAM1;
+	return -EINVAL;
 }
-DECLARE_CONSOLE_COMMAND(i2ctrace, command_i2ctrace,
-			"[list | disable <id> | enable <port> <address> | "
-			"enable <port> <address-low> <address-high>]",
-			"Trace I2C transactions");
+SHELL_CMD_ARG_REGISTER(i2ctrace, NULL,
+		       "[list | disable <id> | enable <port> <address> | "
+		       "enable <port> <address-low> <address-high>]\n"
+		       "Trace I2C transactions",
+		       command_i2ctrace, 2, 3);
