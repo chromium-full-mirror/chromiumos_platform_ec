@@ -83,3 +83,15 @@ def test_locate_cros_checkout(tmp_path, monkeypatch, marker, is_dir):
     monkeypatch.chdir(subdir)
 
     assert util.locate_cros_checkout() == tmp_path.resolve()
+
+
+def test_locate_cros_checkout_from_file(tmp_path, monkeypatch):
+    """Test locate_cros_checkout falls back to __file__ parents."""
+    checkout = tmp_path / "cros"
+    (checkout / ".repo").mkdir(parents=True)
+
+    monkeypatch.delenv("CROS_WORKON_SRCROOT", raising=False)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(util, "__file__", str(checkout / "ec/util.py"))
+
+    assert util.locate_cros_checkout() == checkout

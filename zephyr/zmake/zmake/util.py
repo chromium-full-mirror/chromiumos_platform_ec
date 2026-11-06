@@ -44,8 +44,8 @@ def locate_cros_checkout():
     Returns:
         The first directory found with a .repo directory or .supermanifest
         file in it, starting by checking the CROS_WORKON_SRCROOT environment
-        variable, then scanning upwards from the current directory, and
-        finally from a known set of common paths.
+        variable, then scanning upwards from the current directory and the
+        module path, and finally from a known set of common paths.
     """
 
     def propose_checkouts():
@@ -56,6 +56,7 @@ def locate_cros_checkout():
             yield path
             path = path / ".."
 
+        yield from pathlib.Path(__file__).resolve().parents
         yield "/mnt/host/source"
         yield pathlib.Path.home() / "trunk"
         yield pathlib.Path.home() / "chromiumos"
