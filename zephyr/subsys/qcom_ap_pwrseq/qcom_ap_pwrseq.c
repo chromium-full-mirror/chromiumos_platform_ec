@@ -191,11 +191,6 @@ static int set_pmic_pwron(bool enable)
 	if (enable == is_pmic_pwron())
 		return EC_SUCCESS;
 
-	if (gpio_pin_get_dt(&qcom_cfg.pmic_resin_gpio) == 0) {
-		LOG_ERR("PMIC_RESIN_L not pulled up by PMIC; cancel pwron");
-		return EC_ERROR_UNKNOWN;
-	}
-
 	/* Power-on: assert PMIC_KPD_PWR_ODL (drive low)
 	 * Power-off: assert both PMIC_KPD_PWR_ODL and PMIC_RESIN_L (drive low)
 	 */

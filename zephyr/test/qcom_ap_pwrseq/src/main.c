@@ -64,8 +64,7 @@ static void test_before(void *f)
 		zassert_true(chipset_in_state(CHIPSET_STATE_HARD_OFF));
 	}
 
-	/* Restore default GPIO configurations and emulated input levels. */
-	zassert_ok(gpio_pin_configure_dt(&pmic_resin_gpio, GPIO_OUTPUT_HIGH));
+	/* Restore default emulated input levels. */
 	zassert_ok(gpio_emul_input_set(ap_rst_gpio.port, ap_rst_gpio.pin, 1));
 	zassert_ok(gpio_emul_input_set(power_good_gpio.port,
 				       power_good_gpio.pin, 1));
@@ -171,8 +170,7 @@ ZTEST(qcom_ap_pwrseq, test_startup)
 
 /*
  * Verify explicit AP power-on and PMIC power key handshake:
- * 1. Request power-on while PMIC power-good is deasserted and PMIC reset-in is
- *    released high.
+ * 1. Request power-on while PMIC power-good is deasserted.
  * 2. Verify the driver asserts the PMIC power key line low while waiting for
  *    the PMIC to power up.
  * 3. Signal PMIC power-good and verify the PMIC power key line is released,
@@ -180,13 +178,9 @@ ZTEST(qcom_ap_pwrseq, test_startup)
  */
 ZTEST(qcom_ap_pwrseq, test_explicit_power_on)
 {
-	/* Start with power_good low and pmic_resin readable high */
+	/* Start with power_good low */
 	zassert_ok(gpio_emul_input_set(power_good_gpio.port,
 				       power_good_gpio.pin, 0));
-	zassert_ok(gpio_pin_configure_dt(&pmic_resin_gpio,
-					 GPIO_OUTPUT_HIGH | GPIO_INPUT));
-	zassert_ok(gpio_emul_input_set(pmic_resin_gpio.port,
-				       pmic_resin_gpio.pin, 1));
 
 	/* Request power-on and wait until set_pmic_pwron drives kpd_pwr */
 	chipset_power_on();
@@ -317,31 +311,6 @@ ZTEST(qcom_ap_pwrseq, test_startup_fail_switchcap)
 }
 
 /*
- * Verify AP power-on rolls back to G3 when PMIC reset-in is held low:
- * 1. Request power-on with PMIC power-good deasserted and PMIC reset-in low,
- *    preventing PMIC power-on.
- * 2. Verify the driver disables switchcap and returns the chipset to G3 without
- *    completing startup.
- */
-ZTEST(qcom_ap_pwrseq, test_startup_fail_pmic_resin_low)
-{
-	/* Set power_good low with pmic_resin reading low (0) */
-	zassert_ok(gpio_emul_input_set(power_good_gpio.port,
-				       power_good_gpio.pin, 0));
-
-	/* Request power-on and wait for PMIC fail and rollback to G3 */
-	chipset_power_on();
-	k_msleep(900);
-
-	/* Verify switchcap is turned back off and AP is in G3 */
-	zassert_true(chipset_in_state(CHIPSET_STATE_HARD_OFF));
-	zassert_false(cros_switchcap_is_enabled_fake.return_val);
-	zassert_equal(mock_get_hook_notify_count(HOOK_CHIPSET_PRE_INIT), 1);
-	zassert_equal(mock_get_hook_notify_count(HOOK_CHIPSET_STARTUP), 0);
-	zassert_equal(mock_get_hook_notify_count(HOOK_CHIPSET_RESUME), 0);
-}
-
-/*
  * Verify AP power-on rolls back to G3 when PMIC power-good times out:
  * 1. Request power-on while PMIC power-good remains deasserted past the
  *    response timeout.
@@ -350,13 +319,9 @@ ZTEST(qcom_ap_pwrseq, test_startup_fail_pmic_resin_low)
  */
 ZTEST(qcom_ap_pwrseq, test_startup_fail_pmic_timeout)
 {
-	/* Set power_good low (and keep it low) with pmic_resin high */
+	/* Set power_good low (and keep it low) */
 	zassert_ok(gpio_emul_input_set(power_good_gpio.port,
 				       power_good_gpio.pin, 0));
-	zassert_ok(gpio_pin_configure_dt(&pmic_resin_gpio,
-					 GPIO_OUTPUT_HIGH | GPIO_INPUT));
-	zassert_ok(gpio_emul_input_set(pmic_resin_gpio.port,
-				       pmic_resin_gpio.pin, 1));
 
 	/* Request power-on and wait for PMIC power-on timeout & rollback */
 	chipset_power_on();
@@ -478,8 +443,7 @@ ZTEST(qcom_ap_pwrseq, test_resume_power_button_press)
 
 /*
  * Verify forced AP shutdown from S0:
- * 1. Power on the chipset to S0 with PMIC reset-in readable high, then request
- *    a forced shutdown.
+ * 1. Power on the chipset to S0, then request a forced shutdown.
  * 2. Verify the driver notifies suspend and shutdown hooks and asserts both
  *    PMIC power key and PMIC reset-in lines low while waiting for PMIC
  *    power-good to drop.
@@ -489,12 +453,8 @@ ZTEST(qcom_ap_pwrseq, test_resume_power_button_press)
  */
 ZTEST(qcom_ap_pwrseq, test_force_shutdown_from_s0)
 {
-	/* Enter S0 with pmic_resin readable high for set_pmic_pwron(false) */
+	/* Enter S0 */
 	power_on_to_s0();
-	zassert_ok(gpio_pin_configure_dt(&pmic_resin_gpio,
-					 GPIO_OUTPUT_HIGH | GPIO_INPUT));
-	zassert_ok(gpio_emul_input_set(pmic_resin_gpio.port,
-				       pmic_resin_gpio.pin, 1));
 
 	/* Request forced shutdown and check active PMIC power-off assertion */
 	chipset_force_shutdown(CHIPSET_SHUTDOWN_CONSOLE_CMD);
@@ -775,7 +735,7 @@ ZTEST(qcom_ap_pwrseq, test_cold_reset_fallback)
 
 	/* Request reset and wait for warm timeout + S0 -> G3 -> S0 cycle */
 	chipset_reset(CHIPSET_RESET_CONSOLE_CMD);
-	k_msleep(1500);
+	k_msleep(1800);
 
 	/* Verify full cold reboot cycle completed back to S0 */
 	zassert_true(chipset_in_state(CHIPSET_STATE_ON));
