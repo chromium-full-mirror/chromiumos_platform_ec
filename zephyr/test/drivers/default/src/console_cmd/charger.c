@@ -100,6 +100,10 @@ ZTEST_USER(console_cmd_charger, test_good_dptf)
 		   "Failed to set dptf current");
 	zassert_equal(dptf_get_charging_current_limit(), 1000,
 		      "Unexpected dptf current");
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "dptftemp"));
+	dptf_set_temp_threshold(0, 350, 0, 1);
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "dptftemp"));
+	dptf_set_temp_threshold(0, 0, 0, 0);
 }
 
 ZTEST_USER(console_cmd_charger, test_unsupported_dump)

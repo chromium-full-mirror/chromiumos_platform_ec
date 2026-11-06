@@ -13,6 +13,7 @@
 #include "temp_sensor/temp_sensor.h"
 #include "util.h"
 
+#include <zephyr/shell/shell.h>
 #include <zephyr/sys/atomic.h>
 
 /* Console output macros */
@@ -182,28 +183,29 @@ DECLARE_HOOK(HOOK_SECOND, thermal_control_dptf, HOOK_PRIO_TEMP_SENSOR_DONE);
 /*****************************************************************************/
 /* Console commands */
 
-static int command_dptftemp(int argc, const char **argv)
+static int command_dptftemp(const struct shell *sh, size_t argc, char **argv)
 {
 	int id, t;
 	int temp, trig;
 
-	ccprintf("sensor   thresh0   thresh1\n");
+	shell_print(sh, "sensor   thresh0   thresh1");
 	for (id = 0; id < TEMP_SENSOR_COUNT; id++) {
-		ccprintf(" %2d", id);
+		shell_fprintf(sh, SHELL_NORMAL, " %2d", id);
 		for (t = 0; t < DPTF_THRESHOLDS_PER_SENSOR; t++) {
 			temp = dptf_threshold[id][t].temp;
 			trig = cond_is_true(&dptf_threshold[id][t].over);
 			if (temp < 0)
-				ccprintf("       --- ");
+				shell_fprintf(sh, SHELL_NORMAL, "       --- ");
 			else
-				ccprintf("       %3d%c", temp,
-					 trig ? '*' : ' ');
+				shell_fprintf(sh, SHELL_NORMAL, "       %3d%c",
+					      temp, trig ? '*' : ' ');
 		}
-		ccprintf("    %s\n", temp_sensors[id].name);
+		shell_print(sh, "    %s", temp_sensors[id].name);
 	}
 
-	ccprintf("AP seen mask: 0x%08x\n", (int)dptf_seen);
-	return EC_SUCCESS;
+	shell_print(sh, "AP seen mask: 0x%08x", (int)dptf_seen);
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(dptftemp, command_dptftemp, NULL,
-			"Print DPTF thermal parameters (degrees Kelvin)");
+SHELL_CMD_REGISTER(dptftemp, NULL,
+		   "Print DPTF thermal parameters (degrees Kelvin)",
+		   command_dptftemp);
