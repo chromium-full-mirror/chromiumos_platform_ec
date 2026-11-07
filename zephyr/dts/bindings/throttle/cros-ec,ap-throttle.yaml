@@ -1,0 +1,23 @@
+# Copyright 2026 The ChromiumOS Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+description: GPIO-based AP power/thermal throttling driver
+
+compatible: "cros-ec,ap-throttle"
+
+include: base.yaml
+
+properties:
+  throttle-gpios:
+    type: phandle-array
+    required: true
+    description: |
+      GPIO pin connected to the AP throttle / PROCHOT signal (e.g.,
+      EC_SYS_THROTTLE_MIRA or EC_SYS_THROTTLE_MIRA_ODL). Active level is
+      determined by GPIO_ACTIVE_HIGH / GPIO_ACTIVE_LOW flags.
+  ac-only-boot-throttle:
+    type: boolean
+    description: |
+      Keep the throttle signal asserted throughout boot/S0 when booting on AC
+      power without a battery present (battery_is_present() != BP_YES).

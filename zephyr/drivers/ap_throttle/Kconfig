@@ -1,0 +1,13 @@
+# Copyright 2026 The ChromiumOS Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+config AP_THROTTLE
+	bool "GPIO-based AP throttling driver"
+	default y
+	depends on DT_HAS_CROS_EC_AP_THROTTLE_ENABLED
+	select PLATFORM_EC_THROTTLE_AP
+	help
+	  Enable the common GPIO-based AP throttling driver. This driver controls
+	  the AP throttle / PROCHOT GPIO via devicetree, implements
+	  chipset_throttle_cpu(), handles AC-only boot power limiting.

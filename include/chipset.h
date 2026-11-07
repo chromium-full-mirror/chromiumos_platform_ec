@@ -165,10 +165,16 @@ static inline int chipset_in_or_transitioning_to_state(int state_mask)
 static inline void chipset_exit_hard_off(void)
 {
 }
+
+#ifdef CONFIG_AP_THROTTLE
+void chipset_throttle_cpu(int throttle);
+#else
 static inline void chipset_throttle_cpu(int throttle)
 {
 	(void)throttle;
 }
+#endif
+
 static inline void chipset_force_shutdown(enum chipset_shutdown_reason reason)
 {
 	(void)reason;
