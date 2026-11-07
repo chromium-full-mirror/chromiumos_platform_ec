@@ -33,6 +33,8 @@
 		gpio_ec_sys_throttle_mira_odl: ec_sys_throttle_mira_odl {
 			gpios = <&gpio5 2 (GPIO_OUTPUT | GPIO_OPEN_DRAIN |
 					   GPIO_ACTIVE_LOW | GPIO_OUTPUT_INACTIVE)>;
+			/* Managed by cros-ec,ap-throttle driver */
+			no-auto-init;
 		};
 		gpio_dock_vdm_pwr_on: dock_vdm_pwr_on {
 			gpios = <&gpio5 4 (GPIO_INPUT)>;

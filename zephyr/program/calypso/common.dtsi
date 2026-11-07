@@ -16,4 +16,10 @@ chosen {
 		cros,rtc = &mtc;
 		zephyr,host-cmd-shi-backend = &shi0;
 	};
+
+	ap-throttle {
+		compatible = "cros-ec,ap-throttle";
+		throttle-gpios = <&gpio5 2 (GPIO_ACTIVE_LOW | GPIO_OPEN_DRAIN)>;
+		ac-only-boot-throttle;
+	};
 };
