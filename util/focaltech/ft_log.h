@@ -96,43 +96,30 @@ void FtLog(LogLevel level, const std::source_location& loc,
 
 }  // namespace focaltech
 
+#define FT_DO_LOG_INTERNAL_(level, fmt, ...) \
+  ::focaltech::FtLog(level, std::source_location::current(), fmt, ##__VA_ARGS__)
+
 #ifndef FT_LOG_DIS
+#define FT_LOG_INTERNAL_ FT_DO_LOG_INTERNAL_
+#else  // FT_LOG_DIS
+#define FT_LOG_INTERNAL_(...)           \
+  do {                                  \
+    if constexpr (false) {              \
+      FT_DO_LOG_INTERNAL_(__VA_ARGS__); \
+    }                                   \
+  } while (0)
+#endif  // FT_LOG_DIS
 
 // Convenience macros for standardizing call sites.
-#define FT_LOGE(fmt, ...)                           \
-  ::focaltech::FtLog(::focaltech::LogLevel::kError, \
-                     std::source_location::current(), fmt, ##__VA_ARGS__)
-#define FT_LOGW(fmt, ...)                             \
-  ::focaltech::FtLog(::focaltech::LogLevel::kWarning, \
-                     std::source_location::current(), fmt, ##__VA_ARGS__)
-#define FT_LOGI(fmt, ...)                          \
-  ::focaltech::FtLog(::focaltech::LogLevel::kInfo, \
-                     std::source_location::current(), fmt, ##__VA_ARGS__)
-#define FT_LOGD(fmt, ...)                           \
-  ::focaltech::FtLog(::focaltech::LogLevel::kDebug, \
-                     std::source_location::current(), fmt, ##__VA_ARGS__)
-#define FT_LOGV(fmt, ...)                             \
-  ::focaltech::FtLog(::focaltech::LogLevel::kVerbose, \
-                     std::source_location::current(), fmt, ##__VA_ARGS__)
-
-#else  // FT_LOG_DIS
-
 #define FT_LOGE(fmt, ...) \
-  do {                    \
-  } while (0)
+  FT_LOG_INTERNAL_(::focaltech::LogLevel::kError, fmt, ##__VA_ARGS__)
 #define FT_LOGW(fmt, ...) \
-  do {                    \
-  } while (0)
+  FT_LOG_INTERNAL_(::focaltech::LogLevel::kWarning, fmt, ##__VA_ARGS__)
 #define FT_LOGI(fmt, ...) \
-  do {                    \
-  } while (0)
+  FT_LOG_INTERNAL_(::focaltech::LogLevel::kInfo, fmt, ##__VA_ARGS__)
 #define FT_LOGD(fmt, ...) \
-  do {                    \
-  } while (0)
+  FT_LOG_INTERNAL_(::focaltech::LogLevel::kDebug, fmt, ##__VA_ARGS__)
 #define FT_LOGV(fmt, ...) \
-  do {                    \
-  } while (0)
-
-#endif  // FT_LOG_DIS
+  FT_LOG_INTERNAL_(::focaltech::LogLevel::kVerbose, fmt, ##__VA_ARGS__)
 
 #endif /* PLATFORM_EC_UTIL_FOCALTECH_FT_LOG_H_ */
