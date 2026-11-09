@@ -595,15 +595,17 @@ static void shi_bad_received_data(void)
  * Avoid spamming the console with prints every IBF / IBHF interrupt, if
  * we find ourselves in an unexpected state.
  */
+#if DEBUG_SHI
 static int last_error_state = -1;
+#endif
 
 static void log_unexpected_state(char *isr_name)
 {
 #if DEBUG_SHI
 	if (state != last_error_state)
 		CPRINTS("Unexpected state %d in %s ISR", state, isr_name);
-#endif
 	last_error_state = state;
+#endif
 }
 
 static void shi_handle_cs_assert(void)
@@ -909,7 +911,9 @@ static void shi_reset_prepare(void)
 
 	/* Ready to receive */
 	state = SHI_STATE_READY_TO_RECV;
+#if DEBUG_SHI
 	last_error_state = -1;
+#endif
 
 	/* Setup second IBF interrupt and enable SHI's interrupt */
 #ifdef NPCX_SHI_V2

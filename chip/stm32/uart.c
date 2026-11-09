@@ -60,7 +60,9 @@ static int dma_rx_len; /* Size of receive DMA circular buffer */
 #endif
 
 static int init_done; /* Initialization done? */
+#ifndef CONFIG_UART_TX_DMA
 static int should_stop; /* Last TX control action */
+#endif
 
 int uart_init_done(void)
 {
@@ -74,7 +76,9 @@ void uart_tx_start(void)
 		return;
 
 	disable_sleep(SLEEP_MASK_UART);
+#ifndef CONFIG_UART_TX_DMA
 	should_stop = 0;
+#endif
 	STM32_USART_CR1(UARTN_BASE) |= UART_TX_INT_ENABLE |
 				       STM32_USART_CR1_TCIE;
 	task_trigger_irq(STM32_IRQ_USART(UARTN));
@@ -83,8 +87,9 @@ void uart_tx_start(void)
 void uart_tx_stop(void)
 {
 	STM32_USART_CR1(UARTN_BASE) &= ~UART_TX_INT_ENABLE;
+#ifndef CONFIG_UART_TX_DMA
 	should_stop = 1;
-#ifdef CONFIG_UART_TX_DMA
+#else
 	enable_sleep(SLEEP_MASK_UART);
 #endif
 }
