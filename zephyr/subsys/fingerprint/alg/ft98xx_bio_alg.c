@@ -73,33 +73,42 @@ static int ft98xx_algorithm_init(const struct fingerprint_algorithm *const alg)
 		return -EINVAL;
 	}
 
-	focal_algo_get_finger_detailed_info(&data->tpl_finger_size,
-					    &data->tpl_subtemplate_size,
-					    &data->tpl_head_size);
+	int finger_size = 0;
+	int sub_tpl_size = 0;
+	int head_size = 0;
+
+	ret = focal_algo_get_finger_detailed_info(&finger_size, &sub_tpl_size,
+						  &head_size);
+	if (ret != 0) {
+		LOG_ERR("failed to get finger detailed info, ret = %d", ret);
+		return -EINVAL;
+	}
+
 	LOG_INF("algo:finger_size = %d, head_size = %d, sub_tpl_size= %d",
-		data->tpl_finger_size, data->tpl_head_size,
-		data->tpl_subtemplate_size);
+		finger_size, head_size, sub_tpl_size);
 
-	if (data->tpl_finger_size == 0 ||
-	    data->tpl_finger_size > CONFIG_FP_ALGORITHM_TEMPLATE_SIZE) {
-		LOG_ERR("invalid algorithm template size per finger (%u)",
-			data->tpl_finger_size);
+	if (finger_size <= 0 ||
+	    finger_size > CONFIG_FP_ALGORITHM_TEMPLATE_SIZE) {
+		LOG_ERR("invalid algorithm template size per finger (%d)",
+			finger_size);
 		return -EINVAL;
 	}
 
-	if (data->tpl_subtemplate_size == 0 ||
-	    data->tpl_subtemplate_size > FT_TPL_SUBTPL_SIZE) {
-		LOG_ERR("invalid algorithm sub-template size (%u)",
-			data->tpl_subtemplate_size);
+	if (sub_tpl_size <= 0 || sub_tpl_size > FT_TPL_SUBTPL_SIZE) {
+		LOG_ERR("invalid algorithm sub-template size (%d)",
+			sub_tpl_size);
 		return -EINVAL;
 	}
 
-	if (data->tpl_head_size == 0 ||
-	    data->tpl_head_size > FT_TPL_SUBTPL_SIZE) {
-		LOG_ERR("invalid algorithm template header size (%u)",
-			data->tpl_head_size);
+	if (head_size <= 0 || head_size > FT_TPL_SUBTPL_SIZE) {
+		LOG_ERR("invalid algorithm template header size (%d)",
+			head_size);
 		return -EINVAL;
 	}
+
+	data->tpl_finger_size = (uint32_t)finger_size;
+	data->tpl_subtemplate_size = (uint32_t)sub_tpl_size;
+	data->tpl_head_size = (uint32_t)head_size;
 
 	snprintf(alg_version, sizeof(alg_version), "api_%s_core_",
 		 LIBFP_API_VERSION);

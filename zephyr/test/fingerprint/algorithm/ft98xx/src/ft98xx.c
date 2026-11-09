@@ -196,12 +196,25 @@ static void ft98xx_alg_after(void *f)
 
 ZTEST_F(ft98xx_bio_alg, test_init_success_and_version_query)
 {
+	struct ft_libfp_data *data = (struct ft_libfp_data *)fixture->alg->data;
+
 	focal_algo_version_fake.custom_fake = custom_focal_algo_version;
 
 	zassert_ok(fixture_alg_init(fixture));
 
+	zassert_equal(data->tpl_finger_size, CONFIG_FP_ALGORITHM_TEMPLATE_SIZE);
+	zassert_equal(data->tpl_subtemplate_size,
+		      FOCAL_TEMPLATE_SUBTEMPLATE_SIZE);
+	zassert_equal(data->tpl_head_size, FOCAL_TEMPLATE_HEADER_SIZE);
 	zassert_equal(focal_algo_version_fake.call_count, 1);
 	zassert_not_null(focal_algo_version_fake.arg0_val);
+}
+
+ZTEST_F(ft98xx_bio_alg, test_init_get_finger_detailed_info_failure)
+{
+	focal_algo_get_finger_detailed_info_fake.custom_fake = NULL;
+	focal_algo_get_finger_detailed_info_fake.return_val = -1;
+	zassert_equal(fingerprint_algorithm_init(fixture->alg), -EINVAL);
 }
 
 ZTEST_F(ft98xx_bio_alg, test_init_set_buffer_failure)
@@ -287,6 +300,38 @@ ZTEST_F(ft98xx_bio_alg, test_init_header_size_exact_lower_succeeds)
 	mock_detailed_info.head_size = 1;
 	zassert_ok(fixture_alg_init(fixture),
 		   "Expected success when template header size is 1.");
+}
+
+ZTEST_F(ft98xx_bio_alg, test_init_template_size_exact_lower_succeeds)
+{
+	struct ft_libfp_data *data = (struct ft_libfp_data *)fixture->alg->data;
+
+	mock_detailed_info.finger_size = 1;
+	zassert_ok(fixture_alg_init(fixture),
+		   "Expected success when template size is 1.");
+	zassert_equal(data->tpl_finger_size, 1);
+}
+
+ZTEST_F(ft98xx_bio_alg, test_init_template_size_negative_fails)
+{
+	mock_detailed_info.finger_size = -1;
+	zassert_equal(fingerprint_algorithm_init(fixture->alg), -EINVAL,
+		      "Expected -EINVAL when template size is negative.");
+}
+
+ZTEST_F(ft98xx_bio_alg, test_init_subtemplate_size_negative_fails)
+{
+	mock_detailed_info.subtpl_size = -1;
+	zassert_equal(fingerprint_algorithm_init(fixture->alg), -EINVAL,
+		      "Expected -EINVAL when sub-template size is negative.");
+}
+
+ZTEST_F(ft98xx_bio_alg, test_init_header_size_negative_fails)
+{
+	mock_detailed_info.head_size = -1;
+	zassert_equal(
+		fingerprint_algorithm_init(fixture->alg), -EINVAL,
+		"Expected -EINVAL when template header size is negative.");
 }
 
 ZTEST_F(ft98xx_bio_alg, test_exit_success)
