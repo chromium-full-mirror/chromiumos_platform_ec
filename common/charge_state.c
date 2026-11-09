@@ -74,7 +74,6 @@ static uint8_t battery_level_shutdown;
  * State for charger_task(). Here so we can reset it on a HOOK_INIT, and
  * because stack space is more limited than .bss
  */
-test_export_static const struct battery_info *batt_info;
 static struct charge_state_data curr;
 static enum charge_state prev_state;
 static int prev_ac, prev_charge, prev_disp_charge;
@@ -607,13 +606,13 @@ int set_chg_ctrl_mode(enum ec_charge_control_mode mode)
 static inline int battery_too_hot(int batt_temp_c)
 {
 	return (!(curr.batt.flags & BATT_FLAG_BAD_TEMPERATURE) &&
-		(batt_temp_c > batt_info->discharging_max_c));
+		(batt_temp_c > battery_get_info()->discharging_max_c));
 }
 
 static inline int battery_too_cold_for_discharge(int batt_temp_c)
 {
 	return (!(curr.batt.flags & BATT_FLAG_BAD_TEMPERATURE) &&
-		(batt_temp_c < batt_info->discharging_min_c));
+		(batt_temp_c < battery_get_info()->discharging_min_c));
 }
 
 __attribute__((weak)) uint8_t board_set_battery_level_shutdown(void)
@@ -627,7 +626,7 @@ static inline int battery_too_low(void)
 	return ((!(curr.batt.flags & BATT_FLAG_BAD_STATE_OF_CHARGE) &&
 		 curr.batt.state_of_charge < battery_level_shutdown) ||
 		(!(curr.batt.flags & BATT_FLAG_BAD_VOLTAGE) &&
-		 curr.batt.voltage <= batt_info->voltage_min));
+		 curr.batt.voltage <= battery_get_info()->voltage_min));
 }
 
 __attribute__((weak)) enum critical_shutdown
@@ -1065,6 +1064,9 @@ test_export_static void wakeup_battery(int *need_static)
 
 		if (timestamp.val >=
 		    precharge_start_time.val + precharge_delay) {
+			const struct battery_info *batt_info =
+				battery_get_info();
+
 			curr.requested_voltage = batt_info->voltage_max;
 			curr.requested_current = batt_info->precharge_current;
 		}
@@ -1093,6 +1095,8 @@ test_export_static void deep_charge_battery(int *need_static)
 		curr.requested_voltage = 0;
 		curr.requested_current = 0;
 	} else {
+		const struct battery_info *batt_info = battery_get_info();
+
 		/* See if we can wake it up */
 		if (curr.state != ST_PRECHARGE) {
 			CPRINTS("Start precharge for low voltage");
@@ -1108,6 +1112,8 @@ test_export_static void deep_charge_battery(int *need_static)
 
 test_export_static void revive_battery(int *need_static)
 {
+	const struct battery_info *batt_info = battery_get_info();
+
 	if (IS_ENABLED(CONFIG_BATTERY_REQUESTS_NIL_WHEN_DEAD) &&
 	    curr.requested_voltage == 0 && curr.requested_current == 0 &&
 	    curr.batt.state_of_charge == 0) {
@@ -1130,23 +1136,11 @@ test_export_static void revive_battery(int *need_static)
 		curr.requested_current = batt_info->precharge_current;
 	} else if (curr.state == ST_PRECHARGE || battery_seems_dead) {
 		CPRINTS("battery woke up");
-		/* Update the battery-specific values */
-		batt_info = battery_get_info();
 		*need_static = 1;
 	}
 
 	battery_seems_dead = 0;
 }
-
-/*
- * Initial batt_info for all batt_info parameter that can be used in some
- * functions start in HOOK_PRIO_DEFAULT.
- */
-static void init_battery_info(void)
-{
-	batt_info = battery_get_info();
-}
-DECLARE_HOOK(HOOK_INIT, init_battery_info, HOOK_PRIO_POST_BATTERY_INIT);
 
 /* Set up the initial state of the charger task */
 static void charger_setup(const struct charger_info *info)
@@ -1251,8 +1245,6 @@ static void process_battery_present_change(const struct charger_info *info,
 		init_battery_type();
 	}
 
-	batt_info = battery_get_info();
-
 	curr.desired_input_current = get_desired_input_current(info);
 	if (curr.desired_input_current != CHARGE_CURRENT_UNINITIALIZED)
 		charger_set_input_current_limit(chgnum,
@@ -1344,7 +1336,7 @@ test_export_static void decide_charge_state(int *need_staticp,
 	 */
 	if (IS_ENABLED(CONFIG_BATTERY_LOW_VOLTAGE_PROTECTION)) {
 		if (!(curr.batt.flags & BATT_FLAG_BAD_VOLTAGE) &&
-		    curr.batt.voltage <= batt_info->voltage_min) {
+		    curr.batt.voltage <= battery_get_info()->voltage_min) {
 			deep_charge_battery(need_staticp);
 			return;
 		}

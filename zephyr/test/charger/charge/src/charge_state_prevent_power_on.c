@@ -3,6 +3,7 @@
  * found in the LICENSE file.
  */
 
+#include "battery_fuel_gauge.h"
 #include "charge_state.h"
 #include "charger_test.h"
 
@@ -11,17 +12,30 @@
 /* Test external variable defined in charge_state_v2 */
 extern int charge_prevent_power_on_automatic_power_on;
 
-extern const struct battery_info *batt_info;
+extern const struct batt_conf_embed *battery_conf;
 
 struct charge_state_prevent_power_on_fixture {
 	struct charge_state_data charge_state_backup;
-	const struct battery_info *batt_info;
+	const struct batt_conf_embed *battery_conf;
 	int automatic_power_on;
 };
 
-static const struct battery_info BATT_INFO = {
-	.discharging_max_c = 50,
-	.discharging_min_c = 5,
+static const struct batt_conf_embed BATT_CONF = {
+	.config = {
+		.batt_info = {
+			.discharging_max_c = 50,
+			.discharging_min_c = 5,
+		},
+	},
+};
+
+static const struct batt_conf_embed UPDATED_BATT_CONF = {
+	.config = {
+		.batt_info = {
+			.discharging_max_c = 60,
+			.discharging_min_c = 10,
+		},
+	},
 };
 
 static void *setup(void)
@@ -39,7 +53,7 @@ static void before(void *f)
 	fixture->charge_state_backup = *charge_get_status();
 	fixture->automatic_power_on =
 		charge_prevent_power_on_automatic_power_on;
-	fixture->batt_info = batt_info;
+	fixture->battery_conf = battery_conf;
 
 	/* Reset the automatic_power_on global */
 	charge_prevent_power_on_automatic_power_on = 1;
@@ -48,7 +62,7 @@ static void before(void *f)
 	 * Set the battery temperature to a comfortable 20C,
 	 * it tolerates 5 to 50 degrees.
 	 */
-	batt_info = &BATT_INFO;
+	battery_conf = &BATT_CONF;
 	charge_get_status()->batt.temperature = 2931;
 }
 
@@ -60,7 +74,7 @@ static void after(void *f)
 	*charge_get_status() = fixture->charge_state_backup;
 	charge_prevent_power_on_automatic_power_on =
 		fixture->automatic_power_on;
-	batt_info = fixture->batt_info;
+	battery_conf = fixture->battery_conf;
 }
 
 ZTEST_SUITE(charge_state_prevent_power_on, charger_predicate_post_main, setup,
@@ -120,6 +134,33 @@ ZTEST(charge_state_prevent_power_on, test_extreme_temperature)
 	params->temperature = 2700;
 	zassert_true(charge_prevent_power_on(true));
 	zassert_true(charge_prevent_power_on(false));
+}
+
+ZTEST(charge_state_prevent_power_on, test_battery_conf_update)
+{
+	struct batt_params *params = &charge_get_status()->batt;
+
+	/*
+	 * Initial battery_conf (BATT_CONF) has discharging_max_c = 50,
+	 * discharging_min_c = 5.
+	 * At 55C (3281 dK), the battery is above discharging_max_c.
+	 */
+	params->temperature = 3281;
+	zassert_true(charge_prevent_power_on(true));
+
+	/*
+	 * Update battery_conf (modeling battery type retry completion). At 55C,
+	 * UPDATED_BATT_CONF tolerates up to 60C, so power-on is allowed.
+	 */
+	battery_conf = &UPDATED_BATT_CONF;
+	zassert_false(charge_prevent_power_on(true));
+
+	/*
+	 * At 8C (2811 dK), the battery is below UPDATED_BATT_CONF's minimum
+	 * discharging limit of 10C, so power-on is prevented.
+	 */
+	params->temperature = 2811;
+	zassert_true(charge_prevent_power_on(true));
 }
 
 ZTEST(charge_state_prevent_power_on, test_no_battery_insufficient_charger)
