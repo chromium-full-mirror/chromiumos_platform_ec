@@ -44,6 +44,10 @@ choice CBPRINTF_IMPLEMENTATION
 
 endchoice
 
+choice PICOLIBC_IO_LEVEL
+	default PICOLIBC_IO_INTEGER if CBPRINTF_NANO
+
+endchoice
 choice
 	prompt "Chromium OS EC firmware section"
 	default CROS_EC_RW
