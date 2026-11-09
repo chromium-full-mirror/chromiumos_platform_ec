@@ -12,11 +12,17 @@ choice TEST_PROJECT_TYPE
 		help
 		Enable tests for lapis variant.
 
+	config TEST_PROJECT_RUBY
+		bool "Enable ruby-specific tests"
+		help
+		  Enable ruby-specific tests.
+
 endchoice # TEST_PROJECT_TYPE
 
 config TEST_PROJECT_NAME
 	string "Board name"
 	default "lapis" if TEST_PROJECT_LAPIS
+	default "ruby" if TEST_PROJECT_RUBY
 
 config TEST_PROJECT_BATTERY
 	bool "Run the tests intended for battery.c"

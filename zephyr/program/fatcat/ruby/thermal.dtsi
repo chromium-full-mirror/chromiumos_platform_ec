@@ -48,6 +48,7 @@
 			rpm-start = <2500>;
 			rpm-max = <4300>;
 			tach = <&tach1>;
+			rpm-deviation = <1>;
 			enable-gpio = <&gpio_en_pp5000_fan>;
 			init-speed = <50>;
 		};

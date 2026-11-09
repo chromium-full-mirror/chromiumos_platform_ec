@@ -12,5 +12,6 @@ add_subdirectory(${PLATFORM_EC}/zephyr/test/test_utils test_utils)
 
 add_subdirectory(tests/program)
 add_subdirectory_ifdef(CONFIG_TEST_PROJECT_LAPIS tests/lapis)
+add_subdirectory_ifdef(CONFIG_TEST_PROJECT_RUBY tests/ruby)
 
 set_compiler_property(APPEND PROPERTY coverage -O0)

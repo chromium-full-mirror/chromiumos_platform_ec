@@ -19,3 +19,14 @@ tests:
       - CONFIG_TEST_PROJECT_BATTERY=y
       - CONFIG_PLATFORM_EC_HOOKS=y
       - CONFIG_PLATFORM_EC_BBRAM_TYPE_BBRAM=y
+
+  fatcat.ruby.fan:
+    extra_dtc_overlay_files:
+      - boards/native_sim.overlay
+      - boards/ruby_fan.overlay
+    extra_configs:
+      - CONFIG_TEST_PROJECT_RUBY=y
+      - CONFIG_PLATFORM_EC_HOOKS=y
+      - CONFIG_PLATFORM_EC_TEMP_SENSOR=y
+      - CONFIG_ADC=y
+      - CONFIG_ADC_EMUL=y
