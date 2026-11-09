@@ -17,6 +17,8 @@
 #include "util.h"
 #include "write_protect.h"
 
+#include <zephyr/shell/shell.h>
+
 /* Console output macros */
 #define CPUTS(outstr) cputs(CC_SWITCH, outstr)
 #define CPRINTS(format, args...) cprints(CC_SWITCH, format, ##args)
@@ -87,7 +89,8 @@ void switch_interrupt(enum gpio_signal signal)
 }
 
 #ifdef CONFIG_CMD_MMAPINFO
-static int command_mmapinfo(int argc, const char **argv)
+static int command_mmapinfo(const struct shell *sh, size_t argc,
+			    const char **argv)
 {
 	uint8_t *memmap_switches = host_get_memmap(EC_MEMMAP_SWITCHES);
 	uint8_t val = *memmap_switches;
@@ -96,13 +99,13 @@ static int command_mmapinfo(int argc, const char **argv)
 		"lid_open", "powerbtn", "wp_off",
 		"kbd_rec",  "gpio_rec", "fake_dev",
 	};
-	ccprintf("memmap switches = 0x%x\n", val);
+	shell_print(sh, "memmap switches = 0x%x", val);
 	for (i = 0; i < ARRAY_SIZE(explanation); i++)
 		if (val & BIT(i))
-			ccprintf(" %s\n", explanation[i]);
+			shell_print(sh, " %s", explanation[i]);
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(mmapinfo, command_mmapinfo, NULL,
-			"Print memmap switch state");
+SHELL_CMD_ARG_REGISTER(mmapinfo, NULL, "Print memmap switch state",
+		       command_mmapinfo, 1, 0);
 #endif
