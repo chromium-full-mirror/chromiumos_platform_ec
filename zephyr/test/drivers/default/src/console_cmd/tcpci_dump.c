@@ -15,8 +15,7 @@ ZTEST_USER(console_cmd_tcpci_dump, test_no_params)
 {
 	int rv = shell_execute_cmd(get_ec_shell(), "tcpci_dump");
 
-	zassert_equal(rv, EC_ERROR_PARAM_COUNT, "Expected %d, but got %d",
-		      EC_ERROR_PARAM_COUNT, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_USER(console_cmd_tcpci_dump, test_good_index)
@@ -29,8 +28,7 @@ ZTEST_USER(console_cmd_tcpci_dump, test_bad_index)
 {
 	int rv = shell_execute_cmd(get_ec_shell(), "tcpci_dump 84");
 
-	zassert_equal(rv, EC_ERROR_INVAL, "Expected %d, but got %d",
-		      EC_ERROR_INVAL, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 static void console_cmd_tcpci_dump_begin(void *data)

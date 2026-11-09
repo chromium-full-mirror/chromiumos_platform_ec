@@ -16,6 +16,8 @@
 #include "usb_charge.h"
 #include "util.h"
 
+#include <zephyr/shell/shell.h>
+
 #define CPUTS(outstr) cputs(CC_USBCHARGE, outstr)
 #define CPRINTS(format, args...) cprints(CC_USBCHARGE, format, ##args)
 
@@ -92,7 +94,8 @@ EC_HOST_CMD_HANDLER_REQ_ONLY(EC_CMD_USB_CHARGE_SET_MODE,
 /*****************************************************************************/
 /* Console commands */
 
-static int command_set_mode(int argc, const char **argv)
+static int command_set_mode(const struct shell *sh, size_t argc,
+			    const char **argv)
 {
 	int port_id = -1;
 	int mode = -1;
@@ -103,24 +106,26 @@ static int command_set_mode(int argc, const char **argv)
 	case 3:
 		port_id = strtoi(argv[1], &e, 0);
 		if (*e || port_id < 0 || port_id >= USB_PORT_COUNT)
-			return EC_ERROR_PARAM1;
+			return -EINVAL;
 
 		if (!parse_bool(argv[2], &mode))
-			return EC_ERROR_PARAM2;
+			return -EINVAL;
 
 		usb_port_set_enabled(port_id, mode);
 		__fallthrough;
 	case 1:
 		for (i = 0; i < USB_PORT_COUNT; i++)
-			ccprintf("Port %d: %s\n", i,
-				 charge_mode[i] ? "on" : "off");
-		return EC_SUCCESS;
+			shell_print(sh, "Port %d: %s", i,
+				    charge_mode[i] ? "on" : "off");
+		return 0;
 	}
 
-	return EC_ERROR_PARAM_COUNT;
+	return -EINVAL;
 }
-DECLARE_CONSOLE_COMMAND(usbchargemode, command_set_mode, "[<port> <on | off>]",
-			"Set USB charge mode");
+SHELL_CMD_ARG_REGISTER(usbchargemode, NULL,
+		       "Set USB charge mode\n"
+		       "Usage: usbchargemode [<port> <on | off>]",
+		       command_set_mode, 1, 2);
 
 /*****************************************************************************/
 /* Hooks */

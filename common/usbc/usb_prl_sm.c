@@ -33,6 +33,8 @@
 #include "util.h"
 #include "vpd_api.h"
 
+#include <zephyr/shell/shell.h>
+
 #ifdef CONFIG_COMMON_RUNTIME
 #define CPRINTF(format, args...) cprintf(CC_USBPD, format, ##args)
 #define CPRINTS(format, args...) cprints(CC_USBPD, format, ##args)
@@ -2527,17 +2529,18 @@ static void prl_event_log_append(enum prl_event_log_state_kind kind, int port)
 			     ARRAY_SIZE(prl_event_log_buffer)] = entry;
 }
 
-static int command_prllog(int argc, const char **argv)
+static int command_prllog(const struct shell *sh, size_t argc,
+			  const char **argv)
 {
-	if (argc == 2 && strcmp("clear", argv[1]) == 0) {
+	if (argc == 2) {
+		if (strcmp("clear", argv[1]) != 0)
+			return -EINVAL;
 		/* Clear buffer contents */
 		for (int i = 0; i < ARRAY_SIZE(prl_event_log_buffer); i++) {
 			memset(prl_event_log_buffer, 0,
 			       sizeof(prl_event_log_buffer));
 		}
-		return EC_SUCCESS;
-	} else if (argc != 1) {
-		return EC_ERROR_PARAM1;
+		return 0;
 	}
 
 	/* Locate the oldest entry in the buffer, to start output there. */
@@ -2565,7 +2568,7 @@ static int command_prllog(int argc, const char **argv)
 	}
 	if (oldest_index == INT_MAX) {
 		/* No valid entries in the buffer. */
-		return EC_SUCCESS;
+		return 0;
 	}
 
 	/* Dump buffer contents */
@@ -2606,10 +2609,12 @@ static int command_prllog(int argc, const char **argv)
 			continue;
 		}
 	}
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(prllog, command_prllog, "[clear]",
-			"Dump USB-PD PRL state log");
+SHELL_CMD_ARG_REGISTER(prllog, NULL,
+		       "Dump USB-PD PRL state log\n"
+		       "Usage: prllog [clear]",
+		       command_prllog, 1, 1);
 #else
 __maybe_unused static void
 prl_event_log_append(enum prl_event_log_state_kind kind, int port)

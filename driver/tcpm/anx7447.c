@@ -17,6 +17,8 @@
 #include "usb_pd.h"
 #include "util.h"
 
+#include <zephyr/shell/shell.h>
+
 #define CPRINTS(format, args...) cprints(CC_USBCHARGE, format, ##args)
 #define CPRINTF(format, args...) cprintf(CC_USBCHARGE, format, ##args)
 
@@ -250,37 +252,36 @@ int anx7447_flash_erase(int port)
 }
 
 /* Add console command to erase OCM flash if needed. */
-static int command_anx_ocm(int argc, const char **argv)
+static int command_anx_ocm(const struct shell *sh, size_t argc, char **argv)
 {
 	char *e = NULL;
 	int port;
 
-	if (argc < 2)
-		return EC_ERROR_PARAM_COUNT;
-
 	/* Get port number from first parameter */
 	port = strtoi(argv[1], &e, 0);
 	if (*e)
-		return EC_ERROR_PARAM1;
+		return -EINVAL;
 
 	if (argc > 2) {
 		int rv;
 		if (strcasecmp(argv[2], "erase"))
-			return EC_ERROR_PARAM2;
+			return -EINVAL;
 		rv = anx7447_flash_erase_internal(
 			port, 1 /* write to console if empty */);
 		if (rv)
-			ccprintf("C%d: Failed to erase OCM flash (%d)\n", port,
-				 rv);
+			shell_print(sh, "C%d: Failed to erase OCM flash (%d)",
+				    port, rv);
 	}
 
-	ccprintf("C%d: OCM flash is %sempty.\n", port,
-		 anx7447_flash_is_empty(port) ? "" : "not ");
+	shell_print(sh, "C%d: OCM flash is %sempty.", port,
+		    anx7447_flash_is_empty(port) ? "" : "not ");
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(anx_ocm, command_anx_ocm, "port [erase]",
-			"Print OCM status or erases OCM for a given port.");
+SHELL_CMD_ARG_REGISTER(anx_ocm, NULL,
+		       "Print OCM status or erases OCM for a given port.\n"
+		       "Usage: anx_ocm port [erase]",
+		       command_anx_ocm, 2, 1);
 #endif
 
 static int anx7447_init(int port)

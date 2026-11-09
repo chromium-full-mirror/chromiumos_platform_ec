@@ -19,6 +19,7 @@
 #include "usbc_ppc.h"
 #include "util.h"
 
+#include <zephyr/shell/shell.h>
 #include <zephyr/sys/atomic.h>
 
 #ifdef CONFIG_COMMON_RUNTIME
@@ -833,7 +834,7 @@ static void usb_mux_reset_in_g3(void)
 DECLARE_HOOK(HOOK_CHIPSET_HARD_OFF, usb_mux_reset_in_g3, HOOK_PRIO_DEFAULT);
 
 #ifdef CONFIG_CMD_TYPEC
-static int command_typec(int argc, const char **argv)
+static int command_typec(const struct shell *sh, size_t argc, char **argv)
 {
 	const char *const mux_name[] = { "none", "usb", "dp", "dock" };
 	char *e;
@@ -843,33 +844,32 @@ static int command_typec(int argc, const char **argv)
 
 	if (argc == 2 && !strcasecmp(argv[1], "debug")) {
 		enable_debug_prints = 1;
-		return EC_SUCCESS;
+		return 0;
 	}
-
-	if (argc < 2)
-		return EC_ERROR_PARAM_COUNT;
 
 	port = strtoi(argv[1], &e, 10);
 	if (*e || port >= board_get_usb_pd_port_count())
-		return EC_ERROR_PARAM1;
+		return -EINVAL;
 
 	if (argc < 3) {
 		mux_state_t mux_state;
 
 		mux_state = usb_mux_get(port);
-		ccprintf("Port %d: USB=%d DP=%d POLARITY=%s HPD_IRQ=%d "
-			 "HPD_LVL=%d SAFE=%d TBT=%d USB4=%d\n",
-			 port, !!(mux_state & USB_PD_MUX_USB_ENABLED),
-			 !!(mux_state & USB_PD_MUX_DP_ENABLED),
-			 mux_state & USB_PD_MUX_POLARITY_INVERTED ? "INVERTED" :
-								    "NORMAL",
-			 !!(mux_state & USB_PD_MUX_HPD_IRQ),
-			 !!(mux_state & USB_PD_MUX_HPD_LVL),
-			 !!(mux_state & USB_PD_MUX_SAFE_MODE),
-			 !!(mux_state & USB_PD_MUX_TBT_COMPAT_ENABLED),
-			 !!(mux_state & USB_PD_MUX_USB4_ENABLED));
+		shell_print(sh,
+			    "Port %d: USB=%d DP=%d POLARITY=%s HPD_IRQ=%d "
+			    "HPD_LVL=%d SAFE=%d TBT=%d USB4=%d",
+			    port, !!(mux_state & USB_PD_MUX_USB_ENABLED),
+			    !!(mux_state & USB_PD_MUX_DP_ENABLED),
+			    mux_state & USB_PD_MUX_POLARITY_INVERTED ?
+				    "INVERTED" :
+				    "NORMAL",
+			    !!(mux_state & USB_PD_MUX_HPD_IRQ),
+			    !!(mux_state & USB_PD_MUX_HPD_LVL),
+			    !!(mux_state & USB_PD_MUX_SAFE_MODE),
+			    !!(mux_state & USB_PD_MUX_TBT_COMPAT_ENABLED),
+			    !!(mux_state & USB_PD_MUX_USB4_ENABLED));
 
-		return EC_SUCCESS;
+		return 0;
 	}
 
 	for (i = 0; i < ARRAY_SIZE(mux_name); i++)
@@ -879,10 +879,12 @@ static int command_typec(int argc, const char **argv)
 		    mux == USB_PD_MUX_NONE ? USB_SWITCH_DISCONNECT :
 					     USB_SWITCH_CONNECT,
 		    polarity_rm_dts(pd_get_polarity(port)));
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(typec, command_typec, "[port|debug] [none|usb|dp|dock]",
-			"Control type-C connector muxing");
+SHELL_CMD_ARG_REGISTER(typec, NULL,
+		       "Control type-C connector muxing\n"
+		       "Usage: typec [port|debug] [none|usb|dp|dock]",
+		       command_typec, 2, 1);
 #endif
 
 #ifdef CONFIG_PLATFORM_EC_HOSTCMD_USB_PD_MUX_INFO
@@ -948,41 +950,39 @@ EC_HOST_CMD_HANDLER_REQ_ONLY(EC_CMD_USB_PD_MUX_ACK, hc_usb_pd_mux_ack,
 			     EC_VER_MASK(0), struct ec_params_usb_pd_mux_ack);
 
 #ifdef CONFIG_CMD_RETIMER
-static int console_command_retimer(int argc, const char **argv)
+static int console_command_retimer(const struct shell *sh, size_t argc,
+				   char **argv)
 {
 	char rw, *e;
 	uint32_t reg, data, val = 0;
-	int port, rv = EC_ERROR_UNIMPLEMENTED;
+	int port, rv = -ENOTSUP;
 	const struct usb_mux *mux;
 	const struct usb_mux_chain *mux_chain;
-
-	if (argc < 4 || argc > 5)
-		return EC_ERROR_PARAM_COUNT;
 
 	/* Get port number */
 	port = strtoi(argv[1], &e, 0);
 	if (*e || !board_is_usb_pd_port_present(port))
-		return EC_ERROR_PARAM1;
+		return -EINVAL;
 
 	mux_chain = &usb_muxes[port];
 	if (!mux_chain)
-		return EC_ERROR_PARAM1;
+		return -EINVAL;
 
 	/* Validate r/w selection */
 	rw = argv[2][0];
 	if (rw != 'w' && rw != 'r')
-		return EC_ERROR_PARAM2;
+		return -EINVAL;
 
 	/* Get register address */
 	reg = strtoull(argv[3], &e, 0);
 	if (*e)
-		return EC_ERROR_PARAM3;
+		return -EINVAL;
 
 	/* Get value to be written */
 	if (rw == 'w') {
 		val = strtoull(argv[4], &e, 0);
 		if (*e)
-			return EC_ERROR_PARAM4;
+			return -EINVAL;
 	}
 
 	/*
@@ -1002,13 +1002,15 @@ static int console_command_retimer(int argc, const char **argv)
 			} else {
 				rv = mux->driver->retimer_write(mux, reg, val);
 			}
+			rv = rv ? -EIO : 0;
 		}
 	}
 
 	return rv;
 }
-DECLARE_CONSOLE_COMMAND(retimer, console_command_retimer,
-			"<port> r <reg>"
-			"\n<port> w <reg> <val>",
-			"Read or write to retimer register");
+SHELL_CMD_ARG_REGISTER(retimer, NULL,
+		       "Read or write to retimer register\n"
+		       "Usage: retimer <port> r <reg>\n"
+		       "<port> w <reg> <val>",
+		       console_command_retimer, 4, 1);
 #endif /* CONFIG_CMD_RETIMER */

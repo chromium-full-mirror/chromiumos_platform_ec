@@ -38,12 +38,10 @@ ZTEST_USER(console_cmd_usb_pd, test_too_few_args)
 	int rv;
 
 	rv = shell_execute_cmd(get_ec_shell(), "pd");
-	zassert_equal(rv, EC_ERROR_PARAM_COUNT, "Expected %d, but got %d",
-		      EC_ERROR_PARAM_COUNT, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 
 	rv = shell_execute_cmd(get_ec_shell(), "pd 0");
-	zassert_equal(rv, EC_ERROR_PARAM_COUNT, "Expected %d, but got %d",
-		      EC_ERROR_PARAM_COUNT, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_USER(console_cmd_usb_pd, test_dump)
@@ -63,8 +61,7 @@ ZTEST_USER(console_cmd_usb_pd, test_dump)
 		      rv);
 
 	rv = shell_execute_cmd(get_ec_shell(), "pd dump x");
-	zassert_equal(rv, EC_ERROR_PARAM2, "Expected %d, but got %d",
-		      EC_ERROR_PARAM2, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_USER(console_cmd_usb_pd, test_trysrc)
@@ -80,8 +77,7 @@ ZTEST_USER(console_cmd_usb_pd, test_trysrc)
 		      rv);
 
 	rv = shell_execute_cmd(get_ec_shell(), "pd trysrc 5");
-	zassert_equal(rv, EC_ERROR_PARAM3, "Expected %d, but got %d",
-		      EC_ERROR_PARAM3, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_USER(console_cmd_usb_pd, test_version)
@@ -98,12 +94,10 @@ ZTEST_USER(console_cmd_usb_pd, test_bad_port)
 	int rv;
 
 	rv = shell_execute_cmd(get_ec_shell(), "pd 5");
-	zassert_equal(rv, EC_ERROR_PARAM_COUNT, "Expected %d, but got %d",
-		      EC_ERROR_PARAM_COUNT, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 
 	rv = shell_execute_cmd(get_ec_shell(), "pd 5 tx");
-	zassert_equal(rv, EC_ERROR_PARAM2, "Expected %d, but got %d",
-		      EC_ERROR_PARAM2, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_USER(console_cmd_usb_pd, test_tx)
@@ -137,8 +131,7 @@ ZTEST_USER(console_cmd_usb_pd, test_dev)
 		      rv);
 
 	rv = shell_execute_cmd(get_ec_shell(), "pd 0 dev x");
-	zassert_equal(rv, EC_ERROR_PARAM3, "Expected %d, but got %d",
-		      EC_ERROR_PARAM3, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_USER(console_cmd_usb_pd, test_disable)
@@ -190,8 +183,7 @@ ZTEST_USER(console_cmd_usb_pd, test_bistsharemode)
 		      rv);
 
 	rv = shell_execute_cmd(get_ec_shell(), "pd bistsharemode foo");
-	zassert_equal(rv, EC_ERROR_PARAM2, "Expected %d, but got %d",
-		      EC_ERROR_PARAM2, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_USER(console_cmd_usb_pd, test_hard)
@@ -217,8 +209,7 @@ ZTEST_USER(console_cmd_usb_pd, test_swap)
 	int rv;
 
 	rv = shell_execute_cmd(get_ec_shell(), "pd 0 swap");
-	zassert_equal(rv, EC_ERROR_PARAM_COUNT, "Expected %d, but got %d",
-		      EC_ERROR_PARAM_COUNT, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 
 	rv = shell_execute_cmd(get_ec_shell(), "pd 0 swap power");
 	zassert_equal(rv, EC_SUCCESS, "Expected %d, but got %d", EC_SUCCESS,
@@ -233,8 +224,7 @@ ZTEST_USER(console_cmd_usb_pd, test_swap)
 		      rv);
 
 	rv = shell_execute_cmd(get_ec_shell(), "pd 0 swap x");
-	zassert_equal(rv, EC_ERROR_PARAM3, "Expected %d, but got %d",
-		      EC_ERROR_PARAM3, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_USER(console_cmd_usb_pd, test_dualrole)
@@ -266,8 +256,7 @@ ZTEST_USER(console_cmd_usb_pd, test_dualrole)
 		      rv);
 
 	rv = shell_execute_cmd(get_ec_shell(), "pd 0 dualrole x");
-	zassert_equal(rv, EC_ERROR_PARAM4, "Expected %d, but got %d",
-		      EC_ERROR_PARAM4, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 
 	pd_set_dual_role(0, PD_DRP_TOGGLE_OFF);
 	CHECK_CONSOLE_CMD("pd 0 dualrole", "dual-role toggling: off",
@@ -372,16 +361,13 @@ ZTEST_USER(console_cmd_usb_pd, test_pe)
 
 	/* Handle error scenarios */
 	rv = shell_execute_cmd(get_ec_shell(), "pe 0");
-	zassert_equal(rv, EC_ERROR_PARAM_COUNT, "Expected %d, but got %d",
-		      EC_ERROR_PARAM_COUNT, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 
 	rv = shell_execute_cmd(get_ec_shell(), "pe x dump");
-	zassert_equal(rv, EC_ERROR_PARAM2, "Expected %d, but got %d",
-		      EC_ERROR_PARAM2, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 
 	rv = shell_execute_cmd(get_ec_shell(), "pe \" -1\" dump");
-	zassert_equal(rv, EC_ERROR_PARAM2, "Expected %d, but got %d",
-		      EC_ERROR_PARAM2, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_USER(console_cmd_usb_pd, test_pdcable)
@@ -405,14 +391,11 @@ ZTEST_USER(console_cmd_usb_pd, test_pdcable)
 
 	/* Handle error scenarios */
 	rv = shell_execute_cmd(get_ec_shell(), "pdcable");
-	zassert_equal(rv, EC_ERROR_PARAM_COUNT, "Expected %d, but got %d",
-		      EC_ERROR_PARAM_COUNT, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 
 	rv = shell_execute_cmd(get_ec_shell(), "pdcable t");
-	zassert_equal(rv, EC_ERROR_PARAM2, "Expected %d, but got %d",
-		      EC_ERROR_PARAM2, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 
 	rv = shell_execute_cmd(get_ec_shell(), "pdcable \" -1\"");
-	zassert_equal(rv, EC_ERROR_PARAM2, "Expected %d, but got %d",
-		      EC_ERROR_PARAM2, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }

@@ -20,8 +20,7 @@ ZTEST(usbc_ppc, test_ppc_dump__no_args)
 	const struct shell *shell_zephyr = get_ec_shell();
 
 	/* There's no output from the cmd given < 2 args */
-	zassert_equal(shell_execute_cmd(shell_zephyr, "ppc_dump"),
-		      EC_ERROR_PARAM_COUNT);
+	zassert_equal(shell_execute_cmd(shell_zephyr, "ppc_dump"), -EINVAL);
 }
 
 ZTEST(usbc_ppc, test_ppc_dump__bad_args)
@@ -32,8 +31,7 @@ ZTEST(usbc_ppc, test_ppc_dump__bad_args)
 
 	shell_backend_dummy_clear_output(shell_zephyr);
 
-	zassert_equal(shell_execute_cmd(shell_zephyr, "ppc_dump -1"),
-		      EC_ERROR_INVAL);
+	zassert_equal(shell_execute_cmd(shell_zephyr, "ppc_dump -1"), -EINVAL);
 	outbuffer = shell_backend_dummy_get_output(shell_zephyr, &buffer_size);
 
 	zassert_true(buffer_size > 0);

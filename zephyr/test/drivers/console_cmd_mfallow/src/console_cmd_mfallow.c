@@ -185,21 +185,21 @@ ZTEST_F(console_cmd_mfallow, test_mfallow_bad_arg_num)
 {
 	int rv = shell_execute_cmd(get_ec_shell(), "mfallow");
 
-	zassert_equal(EC_ERROR_PARAM_COUNT, rv);
+	zassert_equal(-EINVAL, rv);
 }
 
 ZTEST_F(console_cmd_mfallow, test_mfallow_bad_port)
 {
 	int rv = shell_execute_cmd(get_ec_shell(), "mfallow fish true");
 
-	zassert_equal(EC_ERROR_PARAM1, rv);
+	zassert_equal(-EINVAL, rv);
 }
 
 ZTEST_F(console_cmd_mfallow, test_mfallow_bad_boolean)
 {
 	int rv = shell_execute_cmd(get_ec_shell(), "mfallow 0 sardine");
 
-	zassert_equal(EC_ERROR_PARAM2, rv);
+	zassert_equal(-EINVAL, rv);
 }
 
 ZTEST_F(console_cmd_mfallow, test_mfallow_true)

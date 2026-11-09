@@ -971,8 +971,8 @@ ZTEST(usb_init_mux, test_usb_mux_typec_command)
 	mux_state_t exp_mode;
 
 	/* Test error on command with no argument */
-	zassert_equal(EC_ERROR_PARAM_COUNT,
-		      shell_execute_cmd(get_ec_shell(), "typec"), NULL);
+	zassert_equal(-EINVAL, shell_execute_cmd(get_ec_shell(), "typec"),
+		      NULL);
 
 	/*
 	 * Test success on passing "debug" as first argument. This will enable
@@ -983,12 +983,12 @@ ZTEST(usb_init_mux, test_usb_mux_typec_command)
 		      shell_execute_cmd(get_ec_shell(), "typec debug"), NULL);
 
 	/* Test error on port argument that is not a number */
-	zassert_equal(EC_ERROR_PARAM1,
-		      shell_execute_cmd(get_ec_shell(), "typec test1"), NULL);
+	zassert_equal(-EINVAL, shell_execute_cmd(get_ec_shell(), "typec test1"),
+		      NULL);
 
 	/* Test error on invalid port number */
-	zassert_equal(EC_ERROR_PARAM1,
-		      shell_execute_cmd(get_ec_shell(), "typec 5"), NULL);
+	zassert_equal(-EINVAL, shell_execute_cmd(get_ec_shell(), "typec 5"),
+		      NULL);
 
 	/*
 	 * Test success on correct port number. Command should print mux state

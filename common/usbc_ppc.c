@@ -13,6 +13,7 @@
 #include "usbc_ppc.h"
 #include "util.h"
 
+#include <zephyr/shell/shell.h>
 #include <zephyr/sys/atomic.h>
 
 #ifndef TEST_LEGACY_BUILD
@@ -310,27 +311,27 @@ int ppc_is_vbus_present(int port)
 #endif /* defined(CONFIG_USB_PD_VBUS_DETECT_PPC) */
 
 #ifdef CONFIG_CMD_PPC_DUMP
-static int command_ppc_dump(int argc, const char **argv)
+static int command_ppc_dump(const struct shell *sh, size_t argc,
+			    const char **argv)
 {
 	int port;
-	int rv = EC_ERROR_UNIMPLEMENTED;
+	int rv = -ENOTSUP;
 	const struct ppc_config_t *ppc;
-
-	if (argc < 2)
-		return EC_ERROR_PARAM_COUNT;
 
 	port = atoi(argv[1]);
 	if ((port < 0) || (port >= ppc_cnt)) {
 		CPRINTS("%s(%d) Invalid port!", __func__, port);
-		return EC_ERROR_INVAL;
+		return -EINVAL;
 	}
 
 	ppc = &ppc_chips[port];
 	if (ppc->drv->reg_dump)
-		rv = ppc->drv->reg_dump(port);
+		rv = ppc->drv->reg_dump(port) ? -EIO : 0;
 
 	return rv;
 }
-DECLARE_CONSOLE_COMMAND(ppc_dump, command_ppc_dump, "<Type-C port>",
-			"dump the PPC regs");
+SHELL_CMD_ARG_REGISTER(ppc_dump, NULL,
+		       "dump the PPC regs\n"
+		       "Usage: ppc_dump <Type-C port>",
+		       command_ppc_dump, 2, 0);
 #endif /* defined(CONFIG_CMD_PPC_DUMP) */

@@ -198,15 +198,13 @@ ZTEST_F(usbc_console_pd, test_pd_srccaps)
 ZTEST_F(usbc_console_pd, test_pd_usage_and_invalid_args)
 {
 	/* Insufficient argument count */
-	zassert_equal(EC_ERROR_PARAM_COUNT,
-		      shell_execute_cmd(get_ec_shell(), "pd"));
-	zassert_equal(EC_ERROR_PARAM_COUNT,
-		      shell_execute_cmd(get_ec_shell(), "pd 0"));
+	zassert_equal(-EINVAL, shell_execute_cmd(get_ec_shell(), "pd"));
+	zassert_equal(-EINVAL, shell_execute_cmd(get_ec_shell(), "pd 0"));
 
 	/* Invalid port numbers */
-	zassert_equal(EC_ERROR_PARAM2,
+	zassert_equal(-EINVAL,
 		      shell_execute_cmd(get_ec_shell(), "pd invalid state"));
-	zassert_equal(EC_ERROR_PARAM2,
+	zassert_equal(-EINVAL,
 		      shell_execute_cmd(get_ec_shell(), "pd 99 state"));
 }
 
@@ -216,9 +214,8 @@ ZTEST_F(usbc_console_pd, test_pd_dump)
 	size_t output_size = 0;
 
 	/* Insufficient argument count falls through to param count error */
-	zassert_equal(EC_ERROR_PARAM_COUNT,
-		      shell_execute_cmd(get_ec_shell(), "pd dump"));
-	zassert_equal(EC_ERROR_PARAM2,
+	zassert_equal(-EINVAL, shell_execute_cmd(get_ec_shell(), "pd dump"));
+	zassert_equal(-EINVAL,
 		      shell_execute_cmd(get_ec_shell(), "pd dump invalid"));
 
 	/* Test level < DEBUG_DISABLE clamp */
@@ -277,9 +274,9 @@ ZTEST_F(usbc_console_pd, test_pd_trysrc)
 	zassert_not_null(strstr(cmd_output, "Try.SRC System controlled"));
 
 	/* Invalid arguments */
-	zassert_equal(EC_ERROR_PARAM3,
+	zassert_equal(-EINVAL,
 		      shell_execute_cmd(get_ec_shell(), "pd trysrc 3"));
-	zassert_equal(EC_ERROR_PARAM3,
+	zassert_equal(-EINVAL,
 		      shell_execute_cmd(get_ec_shell(), "pd trysrc invalid"));
 }
 
@@ -302,9 +299,8 @@ ZTEST_F(usbc_console_pd, test_pd_bistsharemode)
 		shell_execute_cmd(get_ec_shell(), "pd bistsharemode enable"));
 	zassert_ok(
 		shell_execute_cmd(get_ec_shell(), "pd bistsharemode disable"));
-	zassert_equal(EC_ERROR_PARAM2,
-		      shell_execute_cmd(get_ec_shell(),
-					"pd bistsharemode invalid"));
+	zassert_equal(-EINVAL, shell_execute_cmd(get_ec_shell(),
+						 "pd bistsharemode invalid"));
 }
 
 ZTEST_F(usbc_console_pd, test_pd_dual_role_actions)
@@ -334,7 +330,7 @@ ZTEST_F(usbc_console_pd, test_pd_dual_role_actions)
 	zassert_not_null(strstr(cmd_output, "max req: 15000mV"));
 
 	/* dev subcmd invalid arg */
-	zassert_equal(EC_ERROR_PARAM3,
+	zassert_equal(-EINVAL,
 		      shell_execute_cmd(get_ec_shell(), "pd 0 dev invalid"));
 
 	/* disable / enable */
@@ -365,8 +361,7 @@ ZTEST_F(usbc_console_pd, test_pd_swap)
 		ztest_test_skip();
 	}
 
-	zassert_equal(EC_ERROR_PARAM_COUNT,
-		      shell_execute_cmd(get_ec_shell(), "pd 0 swap"));
+	zassert_equal(-EINVAL, shell_execute_cmd(get_ec_shell(), "pd 0 swap"));
 
 	zassert_ok(shell_execute_cmd(get_ec_shell(), "pd 0 swap power"));
 	zassert_ok(shell_execute_cmd(get_ec_shell(), "pd 0 swap data"));
@@ -376,7 +371,7 @@ ZTEST_F(usbc_console_pd, test_pd_swap)
 			shell_execute_cmd(get_ec_shell(), "pd 0 swap vconn"));
 	}
 
-	zassert_equal(EC_ERROR_PARAM3,
+	zassert_equal(-EINVAL,
 		      shell_execute_cmd(get_ec_shell(), "pd 0 swap invalid"));
 }
 
@@ -431,9 +426,8 @@ ZTEST_F(usbc_console_pd, test_pd_dualrole)
 		strstr(cmd_output, "dual-role toggling: force source"));
 
 	/* invalid */
-	zassert_equal(EC_ERROR_PARAM4,
-		      shell_execute_cmd(get_ec_shell(),
-					"pd 0 dualrole invalid"));
+	zassert_equal(-EINVAL, shell_execute_cmd(get_ec_shell(),
+						 "pd 0 dualrole invalid"));
 }
 
 ZTEST_F(usbc_console_pd, test_pd_state_and_info)

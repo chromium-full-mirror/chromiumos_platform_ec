@@ -25,6 +25,7 @@
 #include "util.h"
 
 #include <zephyr/kernel.h>
+#include <zephyr/shell/shell.h>
 
 #define CPRINTS(format, args...) cprints(CC_USBCHARGE, format, ##args)
 #define CPRINTF(format, args...) cprintf(CC_USBCHARGE, format, ##args)
@@ -597,7 +598,8 @@ int rt1718s_gpio_get_level(int port, enum rt1718s_gpio signal)
 	return !!(val & RT1718S_GPIO_CTRL_I);
 }
 
-static int command_rt1718s_gpio(int argc, const char **argv)
+static int command_rt1718s_gpio(const struct shell *sh, size_t argc,
+				char **argv)
 {
 	int i, j;
 	uint32_t flags;
@@ -611,19 +613,21 @@ static int command_rt1718s_gpio(int argc, const char **argv)
 
 			rv = rt1718s_read8(i, RT1718S_GPIO_CTRL(j), &flags);
 			if (rv)
-				return EC_ERROR_UNKNOWN;
+				return -EIO;
 
-			ccprintf("C%d GPIO%d OD=%d PU=%d PD=%d OE=%d HL=%d\n",
-				 i, j + 1, !(flags & RT1718S_GPIO_CTRL_OD_N),
-				 !!(flags & RT1718S_GPIO_CTRL_PU),
-				 !!(flags & RT1718S_GPIO_CTRL_PD),
-				 !!(flags & RT1718S_GPIO_CTRL_OE),
-				 !!(flags & RT1718S_GPIO_CTRL_O));
+			shell_print(sh,
+				    "C%d GPIO%d OD=%d PU=%d PD=%d OE=%d HL=%d",
+				    i, j + 1, !(flags & RT1718S_GPIO_CTRL_OD_N),
+				    !!(flags & RT1718S_GPIO_CTRL_PU),
+				    !!(flags & RT1718S_GPIO_CTRL_PD),
+				    !!(flags & RT1718S_GPIO_CTRL_OE),
+				    !!(flags & RT1718S_GPIO_CTRL_O));
 		}
 	}
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(rt1718s_gpio, command_rt1718s_gpio, "", "RT1718S GPIO");
+SHELL_CMD_ARG_REGISTER(rt1718s_gpio, NULL, "RT1718S GPIO", command_rt1718s_gpio,
+		       1, 0);
 
 #ifdef CONFIG_USB_PD_TCPM_SBU
 static int rt1718s_set_sbu(int port, bool enable)

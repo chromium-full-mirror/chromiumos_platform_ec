@@ -35,6 +35,7 @@
 #include "usbc_ppc.h"
 #include "util.h"
 
+#include <zephyr/shell/shell.h>
 #include <zephyr/sys/atomic.h>
 
 #ifdef CONFIG_COMMON_RUNTIME
@@ -710,25 +711,25 @@ void tcpc_dump_registers(int port, const struct tcpc_reg_dump_map *reg,
 	}
 }
 
-static int command_tcpc_dump(int argc, const char **argv)
+static int command_tcpc_dump(const struct shell *sh, size_t argc,
+			     const char **argv)
 {
 	int port;
-
-	if (argc < 2)
-		return EC_ERROR_PARAM_COUNT;
 
 	port = atoi(argv[1]);
 	if ((port < 0) || (port >= board_get_usb_pd_port_count())) {
 		CPRINTS("%s(%d) Invalid port!", __func__, port);
-		return EC_ERROR_INVAL;
+		return -EINVAL;
 	}
 	/* Dump TCPC registers. */
 	tcpm_dump_registers(port);
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(tcpci_dump, command_tcpc_dump, "<Type-C port>",
-			"dump the TCPC regs");
+SHELL_CMD_ARG_REGISTER(tcpci_dump, NULL,
+		       "dump the TCPC regs\n"
+		       "Usage: tcpci_dump <Type-C port>",
+		       command_tcpc_dump, 2, 0);
 #endif /* defined(CONFIG_CMD_TCPC_DUMP) */
 
 void pd_srccaps_dump(int port)

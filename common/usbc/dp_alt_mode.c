@@ -26,6 +26,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include <zephyr/shell/shell.h>
 #include <zephyr/sys/atomic.h>
 
 #ifdef CONFIG_COMMON_RUNTIME
@@ -704,31 +705,32 @@ __overridable void svdm_exit_dp_mode(int port)
 }
 
 #ifdef CONFIG_CMD_MFALLOW
-static int command_mfallow(int argc, const char **argv)
+static int command_mfallow(const struct shell *sh, size_t argc,
+			   const char **argv)
 {
 	char *e;
 	int port;
 
-	if (argc < 3)
-		return EC_ERROR_PARAM_COUNT;
-
 	port = strtoi(argv[1], &e, 10);
 	if (*e || port >= board_get_usb_pd_port_count())
-		return EC_ERROR_PARAM1;
+		return -EINVAL;
 
 	if (!strcasecmp(argv[2], "true"))
 		dp_port_mf_allow[port] = true;
 	else if (!strcasecmp(argv[2], "false"))
 		dp_port_mf_allow[port] = false;
 	else
-		return EC_ERROR_PARAM2;
+		return -EINVAL;
 
-	ccprintf("Port: %d multi function allowed is %s ", port, argv[2]);
-	return EC_SUCCESS;
+	shell_fprintf(sh, SHELL_NORMAL,
+		      "Port: %d multi function allowed is %s ", port, argv[2]);
+	return 0;
 }
 
-DECLARE_CONSOLE_COMMAND(mfallow, command_mfallow, "port [true | false]",
-			"Controls Multifunction choice during DP Altmode.");
+SHELL_CMD_ARG_REGISTER(mfallow, NULL,
+		       "Controls Multifunction choice during DP Altmode.\n"
+		       "Usage: mfallow port [true | false]",
+		       command_mfallow, 3, 0);
 #endif
 
 /* VESA DisplayPort Alt Mode on USB Type-C Standard

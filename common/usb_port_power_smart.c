@@ -16,6 +16,8 @@
 #include "usb_charge.h"
 #include "util.h"
 
+#include <zephyr/shell/shell.h>
+
 #define CPUTS(outstr) cputs(CC_USBCHARGE, outstr)
 #define CPRINTS(format, args...) cprints(CC_USBCHARGE, format, ##args)
 
@@ -145,7 +147,8 @@ test_mockable int usb_charge_set_mode(int port_id, enum usb_charge_mode mode,
 /*****************************************************************************/
 /* Console commands */
 
-static int command_set_mode(int argc, const char **argv)
+static int command_set_mode(const struct shell *sh, size_t argc,
+			    const char **argv)
 {
 	int port_id = -1;
 	int mode = -1, inhibit_charge = 0;
@@ -154,34 +157,36 @@ static int command_set_mode(int argc, const char **argv)
 
 	if (argc == 1) {
 		for (i = 0; i < CONFIG_USB_PORT_POWER_SMART_PORT_COUNT; i++)
-			ccprintf("Port %d: %d,%d\n", i, charge_mode[i].mode,
-				 charge_mode[i].inhibit_charging_in_suspend);
-		return EC_SUCCESS;
+			shell_print(sh, "Port %d: %d,%d", i,
+				    charge_mode[i].mode,
+				    charge_mode[i].inhibit_charging_in_suspend);
+		return 0;
 	}
 
 	if (argc != 3 && argc != 4)
-		return EC_ERROR_PARAM_COUNT;
+		return -EINVAL;
 
 	port_id = strtoi(argv[1], &e, 0);
 	if (*e || port_id < 0 ||
 	    port_id >= CONFIG_USB_PORT_POWER_SMART_PORT_COUNT)
-		return EC_ERROR_PARAM1;
+		return -EINVAL;
 
 	mode = strtoi(argv[2], &e, 0);
 	if (*e || mode < 0 || mode >= USB_CHARGE_MODE_COUNT)
-		return EC_ERROR_PARAM2;
+		return -EINVAL;
 
 	if (argc == 4) {
 		inhibit_charge = strtoi(argv[3], &e, 0);
 		if (*e || (inhibit_charge != 0 && inhibit_charge != 1))
-			return EC_ERROR_PARAM3;
+			return -EINVAL;
 	}
 
-	return usb_charge_set_mode(port_id, mode, inhibit_charge);
+	return usb_charge_set_mode(port_id, mode, inhibit_charge) ? -EINVAL : 0;
 }
-DECLARE_CONSOLE_COMMAND(usbchargemode, command_set_mode,
-			"[<port> <0 | 1 | 2 | 3> [<0 | 1>]]",
-			"Set USB charge mode");
+SHELL_CMD_ARG_REGISTER(usbchargemode, NULL,
+		       "Set USB charge mode\n"
+		       "Usage: usbchargemode [<port> <0 | 1 | 2 | 3> [<0 | 1>]]",
+		       command_set_mode, 1, 3);
 
 /*****************************************************************************/
 /* Host commands */
