@@ -14,6 +14,16 @@ if(CONFIG_ISH_CHRE)
   pw_zephyrize_libraries_ifdef(CONFIG_ISH_CHRE
     chre.platform.ec.log
   )
+
+  pw_add_library(chre.platform.ec.variant_config INTERFACE
+    HEADERS
+      include/chre/target_variant/config.h
+    PUBLIC_INCLUDES
+      include
+  )
+  pw_zephyrize_libraries_ifdef(CONFIG_ISH_CHRE
+    chre.platform.ec.variant_config
+  )
   if(DEFINED ZEPHYR_PIGWEED_MODULE_DIR)
     include("${ZEPHYR_PIGWEED_MODULE_DIR}/pw_log_string/backend.cmake")
     pw_set_backend(pw_log_string.handler pw_build.empty)
@@ -27,7 +37,7 @@ if(CONFIG_ISH_CHRE)
   if(NOT CONFIG_ZTEST)
     set(CHRE_PLATFORM_PIGWEED ON CACHE BOOL "" FORCE)
     zephyr_compile_options(-include zephyr/sys/util_macro.h)
-    add_compile_definitions(CHRE_ATOMIC_UINT32_REF_ENABLED=1)
+    set(chre_variant_CONFIG chre.platform.ec.variant_config CACHE STRING "" FORCE)
     include(${CHRE_ROOT}/chre_api/backend.cmake)
     include(${CHRE_ROOT}/platform/backend.cmake)
     include(${CHRE_ROOT}/platform/shared/backend.cmake)
