@@ -229,6 +229,66 @@ ZTEST_F(ft98xx_bio_alg, test_init_template_size_zero_fails)
 		      "Expected -EINVAL when template size is 0.");
 }
 
+ZTEST_F(ft98xx_bio_alg, test_init_subtemplate_size_zero_fails)
+{
+	mock_detailed_info.subtpl_size = 0;
+	zassert_equal(fingerprint_algorithm_init(fixture->alg), -EINVAL,
+		      "Expected -EINVAL when sub-template size is 0.");
+}
+
+ZTEST_F(ft98xx_bio_alg, test_init_subtemplate_size_exceeded)
+{
+	mock_detailed_info.subtpl_size = FT_TPL_SUBTPL_SIZE + 1;
+	zassert_equal(
+		fingerprint_algorithm_init(fixture->alg), -EINVAL,
+		"Expected -EINVAL when sub-template size exceeds FT_TPL_SUBTPL_SIZE.");
+}
+
+ZTEST_F(ft98xx_bio_alg, test_init_header_size_zero_fails)
+{
+	mock_detailed_info.head_size = 0;
+	zassert_equal(fingerprint_algorithm_init(fixture->alg), -EINVAL,
+		      "Expected -EINVAL when template header size is 0.");
+}
+
+ZTEST_F(ft98xx_bio_alg, test_init_header_size_exceeded)
+{
+	mock_detailed_info.head_size = FT_TPL_SUBTPL_SIZE + 1;
+	zassert_equal(
+		fingerprint_algorithm_init(fixture->alg), -EINVAL,
+		"Expected -EINVAL when template header size exceeds FT_TPL_SUBTPL_SIZE.");
+}
+
+ZTEST_F(ft98xx_bio_alg, test_init_subtemplate_size_exact_upper_succeeds)
+{
+	mock_detailed_info.subtpl_size = FT_TPL_SUBTPL_SIZE;
+	zassert_ok(
+		fixture_alg_init(fixture),
+		"Expected success when sub-template size is exactly FT_TPL_SUBTPL_SIZE.");
+}
+
+ZTEST_F(ft98xx_bio_alg, test_init_subtemplate_size_exact_lower_succeeds)
+{
+	mock_detailed_info.subtpl_size = 1;
+	zassert_ok(fixture_alg_init(fixture),
+		   "Expected success when sub-template size is 1.");
+}
+
+ZTEST_F(ft98xx_bio_alg, test_init_header_size_exact_upper_succeeds)
+{
+	mock_detailed_info.head_size = FT_TPL_SUBTPL_SIZE;
+	zassert_ok(
+		fixture_alg_init(fixture),
+		"Expected success when template header size is exactly FT_TPL_SUBTPL_SIZE.");
+}
+
+ZTEST_F(ft98xx_bio_alg, test_init_header_size_exact_lower_succeeds)
+{
+	mock_detailed_info.head_size = 1;
+	zassert_ok(fixture_alg_init(fixture),
+		   "Expected success when template header size is 1.");
+}
+
 ZTEST_F(ft98xx_bio_alg, test_exit_success)
 {
 	zassert_ok(fixture_alg_init(fixture));

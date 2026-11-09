@@ -87,6 +87,20 @@ static int ft98xx_algorithm_init(const struct fingerprint_algorithm *const alg)
 		return -EINVAL;
 	}
 
+	if (data->tpl_subtemplate_size == 0 ||
+	    data->tpl_subtemplate_size > FT_TPL_SUBTPL_SIZE) {
+		LOG_ERR("invalid algorithm sub-template size (%u)",
+			data->tpl_subtemplate_size);
+		return -EINVAL;
+	}
+
+	if (data->tpl_head_size == 0 ||
+	    data->tpl_head_size > FT_TPL_SUBTPL_SIZE) {
+		LOG_ERR("invalid algorithm template header size (%u)",
+			data->tpl_head_size);
+		return -EINVAL;
+	}
+
 	snprintf(alg_version, sizeof(alg_version), "api_%s_core_",
 		 LIBFP_API_VERSION);
 	/* focal_algo_version function will get the algo version with length 25
