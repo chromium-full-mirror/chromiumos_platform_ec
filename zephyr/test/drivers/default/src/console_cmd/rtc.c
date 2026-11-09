@@ -26,7 +26,7 @@ ZTEST_USER(console_cmd_rtc, test_rtc_no_arg)
 
 ZTEST_USER(console_cmd_rtc, test_rtc_invalid)
 {
-	CHECK_CONSOLE_CMD("rtc set", NULL, EC_ERROR_INVAL);
+	CHECK_CONSOLE_CMD("rtc set", NULL, -EINVAL);
 }
 
 ZTEST_USER(console_cmd_rtc, test_rtc_set)
@@ -44,7 +44,7 @@ ZTEST_USER(console_cmd_rtc, test_rtc_set)
 
 ZTEST_USER(console_cmd_rtc, test_rtc_set_bad)
 {
-	CHECK_CONSOLE_CMD("rtc set t", NULL, EC_ERROR_PARAM2);
+	CHECK_CONSOLE_CMD("rtc set t", NULL, -EINVAL);
 }
 
 ZTEST_USER(console_cmd_rtc, test_rtc_alarm_no_args)
@@ -60,8 +60,8 @@ ZTEST_USER(console_cmd_rtc, test_rtc_alarm_good_args)
 
 ZTEST_USER(console_cmd_rtc, test_rtc_alarm_bad_args)
 {
-	CHECK_CONSOLE_CMD("rtc_alarm t", NULL, EC_ERROR_PARAM1);
-	CHECK_CONSOLE_CMD("rtc_alarm 1 t", NULL, EC_ERROR_PARAM2);
+	CHECK_CONSOLE_CMD("rtc_alarm t", NULL, -EINVAL);
+	CHECK_CONSOLE_CMD("rtc_alarm 1 t", NULL, -EINVAL);
 }
 
 ZTEST_USER(console_cmd_rtc, test_rtc_alarm_reset)

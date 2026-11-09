@@ -12,6 +12,7 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/shell/shell.h>
 
 LOG_MODULE_REGISTER(shim_cros_rtc, LOG_LEVEL_ERR);
 
@@ -139,32 +140,39 @@ void print_system_rtc(enum console_channel ch)
  * chip-specific code. We should factor out the common parts.
  */
 #ifdef CONFIG_PLATFORM_EC_CONSOLE_CMD_RTC
-static int command_system_rtc(int argc, const char **argv)
+static int command_system_rtc(const struct shell *sh, size_t argc,
+			      const char **argv)
 {
+	uint32_t sec;
+
 	if (argc == 3 && !strcasecmp(argv[1], "set")) {
 		char *e;
 		unsigned int t = strtoi(argv[2], &e, 0);
 
 		if (*e)
-			return EC_ERROR_PARAM2;
+			return -EINVAL;
 
 		system_set_rtc(t);
 	} else if (argc > 1) {
-		return EC_ERROR_INVAL;
+		return -EINVAL;
 	}
 
-	print_system_rtc(CC_COMMAND);
+	sec = system_get_rtc_sec();
+	shell_print(sh, "RTC: 0x%08x (%d.00 s)", sec, sec);
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(rtc, command_system_rtc, "[set <seconds>]",
-			"Get/set real-time clock");
+SHELL_CMD_ARG_REGISTER(rtc, NULL,
+		       "Get/set real-time clock\n"
+		       "Usage: rtc [set <seconds>]",
+		       command_system_rtc, 1, 2);
 
 #ifdef CONFIG_PLATFORM_EC_CONSOLE_CMD_RTC_ALARM
 /**
  * Test the RTC alarm by setting an interrupt on RTC match.
  */
-static int command_rtc_alarm_test(int argc, const char **argv)
+static int command_rtc_alarm_test(const struct shell *sh, size_t argc,
+				  const char **argv)
 {
 	int s = 1, us = 0;
 	char *e;
@@ -172,22 +180,24 @@ static int command_rtc_alarm_test(int argc, const char **argv)
 	if (argc > 1) {
 		s = strtoi(argv[1], &e, 10);
 		if (*e)
-			return EC_ERROR_PARAM1;
+			return -EINVAL;
 	}
 	if (argc > 2) {
 		us = strtoi(argv[2], &e, 10);
 		if (*e)
-			return EC_ERROR_PARAM2;
+			return -EINVAL;
 	}
 
-	ccprintf("Setting RTC alarm\n");
+	shell_print(sh, "Setting RTC alarm");
 
 	system_set_rtc_alarm(s, us);
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(rtc_alarm, command_rtc_alarm_test,
-			"[seconds [microseconds]]", "Test alarm");
+SHELL_CMD_ARG_REGISTER(rtc_alarm, NULL,
+		       "Test alarm\n"
+		       "Usage: rtc_alarm [seconds [microseconds]]",
+		       command_rtc_alarm_test, 1, 2);
 #endif /* CONFIG_PLATFORM_EC_CONSOLE_CMD_RTC_ALARM */
 #endif /* CONFIG_PLATFORM_EC_CONSOLE_CMD_RTC */
 
