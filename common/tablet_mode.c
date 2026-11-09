@@ -17,6 +17,8 @@
 #include <stdbool.h>
 #include <string.h>
 
+#include <zephyr/shell/shell.h>
+
 #define CPRINTS(format, args...) cprints(CC_MOTION_LID, format, ##args)
 #define CPRINTF(format, args...) cprintf(CC_MOTION_LID, format, ##args)
 
@@ -406,15 +408,13 @@ EC_HOST_CMD_HANDLER_REQ_ONLY(EC_CMD_SET_TABLET_MODE, tablet_mode_command,
 			     struct ec_params_set_tablet_mode);
 
 #ifdef CONFIG_TABLET_MODE
-static int command_settabletmode(int argc, const char **argv)
+static int command_settabletmode(const struct shell *sh, size_t argc,
+				 const char **argv)
 {
 	if (argc == 1) {
 		print_tablet_mode();
-		return EC_SUCCESS;
+		return 0;
 	}
-
-	if (argc != 2)
-		return EC_ERROR_PARAM_COUNT;
 
 	if (tablet_mode_forced == false)
 		tablet_mode_store = tablet_mode;
@@ -430,14 +430,16 @@ static int command_settabletmode(int argc, const char **argv)
 		tablet_mode = tablet_mode_store;
 		tablet_mode_forced = false;
 	} else {
-		return EC_ERROR_PARAM1;
+		return -EINVAL;
 	}
 
 	notify_tablet_mode_change();
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(tabletmode, command_settabletmode, "[on | off | reset]",
-			"Manually force tablet mode to on, off or reset.");
+SHELL_CMD_ARG_REGISTER(tabletmode, NULL,
+		       "Manually force tablet mode to on, off or reset.\n"
+		       "Usage: tabletmode [on | off | reset]",
+		       command_settabletmode, 1, 1);
 #endif
 
 __test_only void tablet_reset(void)

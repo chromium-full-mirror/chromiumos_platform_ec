@@ -152,8 +152,8 @@ ZTEST_USER(tabletmode, test_settabletmode_too_many_args)
 
 	ret = shell_execute_cmd(get_ec_shell(),
 				"tabletmode too many arguments");
-	zassert_equal(ret, EC_ERROR_PARAM_COUNT,
-		      "unexpected command return status: %d", ret);
+	zassert_equal(ret, -EINVAL, "unexpected command return status: %d",
+		      ret);
 }
 
 /**
@@ -164,8 +164,8 @@ ZTEST_USER(tabletmode, test_settabletmode_unknown_arg)
 	int ret;
 
 	ret = shell_execute_cmd(get_ec_shell(), "tabletmode X");
-	zassert_equal(ret, EC_ERROR_PARAM1,
-		      "unexpected command return status: %d", ret);
+	zassert_equal(ret, -EINVAL, "unexpected command return status: %d",
+		      ret);
 }
 
 /**
