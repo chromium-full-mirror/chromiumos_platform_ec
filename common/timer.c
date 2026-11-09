@@ -13,6 +13,7 @@
 #include "watchdog.h"
 
 #include <zephyr/kernel.h> /* For k_usleep() */
+#include <zephyr/shell/shell.h>
 
 int timestamp_expired(timestamp_t deadline, const timestamp_t *now)
 {
@@ -82,30 +83,35 @@ __overridable uint32_t __hw_clock_source_read(void)
 }
 #endif /* CONFIG_HWTIMER_64BIT */
 
-void timer_print_info(void)
+static void timer_print_info_sh(const struct shell *sh)
 {
 	timestamp_t t = get_time();
 
-	ccprintf("Time:     0x%016llx us, %4lld.%06lld s\n", t.val,
-		 t.val / USEC_PER_SEC, t.val % USEC_PER_SEC);
+	shell_print(sh, "Time:     0x%016llx us, %4lld.%06lld s", t.val,
+		    t.val / USEC_PER_SEC, t.val % USEC_PER_SEC);
 	cflush();
 }
 
+void timer_print_info(void)
+{
+	timer_print_info_sh(get_ec_shell());
+}
+
 #ifdef CONFIG_CMD_WAITMS
-static int command_wait(int argc, const char **argv)
+static int command_wait(const struct shell *sh, size_t argc, const char **argv)
 {
 	char *e;
 	int i;
 
-	if (argc < 2)
-		return EC_ERROR_PARAM_COUNT;
+	ARG_UNUSED(sh);
+	ARG_UNUSED(argc);
 
 	i = strtoi(argv[1], &e, 0);
 	if (*e)
-		return EC_ERROR_PARAM1;
+		return -EINVAL;
 
 	if (i < 0)
-		return EC_ERROR_PARAM1;
+		return -EINVAL;
 
 	/*
 	 * Reload the watchdog so that issuing multiple small waitms commands
@@ -122,33 +128,37 @@ static int command_wait(int argc, const char **argv)
 	 */
 	k_busy_wait(i * 1000);
 
-	return EC_SUCCESS;
+	return 0;
 }
 /* Typically a large delay (e.g. 3s) will cause a reset */
-DECLARE_CONSOLE_COMMAND(waitms, command_wait, "msec",
-			"Busy-wait for msec (large delays will reset)");
+SHELL_CMD_ARG_REGISTER(waitms, NULL,
+		       "Busy-wait for msec (large delays will reset)\n"
+		       "Usage: waitms msec",
+		       command_wait, 2, 0);
 #endif
 
 #ifdef CONFIG_CMD_GETTIME
-static int command_get_time(int argc, const char **argv)
+static int command_get_time(const struct shell *sh, size_t argc,
+			    const char **argv)
 {
 	timestamp_t ts = get_time();
-	ccprintf("Time: 0x%016llx = %lld.%06lld s\n", ts.val,
-		 ts.val / USEC_PER_SEC, ts.val % USEC_PER_SEC);
+	shell_print(sh, "Time: 0x%016llx = %lld.%06lld s", ts.val,
+		    ts.val / USEC_PER_SEC, ts.val % USEC_PER_SEC);
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_SAFE_CONSOLE_COMMAND(gettime, command_get_time, NULL,
-			     "Print current time");
+SHELL_CMD_ARG_REGISTER(gettime, NULL, "Print current time", command_get_time, 1,
+		       0);
 #endif
 
 #ifdef CONFIG_CMD_TIMERINFO
-static int command_timer_info(int argc, const char **argv)
+static int command_timer_info(const struct shell *sh, size_t argc,
+			      const char **argv)
 {
-	timer_print_info();
+	timer_print_info_sh(sh);
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_SAFE_CONSOLE_COMMAND(timerinfo, command_timer_info, NULL,
-			     "Print timer info");
+SHELL_CMD_ARG_REGISTER(timerinfo, NULL, "Print timer info", command_timer_info,
+		       1, 0);
 #endif

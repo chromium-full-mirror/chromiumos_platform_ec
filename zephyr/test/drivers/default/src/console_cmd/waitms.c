@@ -49,4 +49,8 @@ ZTEST_USER(console_cmd_waitms, test_waitms)
 	zassert_true(shell_execute_cmd(get_ec_shell(), "waitms 123.456"), NULL);
 	zassert_true(shell_execute_cmd(get_ec_shell(), "waitms -67.3"), NULL);
 	zassert_true(shell_execute_cmd(get_ec_shell(), "waitms -7"), NULL);
+
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "gettime"), NULL);
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "timerinfo"), NULL);
+	timer_print_info();
 }
