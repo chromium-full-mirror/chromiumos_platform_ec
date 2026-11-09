@@ -8,11 +8,18 @@
 #define ELANHV515RC_COMMON_IMAGE_PROPS \
 	width = <52>; \
 	height = <150>; \
-	bits-per-pixel = <8>; \
 	frame-size = <15600>; \
-	image-data-offset-bytes = <7800>; \
 	v4l2-pixel-format = "V4L2_PIX_FMT_GREY";
 
+#define ELANHV515RC_RAW_IMAGE_PROPS \
+	ELANHV515RC_COMMON_IMAGE_PROPS \
+	bits-per-pixel = <8>; \
+	image-data-offset-bytes = <7800>;
+
+#define ELANHV515RC_REAL_IMAGE_PROPS \
+	ELANHV515RC_COMMON_IMAGE_PROPS \
+	bits-per-pixel = <16>; \
+	image-data-offset-bytes = <0>;
 
 &spi2 {
 	fp_sensor: elanhv515rc@0 {
@@ -23,27 +30,27 @@
 		configs {
 			compatible = "fingerprint-image-frame-params";
 			config0 {
-				ELANHV515RC_COMMON_IMAGE_PROPS
+				ELANHV515RC_RAW_IMAGE_PROPS
 				capture-type = "FINGERPRINT_CAPTURE_TYPE_VENDOR_FORMAT";
 			};
 			config1 {
-				ELANHV515RC_COMMON_IMAGE_PROPS
+				ELANHV515RC_REAL_IMAGE_PROPS
 				capture-type = "FINGERPRINT_CAPTURE_TYPE_SIMPLE_IMAGE";
 			};
 			config2 {
-				ELANHV515RC_COMMON_IMAGE_PROPS
+				ELANHV515RC_REAL_IMAGE_PROPS
 				capture-type = "FINGERPRINT_CAPTURE_TYPE_PATTERN0";
 			};
 			config3 {
-				ELANHV515RC_COMMON_IMAGE_PROPS
+				ELANHV515RC_REAL_IMAGE_PROPS
 				capture-type = "FINGERPRINT_CAPTURE_TYPE_PATTERN1";
 			};
 			config4 {
-				ELANHV515RC_COMMON_IMAGE_PROPS
+				ELANHV515RC_RAW_IMAGE_PROPS
 				capture-type = "FINGERPRINT_CAPTURE_TYPE_QUALITY_TEST";
 			};
 			config5 {
-				ELANHV515RC_COMMON_IMAGE_PROPS
+				ELANHV515RC_REAL_IMAGE_PROPS
 				capture-type = "FINGERPRINT_CAPTURE_TYPE_RESET_TEST";
 			};
 		};
