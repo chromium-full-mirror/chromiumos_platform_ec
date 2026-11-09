@@ -17,6 +17,8 @@
 #include "util.h"
 #include "watchdog.h"
 
+#include <zephyr/shell/shell.h>
+
 #define CPRINTF(format, args...) cprintf(CC_PORT80, format, ##args)
 
 #ifdef CONFIG_PORT80_4_BYTE
@@ -97,7 +99,7 @@ test_mockable void port_80_write(int data)
 	writes++;
 }
 
-static void port80_dump_buffer(void)
+static void port80_dump_buffer_sh(const struct shell *sh)
 {
 	int printed = 0;
 	int i;
@@ -120,32 +122,32 @@ static void port80_dump_buffer(void)
 	else
 		tail = 0;
 
-	ccputs("Port 80 writes:\n");
+	shell_print(sh, "Port 80 writes:");
 	for (i = tail; i < head; i++) {
 		int e = history[i % ARRAY_SIZE(history)];
 		switch (e) {
 		case PORT_80_EVENT_RESUME:
 			if (buf_offset != 0) {
-				ccprintf("%s\n", buffer);
+				shell_print(sh, "%s", buffer);
 				printed = 0;
 				buf_offset = 0;
 			}
-			ccputs("(S3->S0)\n");
+			shell_print(sh, "(S3->S0)");
 			break;
 		case PORT_80_EVENT_RESET:
 			if (buf_offset != 0) {
-				ccprintf("%s\n", buffer);
+				shell_print(sh, "%s", buffer);
 				printed = 0;
 				buf_offset = 0;
 			}
-			ccputs("(RESET)\n");
+			shell_print(sh, "(RESET)");
 			break;
 		default:
 			buf_offset += snprintf(&buffer[buf_offset],
 					       sizeof(buffer) - buf_offset,
 					       " %02x", e);
 			if (++printed >= PORT80_CODES_PER_LINE) {
-				ccprintf("%s\n", buffer);
+				shell_print(sh, "%s", buffer);
 				printed = 0;
 				buf_offset = 0;
 			}
@@ -154,9 +156,9 @@ static void port80_dump_buffer(void)
 	}
 
 	if (buf_offset != 0) {
-		ccprintf("%s <--new\n", buffer);
+		shell_print(sh, "%s <--new", buffer);
 	} else {
-		ccputs(" <--new\n");
+		shell_print(sh, " <--new");
 	}
 
 	/* Displaying last port80 msg on 7-segment if it is enabled */
@@ -164,10 +166,16 @@ static void port80_dump_buffer(void)
 		display_7seg_write(SEVEN_SEG_PORT80_DISPLAY, last_e);
 }
 
+static void port80_dump_buffer(void)
+{
+	port80_dump_buffer_sh(get_ec_shell());
+}
+
 /*****************************************************************************/
 /* Console commands */
 
-static int command_port80(int argc, const char **argv)
+static int command_port80(const struct shell *sh, size_t argc,
+			  const char **argv)
 {
 	/*
 	 * 'port80 scroll' toggles whether port 80 output begins with a newline
@@ -176,26 +184,29 @@ static int command_port80(int argc, const char **argv)
 	if (argc > 1) {
 		if (!strcasecmp(argv[1], "scroll")) {
 			scroll = !scroll;
-			ccprintf("scroll %sabled\n", scroll ? "en" : "dis");
-			return EC_SUCCESS;
+			shell_print(sh, "scroll %sabled",
+				    scroll ? "en" : "dis");
+			return 0;
 		} else if (!strcasecmp(argv[1], "intprint")) {
 			print_in_int = !print_in_int;
-			ccprintf("printing in interrupt %sabled\n",
-				 print_in_int ? "en" : "dis");
-			return EC_SUCCESS;
+			shell_print(sh, "printing in interrupt %sabled",
+				    print_in_int ? "en" : "dis");
+			return 0;
 		} else if (!strcasecmp(argv[1], "flush")) {
 			writes = 0;
-			return EC_SUCCESS;
+			return 0;
 		} else {
-			return EC_ERROR_PARAM1;
+			return -EINVAL;
 		}
 	}
 
-	port80_dump_buffer();
-	return EC_SUCCESS;
+	port80_dump_buffer_sh(sh);
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(port80, command_port80, "[scroll | intprint | flush]",
-			"Print port80 writes or toggle port80 scrolling");
+SHELL_CMD_ARG_REGISTER(port80, NULL,
+		       "Print port80 writes or toggle port80 scrolling\n"
+		       "Usage: port80 [scroll | intprint | flush]",
+		       command_port80, 1, 1);
 
 enum ec_host_cmd_status port80_last_boot(struct ec_host_cmd_handler_args *args)
 {
