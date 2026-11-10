@@ -10,11 +10,11 @@
 #include "hooks.h"
 
 /* Define delays for deferred power sequencing */
-#define PP5000_PWR_DISABLE_DELAY (100 * USEC_PER_MSEC)
+#define PP5000_PWR_DISABLE_DELAY (5000 * USEC_PER_MSEC)
 
 /*
  * Deferred function to deassert gpio_ec_en_pp5000.
- * This is called on shutdown to delay disabling PP5000.
+ * This is called on hard off to delay disabling PP5000.
  */
 static void pp5000_pwr_disable_deferred(void)
 {
@@ -26,7 +26,6 @@ void board_chipset_startup_c1nv(void)
 {
 	gpio_pin_set_dt(GPIO_DT_FROM_NODELABEL(gpio_ec_en_pp3300_s3), 1);
 	gpio_pin_set_dt(GPIO_DT_FROM_NODELABEL(gpio_en_ppvar_oled), 1);
-	gpio_pin_set_dt(GPIO_DT_FROM_NODELABEL(gpio_ec_en_pp5000), 1);
 	gpio_pin_set_dt(GPIO_DT_FROM_NODELABEL(gpio_ec_en_pp5000_fan), 1);
 	gpio_pin_set_dt(GPIO_DT_FROM_NODELABEL(gpio_en_i2c_ec_adsp_batt), 1);
 	gpio_pin_set_dt(GPIO_DT_FROM_NODELABEL(gpio_ec_bkoff_odl), 1);
@@ -36,13 +35,6 @@ DECLARE_HOOK(HOOK_CHIPSET_STARTUP, board_chipset_startup_c1nv,
 
 void board_chipset_shutdown_c1nv(void)
 {
-	/*
-	 * C1nv HDMI power loadswitch has active discharge powered by pp5000.
-	 * Delay disabling pp5000 to give the loadswitch time to discharge
-	 * HDMI Power rails on C1nv.
-	 */
-	hook_call_deferred(&pp5000_pwr_disable_deferred_data,
-			   PP5000_PWR_DISABLE_DELAY);
 	gpio_pin_set_dt(GPIO_DT_FROM_NODELABEL(gpio_ec_en_pp3300_s3), 0);
 	gpio_pin_set_dt(GPIO_DT_FROM_NODELABEL(gpio_en_ppvar_oled), 0);
 	gpio_pin_set_dt(GPIO_DT_FROM_NODELABEL(gpio_ec_en_pp5000_fan), 0);
@@ -50,4 +42,26 @@ void board_chipset_shutdown_c1nv(void)
 	gpio_pin_set_dt(GPIO_DT_FROM_NODELABEL(gpio_ec_bkoff_odl), 0);
 }
 DECLARE_HOOK(HOOK_CHIPSET_SHUTDOWN, board_chipset_shutdown_c1nv,
+	     HOOK_PRIO_DEFAULT);
+
+static void board_chipset_pre_init_c1nv(void)
+{
+	hook_call_deferred(&pp5000_pwr_disable_deferred_data, -1);
+	gpio_pin_set_dt(GPIO_DT_FROM_NODELABEL(gpio_ec_en_pp5000), 1);
+}
+DECLARE_HOOK(HOOK_CHIPSET_PRE_INIT, board_chipset_pre_init_c1nv,
+	     HOOK_PRIO_DEFAULT);
+
+static void board_chipset_hard_off_c1nv(void)
+{
+	/*
+	 * C1nv HDMI power loadswitch has active discharge powered by pp5000,
+	 * and pp5000 is powering led_x.
+	 * Delay disabling pp5000 to give the loadswitch time to discharge
+	 * HDMI Power rails on C1nv.
+	 */
+	hook_call_deferred(&pp5000_pwr_disable_deferred_data,
+			   PP5000_PWR_DISABLE_DELAY);
+}
+DECLARE_HOOK(HOOK_CHIPSET_HARD_OFF, board_chipset_hard_off_c1nv,
 	     HOOK_PRIO_DEFAULT);
