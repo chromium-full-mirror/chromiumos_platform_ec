@@ -6,6 +6,7 @@
 #include "hooks.h"
 #include "test_state.h"
 #include "timer.h"
+#include "usb_dp_alt_mode.h"
 #include "usb_mux.h"
 #include "usb_pd.h"
 #include "usb_pd_dp_hpd_gpio.h"
@@ -136,3 +137,22 @@ ZTEST(hylia_test, test_hylia_dp_attention_flow)
 
 ZTEST_SUITE(hylia_test, rauru_predicate_post_main, NULL, test_hylia_before,
 	    test_hylia_before, NULL);
+
+ZTEST(hylia_test, test_hylia_dp_alt_mode_stubs)
+{
+	int port = 0;
+	uint32_t payload[7];
+
+	dp_init(port);
+	zassert_false(dp_is_active(port));
+	zassert_true(dp_is_idle(port));
+	zassert_false(dp_entry_is_done(port));
+	dp_vdm_acked(port, TCPCI_MSG_SOP, 0, NULL);
+	dp_vdm_naked(port, TCPCI_MSG_SOP, 0);
+	zassert_equal(MSG_SETUP_ERROR, dp_setup_next_vdm(port, NULL, payload));
+	zassert_false(dp_mode_entry_allowed(port));
+	zassert_equal(0, dp_get_mode_vdo(port, TCPCI_MSG_SOP));
+	zassert_equal(DPAM_VERSION_20,
+		      dp_resolve_dpam_version(port, TCPCI_MSG_SOP));
+	zassert_equal(DP_HBR3, dp_get_cable_bit_rate(port));
+}
