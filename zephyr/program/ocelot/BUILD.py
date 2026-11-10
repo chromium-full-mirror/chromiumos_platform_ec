@@ -194,6 +194,19 @@ register_ish_project(
     ],
 )
 
+register_ish_project(
+    project_name="hekla-ish",
+    boards=["ocelot"],
+    zephyr_board="intel_ish_5_8_0",
+    dts_overlays=[
+        here / "hekla-ish" / "project.overlay",
+    ],
+    kconfig_files=[
+        here / "hekla-ish" / "project.conf",
+        here / ".." / ".." / "ish.conf",
+    ],
+)
+
 # For realtek
 register_rtk59_project(
     project_name="ojal",
@@ -206,6 +219,9 @@ register_rtk59_project(
 register_rtk59_project(
     project_name="hekla",
     extra_modules=["pigweed", "nanopb"],
+    extra_kconfig_base_files=[
+        here / "dsp_comms.conf",
+    ],
 )
 
 matsu = register_it8xxx2_project(

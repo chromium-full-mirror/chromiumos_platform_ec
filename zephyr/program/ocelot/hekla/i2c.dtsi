@@ -17,6 +17,12 @@
 			i2c-port = <&i2c_2>;
 			enum-names = "I2C_PORT_PD";
 		};
+		/* EC_ISH */
+		i2c_ec_i2c_sensor: ec_i2c_sensor {
+			i2c-port = <&i2c_5>;
+			enum-names = "I2C_PORT_SENSOR";
+		};
+
 	};
 };
 
@@ -53,4 +59,25 @@
 	status = "okay";
 	scl-gpios = <RTS5912_GPIO014 GPIO_ACTIVE_HIGH>;
 	sda-gpios = <RTS5912_GPIO121 GPIO_ACTIVE_HIGH>;
+};
+
+&i2c_5 {
+    label = "I2C_PORT_SENSOR";
+    status = "okay";
+    pinctrl-0 = <&i2c05_clk_gpio128 &i2c05_data_gpio130>;
+    pinctrl-names = "default";
+    clock-frequency = <I2C_BITRATE_FAST>;
+
+    dsp_service: dsp-service@29 {
+        compatible = "cros,dsp-service";
+        reg = <0x29>;
+        int-gpios = <RTS5912_GPIO126 (GPIO_ACTIVE_LOW | GPIO_VOLTAGE_1P8 | GPIO_OPEN_DRAIN)>;
+    };
+};
+
+&i2c_5_wrapper {
+	label = "I2C_PORT_SENSOR";
+	status = "okay";
+	scl-gpios = <RTS5912_GPIO128 GPIO_ACTIVE_HIGH>;
+	sda-gpios = <RTS5912_GPIO130 GPIO_ACTIVE_HIGH>;
 };
