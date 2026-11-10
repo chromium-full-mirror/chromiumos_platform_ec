@@ -51,10 +51,10 @@
 #define STRINGIFY(name) STRINGIFY0(name)
 
 /* Macros to access registers */
-#define REG64_ADDR(addr) ((volatile uint64_t *)(addr))
-#define REG32_ADDR(addr) ((volatile uint32_t *)(addr))
-#define REG16_ADDR(addr) ((volatile uint16_t *)(addr))
-#define REG8_ADDR(addr) ((volatile uint8_t *)(addr))
+#define REG64_ADDR(addr) ((volatile uint64_t *)(uintptr_t)(addr))
+#define REG32_ADDR(addr) ((volatile uint32_t *)(uintptr_t)(addr))
+#define REG16_ADDR(addr) ((volatile uint16_t *)(uintptr_t)(addr))
+#define REG8_ADDR(addr) ((volatile uint8_t *)(uintptr_t)(addr))
 
 #define REG64(addr) (*REG64_ADDR(addr))
 #define REG32(addr) (*REG32_ADDR(addr))
