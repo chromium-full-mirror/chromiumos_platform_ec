@@ -76,7 +76,7 @@ test_export_static k_tid_t get_idle_thread(void)
 
 test_export_static k_tid_t get_sysworkq_thread(void)
 {
-	return k_sys_work_q.thread_id;
+	return k_work_queue_thread_get(&k_sys_work_q);
 }
 
 k_tid_t get_main_thread(void)

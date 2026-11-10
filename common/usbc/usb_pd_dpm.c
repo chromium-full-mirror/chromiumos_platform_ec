@@ -652,7 +652,7 @@ static void balance_source_ports(void)
 	uint32_t removed_ports, new_ports;
 	static bool deferred_waiting;
 
-	if (k_current_get() == k_sys_work_q.thread_id)
+	if (k_current_get() == k_work_queue_thread_get(&k_sys_work_q))
 		deferred_waiting = false;
 
 	/*
