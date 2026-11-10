@@ -282,6 +282,26 @@ static void motion_lid_set_dptf_profile(int reliable)
 
 #endif /* MOTION_LID_SET_DPTF_PROFILE */
 
+#ifdef CONFIG_TABLET_MODE
+/**
+ * Check if the current angle reading is boundary noise across 0 <-> 360:
+ * - When in tablet mode (physically near 360), a small reading near 0
+ *   is noise wrapping past 360 -> correct it by reflecting to a large angle.
+ * - When in clamshell mode (physically near 0), a large reading near 360
+ *   is noise wrapping below 0 -> correct it by reflecting to a small angle.
+ */
+static bool is_boundary_noise(fp_t last_angle, fp_t current_angle)
+{
+	if (tablet_get_mode()) {
+		return LID_ANGLE_ALMOST_360(last_angle) &&
+		       LID_ANGLE_ALMOST_0(current_angle);
+	}
+
+	return LID_ANGLE_ALMOST_0(last_angle) &&
+	       LID_ANGLE_ALMOST_360(current_angle);
+}
+#endif /* CONFIG_TABLET_MODE */
+
 /**
  * Calculate the lid angle using two acceleration vectors, one recorded in
  * the base and one in the lid.
@@ -442,8 +462,14 @@ static int calculate_lid_angle(const intv3_t base, const intv3_t lid,
 	}
 
 	/* Seed the lid angle now that we have a reliable measurement. */
-	if (last_lid_angle_fp == FLOAT_TO_FP(-1))
-		last_lid_angle_fp = lid_to_base_fp;
+	if (last_lid_angle_fp == FLOAT_TO_FP(-1)) {
+		if (!tablet_get_mode() &&
+		    LID_ANGLE_ALMOST_360(lid_to_base_fp)) {
+			last_lid_angle_fp = FLOAT_TO_FP(360) - lid_to_base_fp;
+		} else {
+			last_lid_angle_fp = lid_to_base_fp;
+		}
+	}
 
 	/*
 	 * If the angle crosses the 0 <-> 360 boundary due to noise while
@@ -451,13 +477,12 @@ static int calculate_lid_angle(const intv3_t base, const intv3_t lid,
 	 * But in case that the lid switch is closed, we can prove the small
 	 * angle we see is correct so we take the angle as is.
 	 */
-	if (lid_is_open() && ((LID_ANGLE_ALMOST_360(last_lid_angle_fp) &&
-			       LID_ANGLE_ALMOST_0(lid_to_base_fp)) ||
-			      (LID_ANGLE_ALMOST_0(last_lid_angle_fp) &&
-			       LID_ANGLE_ALMOST_360(lid_to_base_fp))))
+	if (lid_is_open() &&
+	    is_boundary_noise(last_lid_angle_fp, lid_to_base_fp)) {
 		last_lid_angle_fp = FLOAT_TO_FP(360) - lid_to_base_fp;
-	else
+	} else {
 		last_lid_angle_fp = lid_to_base_fp;
+	}
 
 end_calculate_lid_angle:
 	/*
@@ -510,10 +535,11 @@ void motion_lid_calc(void)
  * @param args Hot command args
  * @return enum ec_status Exit status
  */
-enum ec_status host_cmd_motion_lid(struct host_cmd_handler_args *args)
+enum ec_host_cmd_status
+host_cmd_motion_lid(struct ec_host_cmd_handler_args *args)
 {
-	const struct ec_params_motion_sense *in = args->params;
-	struct ec_response_motion_sense *out = args->response;
+	const struct ec_params_motion_sense *in = args->input_buf;
+	struct ec_response_motion_sense *out = args->output_buf;
 
 	switch (in->cmd) {
 	case MOTIONSENSE_CMD_KB_WAKE_ANGLE:
@@ -530,16 +556,16 @@ enum ec_status host_cmd_motion_lid(struct host_cmd_handler_args *args)
 		} else {
 			out->kb_wake_angle.ret = 0;
 		}
-		args->response_size = sizeof(out->kb_wake_angle);
+		args->output_buf_size = sizeof(out->kb_wake_angle);
 
 		break;
 
 	case MOTIONSENSE_CMD_LID_ANGLE:
 		if (IS_ENABLED(CONFIG_LID_ANGLE)) {
 			out->lid_angle.value = motion_lid_get_angle();
-			args->response_size = sizeof(out->lid_angle);
+			args->output_buf_size = sizeof(out->lid_angle);
 		} else {
-			return EC_RES_INVALID_PARAM;
+			return EC_HOST_CMD_INVALID_PARAM;
 		}
 		break;
 
@@ -551,22 +577,22 @@ enum ec_status host_cmd_motion_lid(struct host_cmd_handler_args *args)
 				in->tablet_mode_threshold.hys_degree);
 
 			if (ret != EC_RES_SUCCESS)
-				return ret;
+				return (enum ec_host_cmd_status)ret;
 
 			out->tablet_mode_threshold.lid_angle =
 				tablet_mode_lid_angle;
 			out->tablet_mode_threshold.hys_degree =
 				tablet_mode_hys_degree;
 
-			args->response_size =
+			args->output_buf_size =
 				sizeof(out->tablet_mode_threshold);
 		} else {
-			return EC_RES_INVALID_PARAM;
+			return EC_HOST_CMD_INVALID_PARAM;
 		}
 		break;
 	default:
-		return EC_RES_INVALID_PARAM;
+		return EC_HOST_CMD_INVALID_PARAM;
 	}
 
-	return EC_RES_SUCCESS;
+	return EC_HOST_CMD_SUCCESS;
 }

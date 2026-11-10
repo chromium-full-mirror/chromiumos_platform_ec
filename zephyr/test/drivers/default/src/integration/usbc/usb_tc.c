@@ -10,6 +10,7 @@
 #include "emul/tcpc/emul_tcpci_partner_drp.h"
 #include "emul/tcpc/emul_tcpci_partner_snk.h"
 #include "emul/tcpc/emul_tcpci_partner_src.h"
+#include "hooks.h"
 #include "task.h"
 #include "tcpm/tcpci.h"
 #include "test/drivers/stubs.h"
@@ -19,11 +20,14 @@
 #include "usb_sm.h"
 #include "usb_tc_sm.h"
 
+#include <zephyr/fff.h>
 #include <zephyr/kernel.h>
 #include <zephyr/ztest.h>
 
 #define TEST_PORT 0
 #define DEFAULT_VBUS_MV 5000
+
+FAKE_VALUE_FUNC(int, mock_debug_detach, int);
 
 struct usb_tc_fixture {
 	const struct emul *tcpci_emul;
@@ -31,6 +35,8 @@ struct usb_tc_fixture {
 	struct tcpci_partner_data partner_emul;
 	struct tcpci_snk_emul_data snk_ext;
 	struct tcpci_src_emul_data src_ext;
+	const struct tcpm_drv *saved_tcpm_drv;
+	struct tcpm_drv mock_tcpm_drv;
 };
 
 static void *usb_tc_setup(void)
@@ -46,6 +52,8 @@ static void *usb_tc_setup(void)
 static void usb_tc_before(void *fixture_data)
 {
 	struct usb_tc_fixture *fixture = (struct usb_tc_fixture *)fixture_data;
+
+	RESET_FAKE(mock_debug_detach);
 
 	/* Reset partner emulator */
 	tcpci_partner_init(&fixture->partner_emul, PD_REV20);
@@ -64,10 +72,16 @@ static void usb_tc_after(void *fixture_data)
 {
 	struct usb_tc_fixture *fixture = (struct usb_tc_fixture *)fixture_data;
 
+	if (fixture->saved_tcpm_drv != NULL) {
+		tcpc_config[TEST_PORT].drv = fixture->saved_tcpm_drv;
+		fixture->saved_tcpm_drv = NULL;
+	}
+
 	tcpci_emul_disconnect_partner(fixture->tcpci_emul);
 	isl923x_emul_set_adc_vbus(fixture->charger_emul, 0);
 	tcpci_emul_set_vbus_level(fixture->tcpci_emul, VBUS_SAFE0V);
 	tc_try_src_override(TRY_SRC_NO_OVERRIDE);
+	pd_set_dual_role(TEST_PORT, PD_DRP_TOGGLE_ON);
 	pd_set_suspend(TEST_PORT, false);
 	k_sleep(K_MSEC(100));
 }
@@ -194,6 +208,8 @@ ZTEST(usb_tc, test_tc_state_queries)
 	zassert_false(tc_is_attached_src(TEST_PORT));
 	zassert_equal(PD_PLUG_FROM_DFP_UFP, tc_get_cable_plug(TEST_PORT));
 	zassert_false(tc_get_pd_enabled(TEST_PORT));
+	zassert_false(pd_alt_mode_capable(TEST_PORT));
+	zassert_equal(EC_RES_SUCCESS, pd_fetch_acc_log_entry(TEST_PORT));
 }
 
 /* =========================================================================
@@ -215,11 +231,136 @@ ZTEST_F(usb_tc, test_tc_attach_as_sink)
 	zassert_true(tc_is_attached_snk(TEST_PORT));
 	zassert_false(tc_is_attached_src(TEST_PORT));
 	zassert_equal(PD_ROLE_SINK, pd_get_power_role(TEST_PORT));
+	zassert_true(tc_get_pd_enabled(TEST_PORT));
+	zassert_true(pd_alt_mode_capable(TEST_PORT));
 
 	zassert_ok(tcpci_emul_disconnect_partner(fixture->tcpci_emul));
 	isl923x_emul_set_adc_vbus(fixture->charger_emul, 0);
 	k_sleep(K_SECONDS(1));
 	zassert_false(tc_is_attached_snk(TEST_PORT));
+	zassert_false(tc_get_pd_enabled(TEST_PORT));
+	zassert_false(pd_alt_mode_capable(TEST_PORT));
+}
+
+static int tc_disconnect_hook_count;
+
+static void tc_disconnect_hook_handler(void)
+{
+	if (TASK_ID_TO_PD_PORT(task_get_current()) == TEST_PORT)
+		tc_disconnect_hook_count++;
+}
+DECLARE_HOOK(HOOK_USB_PD_DISCONNECT, tc_disconnect_hook_handler,
+	     HOOK_PRIO_DEFAULT);
+
+ZTEST_F(usb_tc, test_tc_attach_wait_bounce_no_disconnect_hook)
+{
+	/*
+	 * Connect a Source partner with Rp asserted but VBUS at 0 mV so the
+	 * port enters AttachWait.SNK without attaching, then disconnect.
+	 * Verify no HOOK_USB_PD_DISCONNECT fires on the unattached bounce,
+	 * both when bouncing to Unattached.SRC (DRP toggle) and Unattached.SNK
+	 * (forced sink).
+	 */
+	tcpci_partner_init(&fixture->partner_emul, PD_REV20);
+	fixture->partner_emul.extensions = tcpci_src_emul_init(
+		&fixture->src_ext, &fixture->partner_emul, NULL);
+
+	tc_disconnect_hook_count = 0;
+	isl923x_emul_set_adc_vbus(fixture->charger_emul, 0);
+
+	/* 1. Bounce AttachWait.SNK -> Unattached.SRC (DRP toggle) */
+	zassert_ok(tcpci_partner_connect_to_tcpci(&fixture->partner_emul,
+						  fixture->tcpci_emul));
+	zassert_ok(tcpci_emul_set_vbus_level(fixture->tcpci_emul, VBUS_SAFE0V));
+	k_sleep(K_MSEC(250));
+	zassert_equal(0, strcmp(tc_get_current_state(TEST_PORT),
+				"AttachWait.SNK"));
+	zassert_false(tc_is_attached_snk(TEST_PORT));
+
+	zassert_ok(tcpci_emul_disconnect_partner(fixture->tcpci_emul));
+	k_sleep(K_MSEC(250));
+	zassert_false(tc_is_attached_snk(TEST_PORT));
+	zassert_equal(0, tc_disconnect_hook_count);
+
+	/* 2. Bounce AttachWait.SNK -> Unattached.SNK (PD_DRP_FORCE_SINK) */
+	pd_set_dual_role(TEST_PORT, PD_DRP_FORCE_SINK);
+	k_sleep(K_MSEC(100));
+	zassert_ok(tcpci_partner_connect_to_tcpci(&fixture->partner_emul,
+						  fixture->tcpci_emul));
+	zassert_ok(tcpci_emul_set_vbus_level(fixture->tcpci_emul, VBUS_SAFE0V));
+	k_sleep(K_MSEC(250));
+	zassert_equal(0, strcmp(tc_get_current_state(TEST_PORT),
+				"AttachWait.SNK"));
+
+	zassert_ok(tcpci_emul_disconnect_partner(fixture->tcpci_emul));
+	k_sleep(K_MSEC(250));
+	pd_set_dual_role(TEST_PORT, PD_DRP_TOGGLE_ON);
+	k_sleep(K_MSEC(100));
+	zassert_false(tc_is_attached_snk(TEST_PORT));
+	zassert_equal(0, tc_disconnect_hook_count);
+
+	/* 3. Real attach followed by detach fires HOOK_USB_PD_DISCONNECT once
+	 */
+	isl923x_emul_set_adc_vbus(fixture->charger_emul, DEFAULT_VBUS_MV);
+	zassert_ok(tcpci_partner_connect_to_tcpci(&fixture->partner_emul,
+						  fixture->tcpci_emul));
+	k_sleep(K_SECONDS(1));
+	zassert_true(tc_is_attached_snk(TEST_PORT));
+	zassert_equal(0, tc_disconnect_hook_count);
+
+	zassert_ok(tcpci_emul_disconnect_partner(fixture->tcpci_emul));
+	isl923x_emul_set_adc_vbus(fixture->charger_emul, 0);
+	zassert_ok(tcpci_emul_set_vbus_level(fixture->tcpci_emul, VBUS_SAFE0V));
+	k_sleep(K_SECONDS(1));
+	zassert_false(tc_is_attached_snk(TEST_PORT));
+	zassert_equal(1, tc_disconnect_hook_count);
+}
+
+ZTEST_F(usb_tc, test_tc_unattached_no_debug_detach)
+{
+	/*
+	 * Hook debug_detach in the TCPM driver to count invocations.
+	 */
+	fixture->saved_tcpm_drv = tcpc_config[TEST_PORT].drv;
+	fixture->mock_tcpm_drv = *fixture->saved_tcpm_drv;
+	fixture->mock_tcpm_drv.debug_detach = mock_debug_detach;
+	tcpc_config[TEST_PORT].drv = &fixture->mock_tcpm_drv;
+
+	RESET_FAKE(mock_debug_detach);
+
+	tcpci_partner_init(&fixture->partner_emul, PD_REV20);
+	fixture->partner_emul.extensions = tcpci_src_emul_init(
+		&fixture->src_ext, &fixture->partner_emul, NULL);
+
+	/*
+	 * Switching between Unattached.SNK and Unattached.SRC should NOT call
+	 * debug_detach because no partner was attached.
+	 */
+	pd_set_dual_role(TEST_PORT, PD_DRP_FORCE_SINK);
+	k_sleep(K_MSEC(100));
+	RESET_FAKE(mock_debug_detach);
+
+	pd_set_dual_role(TEST_PORT, PD_DRP_FORCE_SOURCE);
+	k_sleep(K_MSEC(100));
+	pd_set_dual_role(TEST_PORT, PD_DRP_FORCE_SINK);
+	k_sleep(K_MSEC(100));
+	zassert_equal(0, mock_debug_detach_fake.call_count);
+
+	/*
+	 * Connect partner to enter AttachWait.SNK, then disconnect before
+	 * debounce expires and an attach occurs. Transition back to
+	 * Unattached.SNK SHOULD call debug_detach.
+	 */
+	zassert_ok(tcpci_partner_connect_to_tcpci(&fixture->partner_emul,
+						  fixture->tcpci_emul));
+	k_sleep(K_MSEC(50));
+	zassert_equal(0, strcmp(tc_get_current_state(TEST_PORT),
+				"AttachWait.SNK"));
+
+	zassert_ok(tcpci_emul_disconnect_partner(fixture->tcpci_emul));
+	k_sleep(K_MSEC(50));
+	zassert_false(tc_is_attached_snk(TEST_PORT));
+	zassert_equal(1, mock_debug_detach_fake.call_count);
 }
 
 ZTEST_F(usb_tc, test_tc_dts_debug_accessory_cc1)
@@ -244,6 +385,7 @@ ZTEST_F(usb_tc, test_tc_dts_debug_accessory_cc1)
 
 	zassert_true(tc_is_attached_snk(TEST_PORT));
 	zassert_equal(POLARITY_CC1_DTS, tc_get_polarity(TEST_PORT));
+	pd_set_external_voltage_limit(TEST_PORT, CONFIG_USB_PD_MAX_VOLTAGE_MV);
 
 	zassert_ok(tcpci_emul_disconnect_partner(fixture->tcpci_emul));
 	isl923x_emul_set_adc_vbus(fixture->charger_emul, 0);
@@ -383,6 +525,7 @@ ZTEST_F(usb_tc, test_tc_attach_as_source)
 ZTEST_F(usb_tc, test_tc_try_src_flow)
 {
 	tc_try_src_override(TRY_SRC_OVERRIDE_ON);
+	tc_disconnect_hook_count = 0;
 
 	/* Connect source partner with Rp */
 	tcpci_partner_init(&fixture->partner_emul, PD_REV20);
@@ -398,6 +541,7 @@ ZTEST_F(usb_tc, test_tc_try_src_flow)
 	zassert_true(tc_is_attached_snk(TEST_PORT));
 	zassert_false(tc_is_attached_src(TEST_PORT));
 	zassert_equal(PD_ROLE_SINK, pd_get_power_role(TEST_PORT));
+	zassert_equal(0, tc_disconnect_hook_count);
 
 	zassert_ok(tcpci_emul_disconnect_partner(fixture->tcpci_emul));
 	isl923x_emul_set_adc_vbus(fixture->charger_emul, 0);
@@ -458,10 +602,12 @@ ZTEST_F(usb_tc, test_tc_attached_src_try_src_detach)
 	zassert_equal(PD_ROLE_SOURCE, pd_get_power_role(TEST_PORT));
 
 	/* Disconnect partner while Try.SRC is active (Attached.SRC ->
-	 * Unattached.SNK) */
+	 * TryWait.SNK -> Unattached.SNK) */
+	tc_disconnect_hook_count = 0;
 	zassert_ok(tcpci_emul_disconnect_partner(fixture->tcpci_emul));
 	k_sleep(K_SECONDS(1));
 	zassert_false(tc_is_attached_src(TEST_PORT));
+	zassert_equal(1, tc_disconnect_hook_count);
 
 	tc_try_src_override(TRY_SRC_NO_OVERRIDE);
 }
@@ -502,8 +648,11 @@ ZTEST_F(usb_tc, test_tc_try_src_partner_switches)
 	k_sleep(K_SECONDS(1));
 }
 
-ZTEST(usb_tc, test_tc_error_recovery_and_suspend)
+ZTEST_F(usb_tc, test_tc_error_recovery_and_suspend)
 {
+	struct i2c_common_emul_data *common_data =
+		emul_tcpci_generic_get_i2c_common_data(fixture->tcpci_emul);
+
 	/* Error recovery entrypoint (PD_T_ERROR_RECOVERY is 240ms) */
 	pd_set_error_recovery(TEST_PORT);
 	k_sleep(K_MSEC(300));
@@ -512,10 +661,168 @@ ZTEST(usb_tc, test_tc_error_recovery_and_suspend)
 	pd_set_suspend(TEST_PORT, true);
 	k_sleep(K_MSEC(100));
 
-	/* Resume port */
+	/* Resume port into Unattached.SRC and exercise hard reset request */
+	pd_set_dual_role(TEST_PORT, PD_DRP_FORCE_SOURCE);
+	pd_set_suspend(TEST_PORT, false);
+	k_sleep(K_MSEC(20));
+	tc_hard_reset_request(TEST_PORT);
+	k_sleep(K_MSEC(20));
+	zassert_equal(PD_ROLE_DFP, pd_get_data_role(TEST_PORT));
+
+	/* Suspend and resume port into Unattached.SNK and exercise hard reset
+	 */
+	pd_set_suspend(TEST_PORT, true);
+	k_sleep(K_MSEC(100));
+	pd_set_dual_role(TEST_PORT, PD_DRP_TOGGLE_ON);
+	pd_set_suspend(TEST_PORT, false);
+	k_sleep(K_MSEC(10));
+	tc_hard_reset_request(TEST_PORT);
+	k_sleep(K_MSEC(20));
+	zassert_equal(PD_ROLE_UFP, pd_get_data_role(TEST_PORT));
+
+	/*
+	 * Trigger RX read failure during TCPC init on resume so tcpc_alert
+	 * calls pd_set_suspend(TEST_PORT, 1) from the PD task itself, then
+	 * wait for pd_deferred_resume (5s) to re-enable the port.
+	 */
+	pd_set_suspend(TEST_PORT, true);
+	k_sleep(K_MSEC(100));
+	tcpci_emul_set_reg(fixture->tcpci_emul, TCPC_REG_ALERT,
+			   TCPC_REG_ALERT_RX_STATUS);
+	i2c_common_emul_set_read_fail_reg(common_data, TCPC_REG_RX_BUFFER);
+	i2c_common_emul_set_write_fail_reg(common_data, TCPC_REG_ALERT);
 	pd_set_suspend(TEST_PORT, false);
 	k_sleep(K_MSEC(100));
+	i2c_common_emul_set_read_fail_reg(common_data,
+					  I2C_COMMON_EMUL_NO_FAIL_REG);
+	i2c_common_emul_set_write_fail_reg(common_data,
+					   I2C_COMMON_EMUL_NO_FAIL_REG);
+	tcpci_emul_set_reg(fixture->tcpci_emul, TCPC_REG_ALERT, 0);
+	zassert_false(pd_is_port_enabled(TEST_PORT));
+	k_sleep(K_MSEC(5100));
+	zassert_true(pd_is_port_enabled(TEST_PORT));
 }
 
 ZTEST_SUITE(usb_tc, drivers_predicate_post_main, usb_tc_setup, usb_tc_before,
 	    usb_tc_after, NULL);
+
+struct usb_tc_lpm_fixture {
+	const struct emul *tcpci_emul;
+	const struct emul *charger_emul;
+	struct tcpci_partner_data src_partner;
+	struct tcpci_src_emul_data src_ext;
+};
+
+static void *usb_tc_lpm_setup(void)
+{
+	static struct usb_tc_lpm_fixture fixture;
+
+	fixture.tcpci_emul = EMUL_GET_USBC_BINDING(TEST_PORT, tcpc);
+	fixture.charger_emul = EMUL_GET_USBC_BINDING(TEST_PORT, chg);
+
+	tcpci_partner_init(&fixture.src_partner, PD_REV20);
+	fixture.src_partner.extensions = tcpci_src_emul_init(
+		&fixture.src_ext, &fixture.src_partner, NULL);
+
+	return &fixture;
+}
+
+static void usb_tc_lpm_before(void *fixture_data)
+{
+	struct usb_tc_lpm_fixture *fixture = fixture_data;
+	struct ec_response_typec_status status;
+
+	test_set_chipset_to_s0();
+	pd_set_dual_role(TEST_PORT, PD_DRP_TOGGLE_ON);
+	pd_set_suspend(TEST_PORT, false);
+	connect_source_to_port(&fixture->src_partner, &fixture->src_ext, 0,
+			       fixture->tcpci_emul, fixture->charger_emul);
+	status = host_cmd_typec_status(TEST_PORT);
+	zassert_true(status.sop_connected);
+	zassert_equal(PD_ROLE_SINK, status.power_role);
+}
+
+static void usb_tc_lpm_after(void *fixture_data)
+{
+	struct usb_tc_lpm_fixture *fixture = fixture_data;
+
+	pd_set_dual_role(TEST_PORT, PD_DRP_TOGGLE_ON);
+	pd_set_suspend(TEST_PORT, false);
+	disconnect_source_from_port(fixture->tcpci_emul, fixture->charger_emul);
+	tcpci_emul_set_vbus_level(fixture->tcpci_emul, VBUS_SAFE0V);
+}
+
+ZTEST_F(usb_tc_lpm, test_tc_low_power_mode_drp_toggle_bounce)
+{
+	struct ec_response_typec_status status;
+	uint16_t cc_status;
+	uint16_t role_ctrl;
+	uint16_t cmd;
+
+	/*
+	 * Disconnect the attached Source partner without sleeping past
+	 * PD_LPM_DEBOUNCE_US before the bounce can be injected.
+	 */
+	disconnect_source_from_port_no_wait(fixture->tcpci_emul,
+					    fixture->charger_emul);
+
+	zassert_true(WAIT_FOR(
+		tcpci_emul_get_reg(fixture->tcpci_emul, TCPC_REG_CC_STATUS,
+				   &cc_status) == 0 &&
+			TCPC_REG_CC_STATUS_LOOK4CONNECTION(cc_status),
+		USEC_PER_SEC, k_sleep(K_MSEC(2))));
+
+	/*
+	 * Transitioning from Unattached.SNK (Rd) to DRP auto-toggle configures
+	 * ROLE_CTRL with DRP=1 and TYPEC_CC_RP on both CC lines.
+	 */
+	zassert_ok(tcpci_emul_get_reg(fixture->tcpci_emul, TCPC_REG_ROLE_CTRL,
+				      &role_ctrl));
+	zassert_true(TCPC_REG_ROLE_CTRL_DRP(role_ctrl));
+	zassert_equal(TYPEC_CC_RP, TCPC_REG_ROLE_CTRL_CC1(role_ctrl));
+	zassert_equal(TYPEC_CC_RP, TCPC_REG_ROLE_CTRL_CC2(role_ctrl));
+
+	zassert_ok(tcpci_emul_get_reg(fixture->tcpci_emul, TCPC_REG_COMMAND,
+				      &cmd));
+	zassert_equal(TCPC_REG_COMMAND_LOOK4CONNECTION, cmd);
+
+	/*
+	 * Simulate a transient CC bounce during the PD_LPM_DEBOUNCE_US window
+	 * before I2CIDLE is sent. The bounce aborts DRP auto-toggle in the
+	 * TCPC (clearing LOOK4CONNECTION) while leaving the port presenting Rp
+	 * and returning both CC lines to OPEN.
+	 */
+	zassert_ok(tcpci_emul_connect_partner(
+		fixture->tcpci_emul, PD_ROLE_SINK, TYPEC_CC_VOLT_RD,
+		TYPEC_CC_VOLT_OPEN, POLARITY_CC1));
+	zassert_ok(tcpci_emul_disconnect_partner(fixture->tcpci_emul));
+
+	/*
+	 * Detecting LOOK4CONNECTION == 0 wakes the PD task via PD_EVENT_CC so
+	 * the TCPM re-arms LOOK4CONNECTION before committing to I2CIDLE.
+	 */
+	zassert_true(WAIT_FOR(tcpci_emul_get_reg(fixture->tcpci_emul,
+						 TCPC_REG_COMMAND, &cmd) == 0 &&
+				      cmd == TCPC_REG_COMMAND_I2CIDLE,
+			      USEC_PER_SEC, k_sleep(K_MSEC(2))));
+
+	zassert_ok(tcpci_emul_get_reg(fixture->tcpci_emul, TCPC_REG_CC_STATUS,
+				      &cc_status));
+	zassert_true(TCPC_REG_CC_STATUS_LOOK4CONNECTION(cc_status));
+
+	/*
+	 * Reconnect the Source partner and verify externally observable PD
+	 * Sink power negotiation succeeds. Without re-arming LOOK4CONNECTION,
+	 * the TCPC remains presenting Rp against the Source's Rp (seeing OPEN
+	 * on both CC lines) and never negotiates power.
+	 */
+	connect_source_to_port(&fixture->src_partner, &fixture->src_ext, 0,
+			       fixture->tcpci_emul, fixture->charger_emul);
+
+	status = host_cmd_typec_status(TEST_PORT);
+	zassert_true(status.sop_connected);
+	zassert_equal(PD_ROLE_SINK, status.power_role);
+}
+
+ZTEST_SUITE(usb_tc_lpm, drivers_predicate_post_main, usb_tc_lpm_setup,
+	    usb_tc_lpm_before, usb_tc_lpm_after, NULL);

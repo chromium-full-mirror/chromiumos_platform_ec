@@ -4,14 +4,18 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+# pylint: disable=too-many-lines
+
 """Build and test all of the Zephyr boards.
 
 This is the entry point for the custom firmware builder workflow recipe.
 """
 
+import argparse
 import collections
 from concurrent import futures
 import json
+import logging
 import os
 import pathlib
 import re
@@ -24,10 +28,6 @@ from google.protobuf import json_format  # pylint: disable=import-error
 
 from chromite.api.gen_sdk.chromite.api import firmware_pb2
 from chromite.lib.chromeos_version import VersionInfo
-import scripts.firmware_builder_lib
-from scripts.firmware_builder_lib import find_checkout
-from scripts.firmware_builder_lib import prepare_codebase
-from scripts.firmware_builder_lib import restore_codebase
 
 
 # Add the zmake dir early in the python search path
@@ -39,8 +39,25 @@ sys.path.append(str(ZEPHYR_DIR / "../util"))
 
 # pylint: disable=wrong-import-position, import-error
 from coreboot_sdk import init_toolchain
-import zmake.modules  # pylint: disable=wrong-import-position
-import zmake.project  # pylint: disable=wrong-import-position
+from lcov_stencil import compile_exclude_patterns
+import zmake.modules
+import zmake.project
+from zmake.repository_prep import find_checkout
+from zmake.repository_prep import prepared_workspace
+
+from scripts.firmware_builder_lib import (
+    get_safe_lcov_workers as _get_safe_lcov_workers,
+)
+from scripts.firmware_builder_lib import create_arg_parser
+from scripts.firmware_builder_lib import export_configs
+from scripts.firmware_builder_lib import merge_shard_coverage_reports
+from scripts.firmware_builder_lib import save_or_load_shard_info
+from scripts.firmware_builder_lib import shard_projects
+from scripts.firmware_builder_lib import should_report_coverage_metrics
+from scripts.firmware_builder_lib import summarize_merged_lcov
+
+
+# pylint: enable=wrong-import-position, import-error
 
 
 DEFAULT_BUNDLE_DIRECTORY = "/tmp/artifact_bundles"
@@ -149,7 +166,7 @@ def get_version():
     return None
 
 
-def get_projects():
+def get_projects(opts=None):
     """Get the filtered list of all projects."""
     projects = []
     platform_ec = ZEPHYR_DIR.parent
@@ -174,12 +191,14 @@ def get_projects():
                 "c1nv",
                 "aneto",
                 "pic",
+                "meru",
+                "blanc",
             ]
             and not platform_ec_private.exists()
         ):
             continue
         projects.append(project)
-    return projects
+    return shard_projects(projects, opts)
 
 
 def build_host_utils(opts, platform_ec, env, extra_env):
@@ -282,20 +301,17 @@ def build_host_utils(opts, platform_ec, env, extra_env):
     )
 
 
-def build_compare_builds():
+def build_compare_builds(checkout_dir=None):
     """Runs compare-builds a select set of targets"""
     env = os.environ.copy()
     env.update(init_toolchain())
-    env.update(
-        {
-            "PYTHONPATH": str(ZEPHYR_DIR / "zmake"),
-        }
-    )
+    env["PYTHONPATH"] = str(ZEPHYR_DIR / "zmake")
 
     # Run compare-builds at the same git reference.  This forces the
     # compare-builds step to compile only, skipping the firmware binary
     # comparison.
-    cmd = ["zmake", "-D", "compare-builds", "--ref1", "HEAD", "--ref2", "HEAD"]
+    cmd = ["zmake", "--checkout", str(checkout_dir or find_checkout())]
+    cmd.extend(["-D", "compare-builds", "--ref1", "HEAD", "--ref2", "HEAD"])
     for board in COMPARE_BUILDS_BOARDS:
         cmd.append(board)
 
@@ -314,21 +330,19 @@ def build(opts):
     metric_list = firmware_pb2.FwBuildMetricList()  # pylint: disable=no-member
     env = os.environ.copy()
     env.update(init_toolchain())
-    env.update(
-        {
-            "PYTHONPATH": str(ZEPHYR_DIR / "zmake"),
-        }
-    )
+    env["PYTHONPATH"] = str(ZEPHYR_DIR / "zmake")
 
     platform_ec = ZEPHYR_DIR.parent
 
-    if not opts.code_coverage:
+    if not opts.code_coverage and (
+        not opts.shard_index or opts.shard_index == 1
+    ):
         # Build the host utils first
         build_host_utils(opts, platform_ec, env, {})
         build_host_utils(opts, platform_ec, env, {"TEST_ASAN": "y"})
         build_host_utils(opts, platform_ec, env, {"TEST_MSAN": "y"})
         # Verify compare-builds isn't fundamentally broken
-        build_compare_builds()
+        build_compare_builds(find_checkout())
 
     # Start with a clean build environment
     cmd = ["make", "-f", "Makefile.cq", "clobber"]
@@ -340,8 +354,10 @@ def build(opts):
         stdin=subprocess.DEVNULL,
         env=env,
     )
+    save_or_load_shard_info(opts, ZEPHYR_DIR, save=True)
 
-    cmd = ["zmake", "-D", "build", "--static"]
+    cmd = ["zmake", "--checkout", str(find_checkout())]
+    cmd.extend(["-D", "build", "--static"])
     if opts.code_coverage:
         cmd.append("--coverage")
     if opts.bcs_version:
@@ -351,7 +367,7 @@ def build(opts):
         if version:
             cmd.extend(["-v", version])
 
-    projects = get_projects()
+    projects = get_projects(opts)
     for project in projects:
         cmd.append(project.config.project_name)
 
@@ -461,15 +477,8 @@ def bundle(opts):
 
 
 def get_bundle_dir(opts):
-    """Get the directory for the bundle from opts or use the default.
-
-    Also create the directory if it doesn't exist.
-    """
-    if opts.output_dir:
-        bundle_dir = opts.output_dir
-    else:
-        bundle_dir = DEFAULT_BUNDLE_DIRECTORY
-    bundle_dir = pathlib.Path(bundle_dir)
+    """Get the directory for the bundle from opts or use the default."""
+    bundle_dir = pathlib.Path(opts.output_dir or DEFAULT_BUNDLE_DIRECTORY)
     if not bundle_dir.is_dir():
         bundle_dir.mkdir()
     return bundle_dir
@@ -477,15 +486,14 @@ def get_bundle_dir(opts):
 
 def write_metadata(opts, info):
     """Write the metadata about the bundle."""
-    bundle_metadata_file = (
-        opts.metadata if opts.metadata else DEFAULT_BUNDLE_METADATA_FILE
-    )
+    bundle_metadata_file = opts.metadata or DEFAULT_BUNDLE_METADATA_FILE
     with open(bundle_metadata_file, "w", encoding="utf-8") as file:
         file.write(json_format.MessageToJson(info))
 
 
 def bundle_coverage(opts):
     """Bundles the artifacts from code coverage into its own tarball."""
+    save_or_load_shard_info(opts, ZEPHYR_DIR)
     info = firmware_pb2.FirmwareArtifactInfo()  # pylint: disable=no-member
     info.bcs_version_info.version_string = opts.bcs_version
     bundle_dir = get_bundle_dir(opts)
@@ -501,49 +509,138 @@ def bundle_coverage(opts):
     meta.lcov_info.type = (
         firmware_pb2.FirmwareArtifactInfo.LcovTarballInfo.LcovType.LCOV  # pylint: disable=no-member
     )
-    (bundle_dir / "html").mkdir(exist_ok=True)
-    # Build HTML coverage reports when bundling artifacts
-    make_cmd = [
-        "make",
-        "-f",
-        "Makefile.cq",
-        f"-j{opts.cpus}",
-        "lcov_rpt",
-        "special_boards_rpt",
-    ]
-    if SPECIAL_BOARDS:
-        make_cmd.append(f"SPECIAL_BOARDS={' '.join(SPECIAL_BOARDS)}")
-    log_cmd(make_cmd)
-    subprocess.run(
-        make_cmd, check=True, cwd=ZEPHYR_DIR, stdin=subprocess.DEVNULL
-    )
+    # Only generate HTML reports if explicitly requested (--html) or during
+    # postsubmit release builds. Postsubmit builders pass --bcs-version to
+    # version artifacts, whereas presubmit CQ runs without --bcs-version and
+    # only needs coverage.tbz2 (lcov.info) for Gerrit/Zoss coverage display.
+    if (opts.html or opts.bcs_version) and not (
+        opts.shard_count and opts.shard_index
+    ):
+        (bundle_dir / "html").mkdir(exist_ok=True)
+        # Build HTML coverage reports when bundling artifacts
+        max_lcov_workers = _get_safe_lcov_workers(opts.cpus)
+        make_cmd = [
+            "make",
+            "-f",
+            "Makefile.cq",
+            f"-j{opts.cpus}",
+            f"CPUS={opts.cpus}",
+            f"LCOV_CPUS={max_lcov_workers}",
+            "lcov_rpt",
+            "special_boards_rpt",
+        ]
+        if SPECIAL_BOARDS:
+            make_cmd.append(f"SPECIAL_BOARDS={' '.join(SPECIAL_BOARDS)}")
+        log_cmd(make_cmd)
+        subprocess.run(
+            make_cmd, check=True, cwd=ZEPHYR_DIR, stdin=subprocess.DEVNULL
+        )
 
-    cmd = ["mv", "lcov_rpt"]
-    for board in SPECIAL_BOARDS:
-        cmd.append(board + "_rpt")
-    cmd.append(bundle_dir / "html/")
-    log_cmd(cmd)
-    subprocess.run(cmd, cwd=build_dir, check=True, stdin=subprocess.DEVNULL)
-    meta = info.objects.add()
-    meta.file_name = "html"
-    meta.coverage_html.SetInParent()
+        cmd = ["mv", "lcov_rpt"]
+        for board in SPECIAL_BOARDS:
+            cmd.append(board + "_rpt")
+        cmd.append(bundle_dir / "html/")
+        log_cmd(cmd)
+        subprocess.run(cmd, cwd=build_dir, check=True, stdin=subprocess.DEVNULL)
+        meta = info.objects.add()
+        meta.file_name = "html"
+        meta.coverage_html.SetInParent()
 
     write_metadata(opts, info)
     return 0
 
 
+def _get_make_patterns(variable):
+    """Gets the glob patterns that a variable of Makefile.cq has."""
+    # --no-print-directory: make -s still prints "Entering directory" lines
+    # when MAKEFLAGS has -w, and they would be taken for patterns.
+    cmd = [
+        "make",
+        "-s",
+        "--no-print-directory",
+        "-f",
+        "Makefile.cq",
+        f"print-{variable}",
+    ]
+    log_cmd(cmd)
+    output = subprocess.run(
+        cmd,
+        cwd=ZEPHYR_DIR,
+        check=True,
+        stdout=subprocess.PIPE,
+        universal_newlines=True,
+        stdin=subprocess.DEVNULL,
+    ).stdout
+    return output.splitlines()
+
+
+def merge_shards(opts: argparse.Namespace) -> int:
+    """Merges coverage artifacts from multiple build shards into a single report.
+
+    Also prints the code coverage metrics of the merged report as JSON, in the
+    format of the response that the recipe logs for test().
+    """
+    retcode = merge_shard_coverage_reports(opts, ZEPHYR_DIR, log_cmd)
+    if retcode:
+        return retcode
+
+    metrics = firmware_pb2.FwTestMetricList()  # pylint: disable=no-member
+    summary = summarize_merged_lcov(
+        ZEPHYR_DIR.parent / "build" / "zephyr" / "lcov.info",
+        SPECIAL_BOARDS,
+        compile_exclude_patterns(_get_make_patterns("TEST_PATTERNS")),
+        compile_exclude_patterns(_get_make_patterns("BOARD_EXCLUDE_PATTERNS")),
+    )
+    for name, (covered, total) in summary.items():
+        metric = metrics.value.add()
+        metric.name = name
+        # total > 0: summarize_merged_lcov() raises for a metric with no lines.
+        metric.coverage_percent = round(100 * covered / total, 1)
+        metric.covered_lines = covered
+        metric.total_lines = total
+    print(
+        json.dumps(
+            {"metrics": json_format.MessageToDict(metrics)},
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def _run_compress(cmd, cwd=None):
+    """Worker function to run tar compression."""
+    log_cmd(cmd, cwd=cwd)
+    try:
+        subprocess.run(
+            cmd,
+            cwd=cwd,
+            check=True,
+            capture_output=True,
+            stdin=subprocess.DEVNULL,
+        )
+    except subprocess.CalledProcessError as e:
+        print(f"Error: Compression failed for command {' '.join(cmd)}: {e}")
+        if e.stdout:
+            print(f"Stdout: {e.stdout.decode('utf-8')}")
+        if e.stderr:
+            print(f"Stderr: {e.stderr.decode('utf-8')}")
+        raise
+
+
 def bundle_firmware(opts):
     """Bundles the artifacts from each target into its own tarball."""
+    save_or_load_shard_info(opts, ZEPHYR_DIR)
     info = firmware_pb2.FirmwareArtifactInfo()  # pylint: disable=no-member
     info.bcs_version_info.version_string = opts.bcs_version
     version = opts.bcs_version or get_version()
 
     bundle_dir = get_bundle_dir(opts)
     platform_ec = ZEPHYR_DIR.parent
-    subprocesses = []
+    tasks = []
     ec_to_boxter_boards = read_boxter()
     per_board_targets = collections.defaultdict(list)
-    for project in get_projects():
+    for project in get_projects(opts):
         build_dir = (
             platform_ec / "build" / "zephyr" / project.config.project_name
         )
@@ -577,12 +674,8 @@ def bundle_firmware(opts):
         cmd.extend(
             [x.relative_to(artifacts_dir) for x in artifacts_dir.glob("*")]
         )
-        log_cmd(cmd, cwd=artifacts_dir)
-        subprocesses.append(
-            subprocess.Popen(  # pylint: disable=consider-using-with
-                cmd, cwd=artifacts_dir, stdin=subprocess.DEVNULL
-            )
-        )
+        tasks.append((cmd, artifacts_dir))
+
         meta = info.objects.add()
         meta.tarball_info.board.extend(boards)
         meta.file_name = tarball_name
@@ -601,18 +694,26 @@ def bundle_firmware(opts):
         cmd.extend(
             [x.relative_to(artifacts_dir) for x in artifacts_dir.glob("*")]
         )
-        log_cmd(cmd, cwd=artifacts_dir)
-        subprocesses.append(
-            subprocess.Popen(  # pylint: disable=consider-using-with
-                cmd, cwd=artifacts_dir, stdin=subprocess.DEVNULL
-            )
-        )
+        tasks.append((cmd, artifacts_dir))
+
         meta = info.objects.add()
         meta.tarball_info.board.extend(boards)
         meta.file_name = elf_tarball_name
         meta.tarball_info.type = (
             firmware_pb2.FirmwareArtifactInfo.TarballInfo.FirmwareType.EC  # pylint: disable=no-member
         )
+        # Export the config files as they are, next to the tarballs.
+        for file_name, kind in export_configs(
+            project.config.project_name,
+            (variant for variant, _ in project.iter_builds()),
+            build_dir,
+            bundle_dir,
+        ):
+            meta = info.objects.add()
+            meta.file_name = file_name
+            meta.config_info.board.extend(sorted(boards))
+            meta.config_info.target = project.config.project_name
+            meta.config_info.kind = kind
         # TODO(kmshelton): Populate the rest of metadata contents as it
         # gets defined in infra/proto/src/chromite/api/firmware.proto.
     # For each board, create a big tar file that contains all the models.
@@ -628,22 +729,30 @@ def bundle_firmware(opts):
             "--transform",
             "s,/output,,",
         ] + dirs
-        log_cmd(cmd)
-        subprocesses.append(
-            subprocess.Popen(  # pylint: disable=consider-using-with
-                cmd, stdin=subprocess.DEVNULL
-            )
-        )
+        tasks.append((cmd, None))
+
         meta = info.objects.add()
         meta.tarball_info.board.append(board)
         meta.file_name = tarball_name
         meta.tarball_info.type = (
             firmware_pb2.FirmwareArtifactInfo.TarballInfo.FirmwareType.EC  # pylint: disable=no-member
         )
-    for proc in subprocesses:
-        proc.wait()
-        if proc.returncode != 0:
-            raise subprocess.CalledProcessError(proc.returncode, proc.args)
+
+    # Run compression tasks in a controlled thread pool
+    max_workers = opts.cpus or 4
+    with futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_cmd = {
+            executor.submit(_run_compress, cmd, cwd): cmd for cmd, cwd in tasks
+        }
+        for future in futures.as_completed(future_to_cmd):
+            try:
+                future.result()
+            except Exception as e:
+                # If one fails, cancel pending futures and raise immediately.
+                executor.shutdown(wait=False, cancel_futures=True)
+                raise RuntimeError(
+                    f"Bundle failed during compression: {e}"
+                ) from e
 
     tokens_file = "tokens.bin"
     tokens_path = platform_ec / "build" / tokens_file
@@ -664,17 +773,50 @@ def bundle_firmware(opts):
 
 def test(opts):
     """Runs all of the unit tests for Zephyr firmware"""
+    save_or_load_shard_info(opts, ZEPHYR_DIR, save=True)
     metrics = firmware_pb2.FwTestMetricList()  # pylint: disable=no-member
+    projects = get_projects(opts)
+    project_names = {p.config.project_name for p in projects}
 
     # Run tests from Makefile.cq because make knows how to run things
     # in parallel.
-    cmd = ["make", "-f", "Makefile.cq", f"-j{opts.cpus}", "test"]
+    max_lcov_workers = _get_safe_lcov_workers(opts.cpus)
+    cmd = [
+        "make",
+        "-f",
+        "Makefile.cq",
+        f"-j{opts.cpus}",
+        f"CPUS={opts.cpus}",
+        f"LCOV_CPUS={max_lcov_workers}",
+    ]
     env = os.environ.copy()
     env.update(init_toolchain())
     if opts.code_coverage:
         cmd.append("COVERAGE=1")
-    if SPECIAL_BOARDS:
-        cmd.append(f"SPECIAL_BOARDS={' '.join(SPECIAL_BOARDS)}")
+
+    # If firmware_targets contains a '/', it's a shard (e.g. 1/3)
+    # Otherwise it's a specific board or comma-separated list of boards
+    boards = SPECIAL_BOARDS.copy() if SPECIAL_BOARDS else []
+    if opts.firmware_targets and "/" not in opts.firmware_targets:
+        boards = [
+            t.strip() for t in opts.firmware_targets.split(",") if t.strip()
+        ]
+
+    if opts.shard_count and opts.shard_index:
+        cmd.append(f"TWISTER_SUBSET={opts.shard_index}/{opts.shard_count}")
+        boards = [b for b in boards if b in project_names]
+    elif opts.firmware_targets and "/" in opts.firmware_targets:
+        cmd.append(f"TWISTER_SUBSET={opts.firmware_targets}")
+
+    if boards:
+        cmd.append(f"SPECIAL_BOARDS={' '.join(boards)}")
+
+    toolchain_targets = {"host/gnu": "test_host", "host/llvm": "test_llvm"}
+    cmd.append(
+        "test"
+        if opts.code_coverage
+        else toolchain_targets.get(getattr(opts, "toolchain", "all"), "test")
+    )
     log_cmd(cmd)
     subprocess.run(
         cmd,
@@ -689,17 +831,22 @@ def test(opts):
     twister_out_dir = platform_ec / "twister-out-llvm"
     twister_out_dir_gcc = platform_ec / "twister-out-host"
 
-    if opts.code_coverage:
+    # For sharded coverage runs, worker shards generate local lcov.info and
+    # lcov_no_tests.info for bundle_coverage, but do not emit partial single-shard
+    # coverage metrics to opts.metrics. Aggregate metrics are computed by merge-shards.
+    if should_report_coverage_metrics(opts):
         build_dir = platform_ec / "build" / "zephyr"
 
         # Prepare the list of tasks (name, filename)
         tasks = []
         if twister_out_dir.exists():
             tasks.append(("EC_ZEPHYR_TESTS", twister_out_dir / "coverage.info"))
+        if twister_out_dir_gcc.exists():
+            tasks.append(
+                ("EC_ZEPHYR_TESTS_GCC", twister_out_dir_gcc / "coverage.info")
+            )
         tasks.extend(
             [
-                ("EC_ZEPHYR_TESTS_GCC", twister_out_dir_gcc / "coverage.info"),
-                ("EC_LEGACY_TESTS", platform_ec / "build/coverage/lcov.info"),
                 ("ALL_TESTS", build_dir / "all_tests.info"),
                 ("EC_ZEPHYR_MERGED", build_dir / "zephyr_merged.info"),
                 ("ALL_MERGED", build_dir / "lcov.info"),
@@ -707,8 +854,8 @@ def test(opts):
             ]
         )
 
-        for project in get_projects():
-            if project.config.project_name in SPECIAL_BOARDS:
+        for project in projects:
+            if project.config.project_name in boards:
                 tasks.append(
                     (
                         f"BOARD_{project.config.project_name}".upper(),
@@ -884,9 +1031,7 @@ def _extract_lcov_summary_worker(name, filename):
 
 def main(args):
     """Builds and tests all of the Zephyr targets and reports build metrics"""
-    parser, sub_cmds = scripts.firmware_builder_lib.create_arg_parser(
-        build, bundle, test
-    )
+    parser, sub_cmds = create_arg_parser(build, bundle, test, merge_shards)
 
     check_boards_cmd = sub_cmds.add_parser(
         "check_boards",
@@ -897,6 +1042,11 @@ def main(args):
     opts = parser.parse_args(args)
 
     # Convert the full version strings (R130-16032.8.0-1) to the short form (16032.8.0).
+    # Leave opts.bcs_version unset when --bcs-version is omitted so
+    # bundle_coverage() only builds HTML reports when --html or --bcs-version is
+    # explicitly passed; build() and bundle_firmware() call get_version(), which
+    # resolves chromeos_version.sh via the shadow checkout's chromiumos-overlay
+    # symlink.
     if opts.bcs_version:
         match = re.compile(r"R\d+-(\d+\.\d+\.\d+)(-\d+)?").fullmatch(
             opts.bcs_version
@@ -908,14 +1058,16 @@ def main(args):
         print("Must select a valid sub command!")
         return -1
 
-    applied_patches = []
-    copied_files = []
+    logging.basicConfig(level=logging.INFO)
+    orig_dir = ZEPHYR_DIR
     try:
-        prepare_codebase(opts, applied_patches, copied_files)
-        # Run selected sub command function
-        return opts.func(opts)
+        with prepared_workspace(opts) as shadow_ec:
+            globals()["ZEPHYR_DIR"] = (
+                shadow_ec / "zephyr" if shadow_ec else orig_dir
+            )
+            return opts.func(opts)
     finally:
-        restore_codebase(applied_patches, copied_files)
+        globals()["ZEPHYR_DIR"] = orig_dir
 
 
 if __name__ == "__main__":

@@ -117,6 +117,63 @@ ZTEST(panic, test_get_panic_data_start)
 	struct panic_data *pdata = get_panic_data_write();
 
 	pdata->magic = PANIC_DATA_MAGIC;
+	pdata->struct_size = CONFIG_PANIC_DATA_SIZE;
+	zassert_equal((uintptr_t)pdata, get_panic_data_start(), NULL);
+}
+
+ZTEST(panic, test_get_panic_data_start_bounds)
+{
+	struct panic_data *pdata = get_panic_data_write();
+	uint32_t max_valid_size =
+		PANIC_DATA_MAX_SIZE - (PANIC_DATA_MAX_SIZE % 4);
+
+	pdata->magic = PANIC_DATA_MAGIC;
+
+	/* Test struct_size too small (0 or < PANIC_DATA_MIN_SIZE) */
+	pdata->struct_size = 0;
+	zassert_equal(0, get_panic_data_start(), NULL);
+
+	pdata->struct_size = PANIC_DATA_MIN_SIZE - 4;
+	zassert_equal(0, get_panic_data_start(), NULL);
+
+	/* Test struct_size unaligned (not a multiple of 4) */
+	pdata->struct_size = CONFIG_PANIC_DATA_SIZE + 2;
+	zassert_equal(0, get_panic_data_start(), NULL);
+
+	/* Test struct_size too large (> PANIC_DATA_MAX_SIZE) */
+	pdata->struct_size = max_valid_size + 4;
+	zassert_equal(0, get_panic_data_start(), NULL);
+
+	pdata->struct_size = CONFIG_PRESERVED_END_OF_RAM_SIZE;
+	zassert_equal(0, get_panic_data_start(), NULL);
+
+	/* Test valid bounds: PANIC_DATA_MIN_SIZE */
+	pdata->struct_size = PANIC_DATA_MIN_SIZE;
+	zassert_equal((uintptr_t)pdata + CONFIG_PANIC_DATA_SIZE -
+			      PANIC_DATA_MIN_SIZE,
+		      get_panic_data_start(), NULL);
+
+	/*
+	 * Test valid bounds: max_valid_size (<= PANIC_DATA_MAX_SIZE and 4-byte
+	 * aligned)
+	 */
+	pdata->struct_size = max_valid_size;
+	zassert_equal((uintptr_t)pdata + CONFIG_PANIC_DATA_SIZE -
+			      max_valid_size,
+		      get_panic_data_start(), NULL);
+
+	/* If PANIC_DATA_MAX_SIZE is not aligned, verify it returns 0 */
+	if ((PANIC_DATA_MAX_SIZE % 4) != 0) {
+		pdata->struct_size = PANIC_DATA_MAX_SIZE;
+		zassert_equal(0, get_panic_data_start(), NULL);
+	}
+
+	/* Test valid size larger than local CONFIG_PANIC_DATA_SIZE */
+	pdata->struct_size = CONFIG_PANIC_DATA_SIZE + 4;
+	zassert_equal((uintptr_t)pdata - 4, get_panic_data_start(), NULL);
+
+	/* Restore standard struct_size */
+	pdata->struct_size = CONFIG_PANIC_DATA_SIZE;
 	zassert_equal((uintptr_t)pdata, get_panic_data_start(), NULL);
 }
 
@@ -563,4 +620,93 @@ ZTEST(panic, test_panic_host_event)
 	host_clear_events(CONFIG_HOST_EVENT_REPORT_MASK);
 	hook_notify(HOOK_CHIPSET_STARTUP);
 	zassert_false(host_is_event_set(EC_HOST_EVENT_PANIC), NULL);
+}
+
+ZTEST(panic, test_panic_data_is_new__cross_size)
+{
+	struct panic_data *pdata_actual = get_panic_data_write();
+	uint32_t cross_size = CONFIG_PANIC_DATA_SIZE - 4;
+	struct panic_data *pdata =
+		(struct panic_data *)((uintptr_t)pdata_actual + 4);
+
+	pdata_actual->magic = PANIC_DATA_MAGIC;
+	pdata_actual->struct_size = cross_size;
+	pdata->flags = 0;
+
+	zassert_true(
+		panic_data_is_new(),
+		"Expected panic_data_is_new() to be true for unread cross-size panic data");
+
+	pdata->flags |= PANIC_DATA_FLAG_OLD_HOSTCMD;
+	zassert_false(
+		panic_data_is_new(),
+		"Expected panic_data_is_new() to be false when OLD_HOSTCMD is set");
+
+	pdata_actual->struct_size = CONFIG_PANIC_DATA_SIZE;
+}
+
+ZTEST(panic, test_get_panic_data_flags__cross_size)
+{
+	struct panic_data *pdata_actual = get_panic_data_write();
+	uint32_t cross_size = CONFIG_PANIC_DATA_SIZE - 4;
+	struct panic_data *pdata =
+		(struct panic_data *)((uintptr_t)pdata_actual + 4);
+
+	pdata_actual->magic = PANIC_DATA_MAGIC;
+	pdata_actual->struct_size = cross_size;
+	pdata->flags = 0x5A;
+
+	uint8_t *flags = get_panic_data_flags();
+
+	zassert_not_null(
+		flags,
+		"Expected non-NULL flags for valid cross-size panic data");
+	zassert_equal(*flags, 0x5A, "Expected flags value to match");
+
+	*flags = 0xA5;
+	zassert_equal(pdata->flags, 0xA5,
+		      "Expected mutating *flags to update panic data");
+
+	/* If magic is invalid, get_panic_data_flags() returns NULL */
+	pdata_actual->magic = 0;
+	zassert_is_null(get_panic_data_flags(),
+			"Expected NULL flags for invalid magic");
+
+	pdata_actual->magic = PANIC_DATA_MAGIC;
+	pdata_actual->struct_size = CONFIG_PANIC_DATA_SIZE;
+}
+
+ZTEST(panic, test_panic_host_event_cross_size)
+{
+	struct panic_data *pdata_actual;
+	struct panic_data *pdata;
+	uint32_t cross_size = CONFIG_PANIC_DATA_SIZE - 4;
+
+	if (!IS_ENABLED(CONFIG_PLATFORM_EC_PANIC_HOST_EVENT)) {
+		ztest_test_skip();
+	}
+
+	host_clear_events(CONFIG_HOST_EVENT_REPORT_MASK);
+	zassert_false(host_is_event_set(EC_HOST_EVENT_PANIC), NULL);
+
+	pdata_actual = get_panic_data_write();
+	pdata = (struct panic_data *)((uintptr_t)pdata_actual + 4);
+	pdata_actual->magic = PANIC_DATA_MAGIC;
+	pdata_actual->struct_size = cross_size;
+	pdata->flags = 0;
+
+	/* Trigger HOOK_CHIPSET_STARTUP */
+	hook_notify(HOOK_CHIPSET_STARTUP);
+
+	/* Verify host event is set and flag is set in cross-size panic data */
+	zassert_true(host_is_event_set(EC_HOST_EVENT_PANIC), NULL);
+	zassert_equal(pdata->flags & PANIC_DATA_FLAG_OLD_HOSTEVENT,
+		      PANIC_DATA_FLAG_OLD_HOSTEVENT, NULL);
+
+	/* Verify subsequent HOOK_CHIPSET_STARTUP does not re-set host event */
+	host_clear_events(CONFIG_HOST_EVENT_REPORT_MASK);
+	hook_notify(HOOK_CHIPSET_STARTUP);
+	zassert_false(host_is_event_set(EC_HOST_EVENT_PANIC), NULL);
+
+	pdata_actual->struct_size = CONFIG_PANIC_DATA_SIZE;
 }

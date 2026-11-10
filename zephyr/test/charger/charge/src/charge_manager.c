@@ -79,3 +79,104 @@ ZTEST_USER(charge_manager, test_has_no_active_charge_port)
 	pdc_power_mgmt_wait_for_sync(0, -1);
 	zassert_false(charge_manager_has_active_charge_port());
 }
+
+ZTEST_USER(charge_manager, test_available_current)
+{
+	struct charge_port_info charge = {
+		.current = 500,
+		.voltage = 5000,
+	};
+
+	charge_manager_update_charge(CHARGE_SUPPLIER_TYPEC, 0, &charge);
+	zassert_equal(
+		charge_manager_get_available_current(CHARGE_SUPPLIER_TYPEC, 0),
+		500);
+
+	charge.current = 0;
+	charge.voltage = 0;
+	charge_manager_update_charge(CHARGE_SUPPLIER_TYPEC, 0, &charge);
+	zassert_equal(
+		charge_manager_get_available_current(CHARGE_SUPPLIER_TYPEC, 0),
+		0);
+
+	/* Valid boundary suppliers (0 and CHARGE_SUPPLIER_COUNT - 1). */
+	charge.current = 500;
+	charge.voltage = 5000;
+	charge_manager_update_charge(CHARGE_SUPPLIER_PD, 0, &charge);
+	charge_manager_update_charge(CHARGE_SUPPLIER_COUNT - 1, 0, &charge);
+	zassert_equal(charge_manager_get_available_current(CHARGE_SUPPLIER_PD,
+							   0),
+		      500);
+	zassert_equal(charge_manager_get_available_current(
+			      CHARGE_SUPPLIER_COUNT - 1, 0),
+		      500);
+
+	charge.current = 0;
+	charge.voltage = 0;
+	charge_manager_update_charge(CHARGE_SUPPLIER_PD, 0, &charge);
+	charge_manager_update_charge(CHARGE_SUPPLIER_COUNT - 1, 0, &charge);
+	zassert_equal(
+		charge_manager_get_available_current(CHARGE_SUPPLIER_PD, 0), 0);
+	zassert_equal(charge_manager_get_available_current(
+			      CHARGE_SUPPLIER_COUNT - 1, 0),
+		      0);
+
+	/* Out-of-bounds supplier updates should be safely ignored. */
+	charge.current = 500;
+	charge.voltage = 5000;
+	charge_manager_update_charge(CHARGE_SUPPLIER_NONE, 0, &charge);
+	charge_manager_update_charge(CHARGE_SUPPLIER_COUNT, 0, &charge);
+
+	/* An invalid supplier or port has no current. */
+	zassert_equal(charge_manager_get_available_current(CHARGE_SUPPLIER_NONE,
+							   0),
+		      0);
+	zassert_equal(
+		charge_manager_get_available_current(CHARGE_SUPPLIER_COUNT, 0),
+		0);
+	zassert_equal(
+		charge_manager_get_available_current(CHARGE_SUPPLIER_TYPEC, -1),
+		0);
+	zassert_equal(charge_manager_get_available_current(
+			      CHARGE_SUPPLIER_TYPEC, CHARGE_PORT_COUNT),
+		      0);
+}
+
+extern struct k_mutex cm_refresh;
+
+ZTEST_USER(charge_manager, test_charge_manager_refresh_mutex_retry)
+{
+	union connector_status_t connector_status = {};
+
+	charge_manager_leave_safe_mode();
+	zassert_false(charge_manager_has_active_charge_port());
+
+	/* Acquire cm_refresh mutex to simulate lock contention from another
+	 * task */
+	k_mutex_lock(&cm_refresh, K_FOREVER);
+
+	/* Connect partner which requests charge manager refresh */
+	emul_pdc_configure_snk(emul, &connector_status);
+	emul_pdc_connect_partner(emul, &connector_status);
+
+	/* Give sysworkq time to run charge_manager_refresh and reschedule */
+	k_msleep(10);
+
+	/*
+	 * While mutex is held, charge_manager_refresh should reschedule
+	 * without setting active port or blocking sysworkq.
+	 */
+	zassert_false(charge_manager_has_active_charge_port());
+
+	/* Release mutex: rescheduled deferred refresh should now proceed */
+	k_mutex_unlock(&cm_refresh);
+
+	/* Wait for sync and verify active charge port is set */
+	pdc_power_mgmt_wait_for_sync(0, -1);
+	zassert_true(charge_manager_has_active_charge_port());
+
+	/* Disconnect */
+	emul_pdc_disconnect(emul);
+	pdc_power_mgmt_wait_for_sync(0, -1);
+	zassert_false(charge_manager_has_active_charge_port());
+}

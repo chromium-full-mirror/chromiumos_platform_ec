@@ -81,11 +81,11 @@ config LINK_TEST_SUITE_FINGERPRINT_ASCP
 	  Link and execute fingerprint subsystem tests that focus
 	  on ASCP.
 
-config LINK_TEST_SUITE_FINGERPRINT_FRAME_SIZE
-	bool "Link fingerprint frame size tests"
+config LINK_TEST_SUITE_FINGERPRINT_IMAGE_FRAME_PARAMS
+	bool "Link fingerprint image frame params tests"
 	help
 	  Link and execute fingerprint subsystem tests that focus
-	  on finger frame size.
+	  on finger image frame params.
 
 config LINK_TEST_SUITE_FINGERPRINT_BTN_IGN_OUT
 	bool "Link fingerprint btn ign out tests"
@@ -105,6 +105,12 @@ config LINK_TEST_SUITE_FINGERPRINT_AUTH_COMMANDS
 	help
 	  Link and execute fingerprint subsystem tests that focus
 	  on fingerprint auth commands.
+
+config LINK_TEST_SUITE_FINGERPRINT_VENDOR_DATA
+	bool "Link fingerprint vendor data tests"
+	help
+	  Link and execute fingerprint subsystem tests that focus
+	  on the deferred write back of sensor vendor data.
 
 config EC_HOST_CMD_HANDLER_TX_BUFFER_SIZE
 	int "HC TX buffer size"

@@ -32,6 +32,20 @@
 
 /* c1nv overrides follow... */
 
+/ {
+	named-usbc-port {
+		usbc_port0: port0 {
+			compatible = "named-usbc-port";
+		};
+		usbc_port1: port1 {
+			compatible = "named-usbc-port";
+		};
+		usbc_port2: port2 {
+			compatible = "named-usbc-port";
+		};
+	};
+};
+
 &binman {
 	wp-ro {
 		ec-ro {

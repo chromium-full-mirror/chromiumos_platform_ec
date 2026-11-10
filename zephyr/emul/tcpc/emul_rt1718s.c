@@ -33,6 +33,8 @@ static bool is_valid_rt1718s_page1_register(int reg)
 	case RT1718S_VCON_CTRL3:
 	case 0xCF: /* FOD function */
 	case RT1718S_RT_MASK1:
+	case RT1718S_RT_INT1:
+	case RT1718S_RT_INT2:
 	case RT1718S_VCONN_CONTROL_2:
 	case RT1718S_FRS_CTRL2:
 	case RT1718S_VBUS_CTRL_EN:
@@ -41,6 +43,8 @@ static bool is_valid_rt1718s_page1_register(int reg)
 	case RT1718S_GPIO_CTRL(RT1718S_GPIO3):
 	case RT1718S_GPIO1_VBUS_CTRL:
 	case RT1718S_GPIO2_VBUS_CTRL:
+	case RT1718S_FRS_CTRL1:
+	case RT1718S_FRS_CTRL3:
 		return true;
 	default:
 		return false;
@@ -59,10 +63,12 @@ static bool is_valid_rt1718s_page2_register(int reg)
 	switch (combined_reg_address) {
 	case RT1718S_RT2_SBU_CTRL_01:
 	case RT1718S_RT2_BC12_SNK_FUNC:
+	case RT1718S_RT2_BC12_STAT:
 	case RT1718S_RT2_DPDM_CTR1_DPDM_SET:
 	case RT1718S_RT2_VBUS_VOL_CTRL:
 	case RT1718S_VCON_CTRL4:
 	case RT1718S_ADC_CTRL_01:
+	case RT1718S_RT2_BC12_SRC_FUNC:
 		return true;
 	default:
 		return false;
@@ -88,9 +94,12 @@ static void add_access_history_entry(struct rt1718s_emul_data *rt1718s_data,
  */
 static void rt1718s_emul_reset(const struct emul *emul)
 {
+	struct tcpc_emul_data *tcpc_data = emul->data;
 	struct rt1718s_emul_data *rt1718s_data = emul->data;
 
 	tcpci_emul_reset(emul);
+	tcpc_data->tcpci_ctx->common.msg_state = I2C_COMMON_EMUL_NONE_MSG;
+	rt1718s_data->current_page = 1;
 	memset(rt1718s_data->reg_page1, 0, sizeof(rt1718s_data->reg_page1));
 	memset(rt1718s_data->reg_page2, 0, sizeof(rt1718s_data->reg_page2));
 }
@@ -259,7 +268,16 @@ static int rt1718s_emul_write_byte_page1(const struct emul *emul, int reg,
 		 */
 		return -EIO;
 	}
-	rt1718s_data->reg_page1[reg] = val;
+	switch (reg) {
+	case RT1718S_RT_INT1:
+	case RT1718S_RT_INT2:
+	case RT1718S_RT_INT6:
+		rt1718s_data->reg_page1[reg] &= ~val;
+		break;
+	default:
+		rt1718s_data->reg_page1[reg] = val;
+		break;
+	}
 	add_access_history_entry(rt1718s_data, reg, val);
 
 	/* Software reset is triggered */
@@ -339,10 +357,13 @@ static int rt1718s_emul_write_byte_wrapper(const struct emul *emul, int reg,
 					   uint8_t val, int bytes)
 {
 	int err;
+	struct tcpc_emul_data *tcpc_data = emul->data;
 	struct rt1718s_emul_data *rt1718s_data = emul->data;
 
 	err = rt1718s_emul_write_byte(emul, reg, val, bytes);
 	if (err != EC_SUCCESS) {
+		tcpc_data->tcpci_ctx->common.msg_state =
+			I2C_COMMON_EMUL_NONE_MSG;
 		rt1718s_data->current_page = 1;
 	}
 	return err;

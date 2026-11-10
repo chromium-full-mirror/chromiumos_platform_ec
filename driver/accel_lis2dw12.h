@@ -143,7 +143,7 @@ enum lis2sw12_lpmode {
 
 #define LIS2DW12_INT1_D_TAP_EN LIS2DW12_INT1_DTAP_MASK
 
-#define LIS2DW12_STATUS_TAP LIS2DW12_STS_DRDY_UP
+#define LIS2DW12_STATUS_TAP LIS2DW12_STATUS_REG
 #define LIS2DW12_SINGLE_TAP LIS2DW12_SINGLE_TAP_UP
 #define LIS2DW12_DOUBLE_TAP LIS2DW12_DOUBLE_TAP_UP
 
@@ -180,6 +180,7 @@ enum lis2dw12_fs {
 	LIS2DW12_FS_LIST_NUM
 };
 
+#define LIS2DW12_ACCEL_FS_MIN_VAL 2
 #define LIS2DW12_ACCEL_FS_MAX_VAL 16
 
 #define LIS2DW12_LOW_NOISE_ADDR LIS2DW12_CTRL6_ADDR
@@ -202,7 +203,7 @@ enum lis2dw12_fs {
 #define LIS2DW12_FS_REG(_fs) (30 - __builtin_clz(_fs))
 
 /* Normalized FS value from Full Scale. */
-#define LIS2DW12_NORMALIZE_FS(_fs) (1 << (30 - __builtin_clz(_fs)))
+#define LIS2DW12_NORMALIZE_FS(_fs) (1 << (31 - __builtin_clz(_fs)))
 
 /*
  * Sensor resolution in number of bits.
@@ -223,7 +224,6 @@ int lis2dw12_set_power_mode(const struct motion_sensor_t *s,
 			    enum lis2sw12_lpmode lpmode);
 #endif
 
-#if defined(CONFIG_ZEPHYR)
 #if DT_NODE_EXISTS(DT_ALIAS(lis2dw12_int))
 /* Get the motion sensor ID of the LIS2DW12 sensor that generates the
  * interrupt. The interrupt is converted to the event and transferred to
@@ -237,7 +237,6 @@ int lis2dw12_set_power_mode(const struct motion_sensor_t *s,
  */
 #define CONFIG_ACCEL_LIS2DW12_INT_EVENT \
 	TASK_EVENT_MOTION_SENSOR_INTERRUPT(SENSOR_ID(DT_ALIAS(lis2dw12_int)))
-#endif
 #endif
 
 #endif /* PLATFORM_EC_DRIVER_ACCEL_LIS2DW12_H_ */

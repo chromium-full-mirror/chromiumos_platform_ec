@@ -3,8 +3,11 @@
  * found in the LICENSE file.
  */
 
+#include "common.h"
+#include "driver/accelgyro_lsm6dsm.h"
 #include "driver/accelgyro_lsm6dsm_public.h"
 #include "emul/emul_lsm6dsm.h"
+#include "i2c.h"
 #include "motion_sense.h"
 #include "motion_sense_fifo.h"
 #include "test/drivers/test_state.h"
@@ -21,6 +24,31 @@ static struct motion_sensor_t *acc = &motion_sensors[ACC_SENSOR_ID];
 // static struct motion_sensor_t *gyr = &motion_sensors[GYR_SENSOR_ID];
 
 ZTEST_SUITE(lsm6dsm, drivers_predicate_post_main, NULL, NULL, NULL, NULL);
+
+ZTEST(lsm6dsm, test_read_temp)
+{
+	/* OUT_TEMP_H is a signed offset in degrees C from 25 C. */
+	const struct {
+		uint8_t raw;
+		int celsius;
+	} cases[] = {
+		{ 0xff, 24 }, /* -1 C */
+		{ 0x80, -103 }, /* INT8_MIN */
+		{ 0x01, 26 }, /* +1 C */
+		{ 0x7f, 152 }, /* INT8_MAX */
+		{ 0x00, 25 }, /* 0 C, also restores the register */
+	};
+	int temp;
+
+	for (int i = 0; i < ARRAY_SIZE(cases); i++) {
+		zassert_ok(i2c_write8(acc->port, acc->i2c_spi_addr_flags,
+				      LSM6DSM_OUT_TEMP_L_ADDR + 1,
+				      cases[i].raw));
+		zassert_ok(acc->drv->read_temp(acc, &temp));
+		zassert_equal(temp, C_TO_K(cases[i].celsius), "raw 0x%02x",
+			      cases[i].raw);
+	}
+}
 
 ZTEST(lsm6dsm, test_disable_interrupt)
 {
@@ -101,4 +129,44 @@ ZTEST(lsm6dsm, test_disable_interrupt)
 	zassert_within(INT16_MAX / acc->current_range, data[1].data[X], 1);
 	zassert_within(0x0000, data[1].data[Y], 1);
 	zassert_within(0x0000, data[1].data[Z], 1);
+}
+
+ZTEST(lsm6dsm, test_set_range)
+{
+	const struct {
+		int range;
+		int rnd;
+		int expected;
+	} cases[] = {
+		/* Clamped up to the minimum. */
+		{ -1, 0, LSM6DSM_ACCEL_FS_MIN_VAL },
+		{ 0, 0, LSM6DSM_ACCEL_FS_MIN_VAL },
+		{ LSM6DSM_ACCEL_FS_MIN_VAL - 1, 0, LSM6DSM_ACCEL_FS_MIN_VAL },
+		{ LSM6DSM_ACCEL_FS_MIN_VAL - 1, 1, LSM6DSM_ACCEL_FS_MIN_VAL },
+		/* Powers of two are not rounded up. */
+		{ LSM6DSM_ACCEL_FS_MIN_VAL, 0, LSM6DSM_ACCEL_FS_MIN_VAL },
+		{ LSM6DSM_ACCEL_FS_MIN_VAL, 1, LSM6DSM_ACCEL_FS_MIN_VAL },
+		{ 4, 1, 4 },
+		{ 8, 1, 8 },
+		/* Other values round down, or up if requested. */
+		{ LSM6DSM_ACCEL_FS_MIN_VAL + 1, 0, LSM6DSM_ACCEL_FS_MIN_VAL },
+		{ LSM6DSM_ACCEL_FS_MIN_VAL + 1, 1, 4 },
+		{ LSM6DSM_ACCEL_FS_MAX_VAL - 1, 0, 8 },
+		{ LSM6DSM_ACCEL_FS_MAX_VAL - 1, 1, LSM6DSM_ACCEL_FS_MAX_VAL },
+		/* At or above the maximum. */
+		{ LSM6DSM_ACCEL_FS_MAX_VAL, 1, LSM6DSM_ACCEL_FS_MAX_VAL },
+		{ LSM6DSM_ACCEL_FS_MAX_VAL + 1, 0, LSM6DSM_ACCEL_FS_MAX_VAL },
+		{ LSM6DSM_ACCEL_FS_MAX_VAL + 1, 1, LSM6DSM_ACCEL_FS_MAX_VAL },
+	};
+	const int orig_range = acc->current_range;
+
+	for (int i = 0; i < ARRAY_SIZE(cases); i++) {
+		zassert_ok(
+			acc->drv->set_range(acc, cases[i].range, cases[i].rnd));
+		zassert_equal(acc->current_range, cases[i].expected,
+			      "range %d rnd %d", cases[i].range, cases[i].rnd);
+	}
+
+	zassert_ok(acc->drv->set_range(acc, orig_range, 0));
+	zassert_equal(acc->current_range, orig_range);
 }

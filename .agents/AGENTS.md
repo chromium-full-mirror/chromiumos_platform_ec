@@ -205,17 +205,16 @@ platform/ec$ ./twister -T path/to/my/tests
 
 ### Run a specific test
 ```
-platform/ec$ ./twister -s <test dir>/<my.test.scenario>
+platform/ec$ ./twister -s <my.test.scenario>
 ```
 
 For example:
 ```
-platform/ec$ ./twister -s drivers/drivers.default
+platform/ec$ ./twister -s drivers.default
 ```
 
-`drivers/` is the directory under `zephyr/test/` that contains the requested
-test, and `drivers.default` is the specific test scenario specified in that
-directory's `testcase.yaml` file.
+`drivers.default` is the test scenario named in the `testcase.yaml` file of
+the test directory under `zephyr/test/`, here `zephyr/test/drivers/`.
 
 ### Run all tests with coverage
 
@@ -259,3 +258,7 @@ directory's `testcase.yaml` file.
 *   **Public Only**: This repository is public. Internal-only context, skills,
     or commands MUST be added to the internal `cros-ec-development` extension
     instead.
+*   **EC Flasher Safety Rules**: When modifying `util/flash_ec` or
+    `util/flash/`, follow `.agents/rules/ec_flasher_safety.md` for `CBI`/`FMAP`
+    section preservation, `try/finally` `cleanup_dut()` state restoration, and
+    I2C DFU VBUS brownout protection.

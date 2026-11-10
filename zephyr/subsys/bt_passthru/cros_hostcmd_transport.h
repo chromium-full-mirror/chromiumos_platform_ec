@@ -35,19 +35,26 @@ class CrosHostcmdTransport : public HostTransport {
 	static size_t GetPendingEvents(uint8_t *out_buffer, size_t max_size,
 				       uint32_t *num_events);
 
+	using ResetHandler = void (*)();
+	static void SetResetHandler(ResetHandler handler);
+	static void Reset();
+
     private:
 	/*
 	 * Ring buffer to store HCI events arriving from the controller until
-	 * the AP pulls them. Size is ~2.5KB to handle multiple large
-	 * Advertising Reports.
+	 * the AP pulls them. Size is 8KB to handle bursts of Advertising
+	 * Reports.
 	 */
-	static constexpr size_t kBtEventBufSize = 256 * 10;
+	static constexpr size_t kBtEventBufSize = 256 * 32;
 	static uint8_t bt_event_data_[kBtEventBufSize];
 	static struct ring_buf bt_events_ring_buf_;
 	static struct k_spinlock rb_lock_;
 
 	/* Callback to process AP commands */
 	static HandleHostMsg msg_handler_;
+
+	/* Callback to notify subsystem of host reset */
+	static ResetHandler reset_handler_;
 };
 
 } // namespace chre

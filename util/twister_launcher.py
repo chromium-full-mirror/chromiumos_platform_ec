@@ -26,6 +26,17 @@ import tempfile
 import time
 
 
+sys.path.insert(
+    1, str(Path(__file__).resolve().parents[1] / "zephyr" / "zmake")
+)
+
+# pylint: disable=wrong-import-position,import-error
+from zmake.repository_prep import fix_lcov_info_paths
+
+
+# pylint: enable=wrong-import-position,import-error
+
+
 # Paths under the EC base dir that contain tests. This is used to define
 # Twister's search scope.
 EC_TEST_PATHS = [
@@ -302,6 +313,7 @@ def main():
         f"-x=ZEPHYR_MODULES={';'.join([str(p) for p in zephyr_modules])}",
         f"-x=Python3_EXECUTABLE={sys.executable}",
         f"-x=PW_ROOT={str(pigweed_dir)}",
+        "-x=CONFIG_DEPRECATED_KCONFIGS_AS_ERRORS=n",
     ]
 
     # `-T` flags (used for specifying test directories to build and run)
@@ -481,6 +493,7 @@ def main():
             "ZEPHYR_TOOLCHAIN_VARIANT": intercepted_args.toolchain,
             "PARSETAB_DIR": parsetab_dir,
             "PW_ROOT": str(pigweed_dir),
+            "CROSTC_USER_ACKNOWLEDGES_THAT_RISCV_IS_EXPERIMENTAL": "1",
         }
         protoc_path = shutil.which("protoc")
         if protoc_path:
@@ -532,6 +545,16 @@ def main():
             check=False,
             close_fds=False,  # For GNUMakefile jobserver
         )
+
+        if intercepted_args.coverage:
+            cros_checkout = find_checkout()
+            origin_checkout = os.environ.get("ZMAKE_ORIGIN_CHECKOUT")
+            if cros_checkout and origin_checkout:
+                fix_lcov_info_paths(
+                    Path(intercepted_args.outdir),
+                    origin_checkout,
+                    cros_checkout,
+                )
 
         if result.returncode == 0:
             print("TEST EXECUTION SUCCESSFUL")

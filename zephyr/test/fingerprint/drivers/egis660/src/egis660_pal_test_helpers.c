@@ -5,8 +5,6 @@
 
 #include "egis660_pal_test_helpers.h"
 
-#include <zephyr/drivers/flash.h>
-
 #include <fingerprint_egis660_pal.h>
 
 int z_impl_egis660_pal_spi_write_read(uint8_t *data, size_t write_size,

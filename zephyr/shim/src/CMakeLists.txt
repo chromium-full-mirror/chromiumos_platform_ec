@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+zephyr_library_include_directories("${ZEPHYR_BASE}")
 zephyr_library_sources(console.c)
 zephyr_library_sources(crc.c)
 zephyr_library_sources(gpio.c)
@@ -18,6 +19,11 @@ if (DEFINED CONFIG_SOC_FAMILY_INTEL_ISH)
   zephyr_library_sources(ish_system.c)
 elseif (DEFINED CONFIG_ARCH_POSIX)
   zephyr_library_sources(ztest_system.c)
+  if (DEFINED CONFIG_TEST AND NOT DEFINED CONFIG_ZTEST)
+    # Wrap main() so non-ztest binaries call posix_exit() on return; see
+    # __wrap_main() in ztest_system.c.
+    zephyr_link_libraries(-Wl,--wrap=main)
+  endif()
 else()
   zephyr_library_sources(system.c)
 endif()
@@ -72,6 +78,8 @@ zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_USBC_RETIMER_KB8010 kb8010_usb_m
 zephyr_library_sources_ifdef(CONFIG_CROS_EC_KEYSCAN         keyscan.c)
 zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_LOG_BACKEND_CONSOLE_BUFFER
                              log_backend_console_buffer.c)
+zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_LOG_BACKEND_CROS_EC
+                             log_backend_cros_ec.c)
 zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_MKBP_EVENT  mkbp_event.c)
 zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_MOTIONSENSE
                                                             motionsense_sensors.c)

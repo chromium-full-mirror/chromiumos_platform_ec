@@ -52,21 +52,6 @@
 #define BIT_ULL(nr) (1ULL << (nr))
 #endif
 
-/*
- * When building Zephyr, this file ends up being included before Zephyr's
- * include/sys/util.h so causes a warning there. We don't want to add an #ifdef
- * in that file since it won't be accepted upstream. So work around it here.
- */
-#ifndef CONFIG_ZEPHYR
-#ifndef GENMASK
-#define GENMASK(h, l) (((BIT(h) << 1) - 1) ^ (BIT(l) - 1))
-#endif
-
-#ifndef GENMASK_ULL
-#define GENMASK_ULL(h, l) (((BIT_ULL(h) << 1) - 1) ^ (BIT_ULL(l) - 1))
-#endif
-#endif
-
 #endif /* __KERNEL__ */
 
 #ifdef __cplusplus
@@ -763,12 +748,10 @@ enum ec_status {
 } __packed;
 BUILD_ASSERT(sizeof(enum ec_status) == sizeof(uint16_t));
 #ifdef CONFIG_EC_HOST_CMD
-#ifdef CONFIG_ZEPHYR
 /*
  * Make sure Zephyre uses the same status codes.
  */
 #include <zephyr/mgmt/ec_host_cmd/ec_host_cmd.h>
-#endif
 
 BUILD_ASSERT((uint16_t)EC_RES_SUCCESS == (uint16_t)EC_HOST_CMD_SUCCESS);
 BUILD_ASSERT((uint16_t)EC_RES_INVALID_COMMAND ==
@@ -4981,15 +4964,15 @@ enum ec_hang_detect_cmds {
 	EC_HANG_DETECT_CMD_CANCEL = 0x1,
 
 	/* Configure watchdog with given reboot timeout and
-	 * cancel currently running AP hand detect timer.
+	 * cancel currently running AP hang detect timer.
 	 */
 	EC_HANG_DETECT_CMD_SET_TIMEOUT = 0x2,
 
 	/* Get last hang status - whether the AP boot was clear or not */
 	EC_HANG_DETECT_CMD_GET_STATUS = 0x3,
 
-	/* Clear last hang status. Called when AP is rebooting/shutting down
-	 * gracefully.
+	/* Clear last hang status after reading EC_HANG_DETECT_CMD_GET_STATUS
+	 * during watchdog probe.
 	 */
 	EC_HANG_DETECT_CMD_CLEAR_STATUS = 0x4
 };
@@ -7941,6 +7924,14 @@ struct ec_response_typec_status_v1 {
 	uint32_t sink_cap_pdos[11]; /* Max 11 PDOs can be present */
 } __ec_align1;
 
+/* Each version's source and sink PDO arrays are the same size. */
+BUILD_ASSERT(
+	sizeof(((struct ec_response_typec_status_v0 *)0)->source_cap_pdos) ==
+	sizeof(((struct ec_response_typec_status_v0 *)0)->sink_cap_pdos));
+BUILD_ASSERT(
+	sizeof(((struct ec_response_typec_status_v1 *)0)->source_cap_pdos) ==
+	sizeof(((struct ec_response_typec_status_v1 *)0)->sink_cap_pdos));
+
 /**
  * Get the number of peripheral charge ports
  */
@@ -8265,12 +8256,18 @@ struct ec_response_typec_vdm_response {
 #define EC_CMD_BATTERY_CONFIG 0x013D
 
 /* Version of struct batt_conf_header and its internals. */
-#define EC_BATTERY_CONFIG_STRUCT_VERSION 0x00
+#define EC_BATTERY_CONFIG_STRUCT_VERSION 0x01
 
 /* Number of writes needed to invoke battery cutoff command */
 #define SHIP_MODE_WRITES 2
 
 struct ship_mode_info {
+	uint8_t reg_addr;
+	uint8_t reserved;
+	uint16_t reg_data[SHIP_MODE_WRITES];
+} __packed __aligned(2);
+
+struct wakeup_ship_mode_info {
 	uint8_t reg_addr;
 	uint8_t reserved;
 	uint16_t reg_data[SHIP_MODE_WRITES];
@@ -8320,6 +8317,7 @@ struct fuel_gauge_info {
 	struct ship_mode_info ship_mode;
 	struct sleep_mode_info sleep_mode;
 	struct fet_info fet;
+	struct wakeup_ship_mode_info wakeup_ship_mode;
 } __packed __aligned(4);
 
 /* Battery constants */
@@ -8661,7 +8659,13 @@ enum fp_capture_type {
  * /zephyr/test/fingerprint/task/src/fpsensor_debug.cc)
  */
 
-/* The maximum number of capture types in enum fp_capture_type */
+/*
+ * Maximum number of capture types supported by a single sensor in
+ * EC_CMD_FP_INFO v2/v3 responses.
+ *
+ * NOTE: Do not change this value, as it defines the fixed response size for
+ * EC_CMD_FP_INFO v2/v3 and changing it breaks ABI compatibility with libec.
+ */
 #define FP_MAX_CAPTURE_TYPES 10
 
 /* Extracts the capture type from the sensor 'mode' word */
@@ -9467,6 +9471,7 @@ enum ec_pwrmon_cmd {
 
 struct ec_params_pwrmon {
 	uint8_t cmd;
+	uint8_t reserved;
 	union {
 		uint16_t set_rate;
 		uint8_t channel_id;
@@ -9483,6 +9488,7 @@ struct ec_params_pwrmon {
 struct pwrmon_dump_info {
 	uint8_t channel_id;
 	char channel_name[32];
+	uint8_t reserved[3];
 } __ec_align4;
 
 struct ec_response_pwrmon {
@@ -9496,8 +9502,14 @@ struct ec_response_pwrmon {
 /* BT Passthrough */
 #define EC_CMD_BT_COMMAND 0x0609
 
-/* ChromeOS Host Command limit is strictly <256 bytes */
-#define BT_MAX_COMMAND_SIZE 240
+/*
+ * ChromeOS host commands normally keep their params and response within
+ * the 248 bytes that fit in a 256-byte LPC/eSPI packet. The BT passthrough
+ * commands are only served by the ISH, whose HECI transport buffers are
+ * sized for them (see host_command_heci.c). 260 bytes holds the largest
+ * H:4 HCI packet, a command with 255 bytes of parameters (1 + 3 + 255).
+ */
+#define BT_MAX_COMMAND_SIZE 260
 struct ec_param_bt_command {
 	uint32_t size;
 	uint8_t data[BT_MAX_COMMAND_SIZE];
@@ -9505,10 +9517,26 @@ struct ec_param_bt_command {
 
 #define EC_CMD_BT_READ_EVENT 0x060A
 
-#define BT_MAX_EVENT_SIZE 240
+/*
+ * Events are packed back to back, each prefixed by a 1-byte length, so a
+ * single event is at most 255 bytes.
+ */
+#define BT_MAX_EVENT_SIZE 260
 struct ec_response_bt_read_event {
 	uint32_t num_events;
 	uint8_t events[BT_MAX_EVENT_SIZE];
+} __ec_align4;
+
+#define EC_CMD_BT_CONTROL 0x060B
+
+enum ec_bt_control_subcmd {
+	EC_BT_CONTROL_RESET = 0,
+	EC_BT_CONTROL_SUBCMD_COUNT,
+};
+
+struct ec_params_bt_control {
+	uint8_t subcmd; /* enum ec_bt_control_subcmd */
+	uint8_t reserved[3];
 } __ec_align4;
 
 /*****************************************************************************/

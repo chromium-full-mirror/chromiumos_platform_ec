@@ -14,21 +14,16 @@ https://github.com/linux-test-project/lcov/blob/master/bin/geninfo
 
 import argparse
 from collections import defaultdict
+import fnmatch
 import logging
 import re
 import sys
-from typing import Dict, Set
+from typing import Dict, List, Optional, Set, TextIO
 
 
-EXTRACT_LINE = re.compile(r"^(FN|DA|BRDA):(\d+),")
-EXTRACT_FN = re.compile(r"^(FN):(\d+),(\S+)")
-EXTRACT_FNDA = re.compile(r"^(FNDA):(\d+),(\S+)")
-EXTRACT_DA = re.compile(r"^(DA):(\d+),(\d+)")
-EXTRACT_BRDA = re.compile(r"^(BRDA):(\d+),(\d+),(\d+),([-\d]+)")
-EXTRACT_COUNT = re.compile(r"^([A-Z]+):(\d+)")
-
-
-def parse_args(argv=None):
+def parse_args(
+    argv: Optional[List[str]] = None,
+) -> argparse.Namespace:
     """Parses command line args"""
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -49,18 +44,59 @@ def parse_args(argv=None):
         help="destination filename, defaults to stdout",
     )
     parser.add_argument(
+        "--exclude-pattern",
+        "--exclude",
+        "-r",
+        dest="exclude_patterns",
+        action="append",
+        default=[],
+        help="Glob pattern of files to exclude from coverage (like lcov -r)",
+    )
+    parser.add_argument(
+        "--exclude-only",
+        "--filter-only",
+        action="store_true",
+        help="Only exclude patterns from input files without stenciling lines",
+    )
+    parser.add_argument(
+        "--test-name",
+        "-t",
+        help=(
+            "Use records matching this test name (TN:) in template_file as "
+            "the stencil template and keep only empty and matching TN: records"
+        ),
+    )
+    parser.add_argument(
         "template_file",
-        help="lcov info file to use as template",
+        help=(
+            "lcov info file to use as template (or input file if "
+            "filtering only)"
+        ),
     )
     parser.add_argument(
         "lcov_input",
-        nargs="+",
+        nargs="*",
+        default=[],
         help="lcov info file to merge",
     )
     return parser.parse_args(argv)
 
 
-def parse_template_file(filename) -> Dict[str, Set[str]]:
+def compile_exclude_patterns(
+    patterns: List[str],
+) -> Optional[re.Pattern]:
+    """Compiles a list of glob patterns into a single regex."""
+    if not patterns:
+        return None
+    regexes = [fnmatch.translate(p) for p in patterns]
+    return re.compile("|".join(f"(?:{r})" for r in regexes))
+
+
+def parse_template_file(
+    filename: str,
+    exclude_re: Optional[re.Pattern] = None,
+    test_name: Optional[str] = None,
+) -> Dict[str, Set[str]]:
     """Reads the template file and returns covered lines.
 
     Reads the lines that indicate covered line numbers (FN, DA, and BRDA)
@@ -72,38 +108,58 @@ def parse_template_file(filename) -> Dict[str, Set[str]]:
         A dictionary of filename to set of covered line numbers (as strings)
     """
     logging.info("Reading template file %s", filename)
+    sanitized_tn = (
+        re.sub(r"\W", "_", test_name) if test_name is not None else None
+    )
     with open(filename, "r", encoding="utf-8") as template_file:
         data_by_path: Dict[str, Set[str]] = defaultdict(set)
-        file_name = None
-        for line in template_file.readlines():
+        file_name: Optional[str] = None
+        current_tn: Optional[str] = None
+        for line in template_file:
             line = line.strip()
             if line == "end_of_record":
                 file_name = None
-            elif (
-                line.startswith(  # pylint:disable=too-many-boolean-expressions
-                    "TN:"
-                )
-                or line.startswith("FNDA:")
-                or line.startswith("FNF:")
-                or line.startswith("FNH:")
-                or line.startswith("BRF:")
-                or line.startswith("BRH:")
-                or line.startswith("LF:")
-                or line.startswith("LH:")
+                current_tn = None
+            elif line.startswith("TN:"):
+                current_tn = line[3:]
+            elif line.startswith(
+                ("FNDA:", "FNF:", "FNH:", "BRF:", "BRH:", "LF:", "LH:")
             ):
                 pass
             elif line.startswith("SF:"):
+                file_path = line[3:]
+                if (
+                    sanitized_tn is not None and current_tn != sanitized_tn
+                ) or (exclude_re and exclude_re.match(file_path)):
+                    for skip_l in template_file:
+                        if skip_l.strip() == "end_of_record":
+                            break
+                    file_name = None
+                    current_tn = None
+                    continue
                 file_name = line
-            else:
-                match = EXTRACT_LINE.match(line)
-                if file_name and match:
-                    data_by_path[file_name].add(match.group(2))
+                if file_name not in data_by_path:
+                    data_by_path[file_name] = set()
+            elif (
+                line.startswith("FN:")
+                or line.startswith("DA:")
+                or line.startswith("BRDA:")
+            ):
+                _directive, payload = line.split(":", 1)
+                line_num = payload.split(",", 1)[0]
+                if file_name and line_num:
+                    data_by_path[file_name].add(line_num)
                 else:
                     raise NotImplementedError(line)
         return data_by_path
 
 
-def filter_coverage_file(filename, output_file, data_by_path):
+def filter_coverage_file(
+    filename: str,
+    output_file: TextIO,
+    data_by_path: Dict[str, Set[str]],
+    test_name: Optional[str] = None,
+) -> None:
     """Reads a coverage file from filename and writes filtered lines to
     output_file.
 
@@ -114,102 +170,158 @@ def filter_coverage_file(filename, output_file, data_by_path):
     after filtering, and records that refer to unknown files are omitted.
     """
     logging.info("Merging file %s", filename)
+    sanitized_tn = (
+        re.sub(r"\W", "_", test_name) if test_name is not None else None
+    )
     with open(filename, "r", encoding="utf-8") as input_file:
-
-        def empty_record():
-            return {
-                "text": "",
-                "function_names": set(),
-            }
-
-        record = empty_record()
-        for line in input_file.readlines():
-            line = line.strip()
+        current_tn: Optional[str] = None
+        for raw_line in input_file:
+            line = raw_line.strip()
+            if line.startswith("TN:"):
+                current_tn = line[3:]
+                continue
             if line == "end_of_record":
-                record["text"] += line + "\n"
-                if record.get("should_write_record", False):
-                    output_file.write(record["text"])
-                else:
-                    logging.debug("Omitting record %s", record["text"])
-                record = empty_record()
-            elif line.startswith("SF:"):
-                record["file_name"] = line
-                record["text"] += line + "\n"
-            elif line.startswith("TN:"):
-                record["text"] += line + "\n"
-            elif line.startswith("FN:"):
-                match = EXTRACT_FN.match(line)
-                if (
-                    match
-                    and match.group(2) in data_by_path[record["file_name"]]
+                current_tn = None
+                continue
+            if line.startswith("SF:"):
+                target_lines = data_by_path.get(line)
+                if not target_lines or (
+                    sanitized_tn is not None
+                    and current_tn not in (None, "", sanitized_tn)
                 ):
-                    record["text"] += line + "\n"
-                    record["functions_found"] = (
-                        record.get("functions_found", 0) + 1
-                    )
-                    record["should_write_record"] = True
-                    record["function_names"].add(match.group(3))
-                else:
-                    logging.debug("Omitting %s", line)
-            elif line.startswith("FNDA:"):
-                match = EXTRACT_FNDA.match(line)
-                if match and match.group(3) in record["function_names"]:
-                    record["text"] += line + "\n"
-                    record["should_write_record"] = True
-                    if match.group(2) != "0":
-                        record["functions_hit"] = (
-                            record.get("functions_hit", 0) + 1
+                    # Fast skip entire record if file is not in template
+                    for skip_l in input_file:
+                        if skip_l.strip() == "end_of_record":
+                            break
+                    current_tn = None
+                    continue
+
+                record_lines = [raw_line]
+                function_names = set()
+                functions_found = 0
+                functions_hit = 0
+                lines_found = 0
+                lines_hit = 0
+                branches_found = 0
+                branches_hit = 0
+                should_write_record = False
+
+                for rec_raw in input_file:
+                    rec_line = rec_raw.strip()
+                    if rec_line == "end_of_record":
+                        if should_write_record:
+                            record_lines.append(rec_raw)
+                            output_file.write("".join(record_lines))
+                        else:
+                            logging.debug("Omitting record %s", line)
+                        current_tn = None
+                        break
+
+                    if rec_line.startswith("TN:"):
+                        record_lines.append(rec_raw)
+                    elif rec_line.startswith("FN:"):
+                        fn_line, fn_name = rec_line.removeprefix("FN:").split(
+                            ",", 1
                         )
-                else:
-                    logging.debug("Omitting %s", line)
-            elif line.startswith("DA:"):
-                match = EXTRACT_DA.match(line)
-                if (
-                    match
-                    and match.group(2) in data_by_path[record["file_name"]]
-                ):
-                    record["text"] += line + "\n"
-                    record["lines_found"] = record.get("lines_found", 0) + 1
-                    record["should_write_record"] = True
-                    if match.group(3) != "0":
-                        record["lines_hit"] = record.get("lines_hit", 0) + 1
-                else:
-                    logging.debug("Omitting %s", line)
-            elif line.startswith("BRDA:"):
-                match = EXTRACT_BRDA.match(line)
-                if (
-                    match
-                    and match.group(2) in data_by_path[record["file_name"]]
-                ):
-                    record["text"] += line + "\n"
-                    record["branches_found"] = (
-                        record.get("branches_found", 0) + 1
-                    )
-                    record["should_write_record"] = True
-                    if match.group(4) != "-" and match.group(4) != "0":
-                        record["branches_hit"] = (
-                            record.get("branches_hit", 0) + 1
+                        if fn_line in target_lines:
+                            record_lines.append(rec_raw)
+                            functions_found += 1
+                            should_write_record = True
+                            function_names.add(fn_name)
+                        else:
+                            logging.debug("Omitting %s", rec_line)
+                    elif rec_line.startswith("FNDA:"):
+                        count, fn_name = rec_line.removeprefix("FNDA:").split(
+                            ",", 1
                         )
-                else:
-                    logging.debug("Omitting %s", line)
-            elif line.startswith("FNF:"):
-                record["text"] += f"FNF:{record.get('functions_found', 0)}\n"
-            elif line.startswith("FNH:"):
-                record["text"] += f"FNH:{record.get('functions_hit', 0)}\n"
-            elif line.startswith("BRF:"):
-                record["text"] += f"BRF:{record.get('branches_found', 0)}\n"
-            elif line.startswith("BRH:"):
-                record["text"] += f"BRH:{record.get('branches_hit', 0)}\n"
-            elif line.startswith("LF:"):
-                record["text"] += f"LF:{record.get('lines_found', 0)}\n"
-            elif line.startswith("LH:"):
-                record["text"] += f"LH:{record.get('lines_hit', 0)}\n"
-            else:
-                logging.debug("record = %s", record)
-                raise NotImplementedError(line)
+                        if fn_name in function_names:
+                            record_lines.append(rec_raw)
+                            should_write_record = True
+                            if count != "0":
+                                functions_hit += 1
+                        else:
+                            logging.debug("Omitting %s", rec_line)
+                    elif rec_line.startswith("DA:"):
+                        da_line, count = rec_line.removeprefix("DA:").split(
+                            ",", 1
+                        )
+                        if da_line in target_lines:
+                            record_lines.append(rec_raw)
+                            lines_found += 1
+                            should_write_record = True
+                            if count != "0":
+                                lines_hit += 1
+                        else:
+                            logging.debug("Omitting %s", rec_line)
+                    elif rec_line.startswith("BRDA:"):
+                        # Format: BRDA:<line_num>,<block_num>,<branch_num>,<taken>
+                        br_line, _block, _branch, taken = rec_line.removeprefix(
+                            "BRDA:"
+                        ).split(",")
+                        if br_line in target_lines:
+                            record_lines.append(rec_raw)
+                            branches_found += 1
+                            should_write_record = True
+                            if taken not in ("-", "0"):
+                                branches_hit += 1
+                        else:
+                            logging.debug("Omitting %s", rec_line)
+                    elif rec_line.startswith("FNF:"):
+                        record_lines.append(f"FNF:{functions_found}\n")
+                    elif rec_line.startswith("FNH:"):
+                        record_lines.append(f"FNH:{functions_hit}\n")
+                    elif rec_line.startswith("BRF:"):
+                        record_lines.append(f"BRF:{branches_found}\n")
+                    elif rec_line.startswith("BRH:"):
+                        record_lines.append(f"BRH:{branches_hit}\n")
+                    elif rec_line.startswith("LF:"):
+                        record_lines.append(f"LF:{lines_found}\n")
+                    elif rec_line.startswith("LH:"):
+                        record_lines.append(f"LH:{lines_hit}\n")
+                    else:
+                        logging.debug("record = %s", rec_line)
+                        raise NotImplementedError(rec_line)
 
 
-def main(argv=None):
+def exclude_patterns_from_file(
+    filename: str, output_file, exclude_re: Optional[re.Pattern]
+):
+    """Streams records from filename to output_file, omitting records matching
+    exclude_re.
+    """
+    logging.info("Filtering file %s", filename)
+    if not exclude_re:
+        with open(filename, "r", encoding="utf-8") as input_file:
+            for line in input_file:
+                output_file.write(line)
+        return
+
+    with open(filename, "r", encoding="utf-8") as input_file:
+        record_lines = []
+        skip_record = False
+        for raw_line in input_file:
+            line = raw_line.strip()
+            if skip_record:
+                if line == "end_of_record":
+                    skip_record = False
+                continue
+
+            record_lines.append(raw_line)
+            if line.startswith("SF:"):
+                file_path = line[3:]
+                if exclude_re.match(file_path):
+                    skip_record = True
+                    record_lines = []
+                    continue
+            elif line == "end_of_record":
+                output_file.writelines(record_lines)
+                record_lines = []
+
+        if record_lines and not skip_record:
+            output_file.writelines(record_lines)
+
+
+def main(argv: Optional[List[str]] = None) -> None:
     """Merges lcov files."""
     opts = parse_args(argv)
     logging.basicConfig(level=opts.log_level)
@@ -221,10 +333,21 @@ def main(argv=None):
             opts.output_file, "w", encoding="utf-8"
         )
 
-    data_by_path = parse_template_file(opts.template_file)
-    with output_file:
-        for lcov_input in [opts.template_file] + opts.lcov_input:
-            filter_coverage_file(lcov_input, output_file, data_by_path)
+    exclude_re = compile_exclude_patterns(opts.exclude_patterns)
+    if opts.exclude_only or (not opts.lcov_input and not opts.test_name):
+        inputs = [opts.template_file] + opts.lcov_input
+        with output_file:
+            for lcov_input in inputs:
+                exclude_patterns_from_file(lcov_input, output_file, exclude_re)
+    else:
+        data_by_path = parse_template_file(
+            opts.template_file, exclude_re, opts.test_name
+        )
+        with output_file:
+            for lcov_input in [opts.template_file] + opts.lcov_input:
+                filter_coverage_file(
+                    lcov_input, output_file, data_by_path, opts.test_name
+                )
 
 
 if __name__ == "__main__":

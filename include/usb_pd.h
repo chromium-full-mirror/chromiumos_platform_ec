@@ -66,14 +66,12 @@ enum pd_rx_errors {
 #define PD_EVENT_POWER_STATE_CHANGE TASK_EVENT_CUSTOM_BIT(8)
 /* Issue a Hard Reset. */
 #define PD_EVENT_SEND_HARD_RESET TASK_EVENT_CUSTOM_BIT(9)
-/* Prepare for sysjump */
-#define PD_EVENT_SYSJUMP TASK_EVENT_CUSTOM_BIT(10)
 /* Receive a Hard Reset. */
-#define PD_EVENT_RX_HARD_RESET TASK_EVENT_CUSTOM_BIT(11)
+#define PD_EVENT_RX_HARD_RESET TASK_EVENT_CUSTOM_BIT(10)
 /* MUX configured notification event */
-#define PD_EVENT_AP_MUX_DONE TASK_EVENT_CUSTOM_BIT(12)
+#define PD_EVENT_AP_MUX_DONE TASK_EVENT_CUSTOM_BIT(11)
 /* First free event on PD task */
-#define PD_EVENT_FIRST_FREE_BIT 13
+#define PD_EVENT_FIRST_FREE_BIT 12
 
 /* Ensure TCPC is out of low power mode before handling these events. */
 #define PD_EXIT_LOW_POWER_EVENT_MASK               \
@@ -86,6 +84,16 @@ enum pd_rx_errors {
 #else
 #define PDO_MAX_OBJECTS 7
 #endif
+
+/*
+ * The v1 EC_CMD_TYPEC_STATUS response holds every stored PDO. Only the v0
+ * response can truncate the stored PDOs, when the EC supports EPR.
+ */
+BUILD_ASSERT(ARRAY_SIZE(((struct ec_response_typec_status_v1 *)0)
+				->source_cap_pdos) >= PDO_MAX_OBJECTS);
+BUILD_ASSERT(
+	ARRAY_SIZE(((struct ec_response_typec_status_v1 *)0)->sink_cap_pdos) >=
+	PDO_MAX_OBJECTS);
 
 /* PDO : Power Data Object */
 /*
@@ -310,7 +318,6 @@ enum pdo_augmented_pps {
 #define PD_T_SRC_TRANSITION (25 * MSEC) /* 25ms to 35 ms */
 #define PD_T_VCONN_STABLE (50 * MSEC) /* 50ms */
 #define PD_T_DISCOVER_IDENTITY (45 * MSEC) /* between 40ms and 50ms */
-#define PD_T_SYSJUMP (1000 * MSEC) /* 1s */
 #define PD_T_PR_SWAP_WAIT (100 * MSEC) /* tPRSwapWait 100ms */
 #define PD_T_DATA_RESET (225 * MSEC) /* between 200ms and 250ms */
 #define PD_T_DATA_RESET_FAIL (300 * MSEC) /* 300ms */
@@ -3409,15 +3416,6 @@ static inline int pd_vdm_get_log_entry(uint32_t *payload)
 	return 0;
 }
 #endif /* CONFIG_USB_PD_LOGGING */
-
-/**
- * Prepare for a sysjump by exiting any alternate modes, if PD communication is
- * allowed.
- *
- * Note: this call will block until the PD task has finished its exit mode and
- * re-awoken the calling task.
- */
-void pd_prepare_sysjump(void);
 
 /**
  * Compose SVDM Request Header

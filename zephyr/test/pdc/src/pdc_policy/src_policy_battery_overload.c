@@ -29,14 +29,6 @@ BUILD_ASSERT(DT_PROP(POLICY_NODE, max_discharge_current_ma) == 4500,
 BUILD_ASSERT(DT_PROP(POLICY_NODE, max_discharge_power_mw) == 41000,
 	     "Tests assume max-discharge-power-mw is 41000");
 
-/* Mock data and variables for battery and AC power state */
-static struct batt_params mock_batt;
-
-const struct batt_params *charger_current_battery_params(void)
-{
-	return &mock_batt;
-}
-
 /* Helper function to simulate time advancement (triggers HOOK_SECOND) */
 static void simulate_seconds(int seconds)
 {
@@ -49,9 +41,10 @@ static void simulate_seconds(int seconds)
 /* Test environment initialization */
 static void reset_battery_state(void)
 {
-	mock_batt.current = -1000;
-	mock_batt.voltage = 10000;
-	mock_batt.flags = 0;
+	test_batt_params.is_present = BP_YES;
+	test_batt_params.current = -1000;
+	test_batt_params.voltage = 10000;
+	test_batt_params.flags = 0;
 	test_extpower_present = 0;
 	simulate_seconds(1);
 }
@@ -103,8 +96,8 @@ ZTEST_USER_F(src_policy, test_overload_current_debounce)
 
 	zassert_equal(3000, pdc_dpm_get_source_current(TEST_USBC_PORT0));
 
-	mock_batt.current = -4600;
-	mock_batt.voltage = 10000;
+	test_batt_params.current = -4600;
+	test_batt_params.voltage = 10000;
 
 	simulate_seconds(1);
 	zassert_equal(3000, pdc_dpm_get_source_current(TEST_USBC_PORT0));
@@ -122,8 +115,8 @@ ZTEST_USER_F(src_policy, test_overload_power_trigger)
 	emul_connect_3a_sink(fixture, TEST_USBC_PORT0);
 	zassert_equal(3000, pdc_dpm_get_source_current(TEST_USBC_PORT0));
 
-	mock_batt.current = -4000;
-	mock_batt.voltage = 11000;
+	test_batt_params.current = -4000;
+	test_batt_params.voltage = 11000;
 
 	simulate_seconds(3);
 	zassert_equal(1500, pdc_dpm_get_source_current(TEST_USBC_PORT0));
@@ -137,7 +130,7 @@ ZTEST_USER_F(src_policy, test_recovery_on_extpower)
 	reset_battery_state();
 	emul_connect_3a_sink(fixture, TEST_USBC_PORT0);
 
-	mock_batt.current = -5000;
+	test_batt_params.current = -5000;
 	simulate_seconds(3);
 	zassert_equal(1500, pdc_dpm_get_source_current(TEST_USBC_PORT0));
 
@@ -154,11 +147,11 @@ ZTEST_USER_F(src_policy, test_recovery_on_detach)
 	reset_battery_state();
 	emul_connect_3a_sink(fixture, TEST_USBC_PORT0);
 
-	mock_batt.current = -5000;
+	test_batt_params.current = -5000;
 	simulate_seconds(3);
 	zassert_equal(1500, pdc_dpm_get_source_current(TEST_USBC_PORT0));
 
-	mock_batt.current = -1000;
+	test_batt_params.current = -1000;
 	emul_disconnect_sink(fixture, TEST_USBC_PORT0);
 
 	emul_connect_3a_sink(fixture, TEST_USBC_PORT0);
@@ -173,7 +166,7 @@ ZTEST_USER_F(src_policy, test_throttle_new_sink_during_overload)
 	reset_battery_state();
 
 	/* Trigger overload state first */
-	mock_batt.current = -5000;
+	test_batt_params.current = -5000;
 	simulate_seconds(3);
 
 	emul_connect_3a_sink(fixture, TEST_USBC_PORT0);
@@ -194,12 +187,12 @@ ZTEST_USER_F(src_policy, test_recovery_on_detach_2_ports)
 	zassert_equal(3000, pdc_dpm_get_source_current(TEST_USBC_PORT1));
 
 	/* Trigger current overload, verify port 1 is 1.5 A */
-	mock_batt.current = -5000;
+	test_batt_params.current = -5000;
 	simulate_seconds(3);
 	zassert_equal(1500, pdc_dpm_get_source_current(TEST_USBC_PORT1));
 
 	/* Remove port 0, verify port 1 is now 3A */
-	mock_batt.current = -1000;
+	test_batt_params.current = -1000;
 	emul_disconnect_sink(fixture, TEST_USBC_PORT0);
 
 	simulate_seconds(1);

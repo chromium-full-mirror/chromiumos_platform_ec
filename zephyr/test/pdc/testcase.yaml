@@ -2,6 +2,11 @@ common:
   platform_allow:
   - native_sim
 tests:
+  pdc.driver.it52xx:
+    build_only: true
+    extra_dtc_overlay_files:
+    - "./boards/it52xx.overlay"
+
   pdc.driver.rts545x:
     timeout: 500
     extra_configs:
@@ -346,6 +351,7 @@ tests:
     - "./boards/rts5453p.overlay"
 
   pdc.tps6699x:
+    timeout: 300
     extra_configs:
     - CONFIG_TEST_SUITE_PDC_TPS6699X=y
     - CONFIG_TEST_PDC_MESSAGE_TRACING=y
@@ -354,6 +360,7 @@ tests:
     - "./boards/tps6699x.overlay"
 
   pdc.tps6699x.ap_mode_override_off:
+    timeout: 300
     extra_configs:
     - CONFIG_TEST_SUITE_PDC_TPS6699X=y
     - CONFIG_USBC_PDC_DISABLE_AP_MODE_ENTRY=y
