@@ -93,14 +93,9 @@ static void ap_pwrseq_send_exit_callback(const struct device *dev,
 static uint32_t ap_pwrseq_wait_event(const struct device *dev)
 {
 	struct ap_pwrseq_data *const data = dev->data;
-	uint32_t events;
 
-	events = k_event_wait(&data->evt, AP_PWRSEQ_EVENT_MASK, false,
-			      Z_FOREVER);
-	/* Clear all events posted */
-	k_event_clear(&data->evt, events);
-
-	return events & AP_PWRSEQ_EVENT_MASK;
+	return k_event_wait_safe(&data->evt, AP_PWRSEQ_EVENT_MASK, false,
+				 Z_FOREVER);
 }
 
 static void ap_pwrseq_thread(void *arg, void *unused1, void *unused2)
