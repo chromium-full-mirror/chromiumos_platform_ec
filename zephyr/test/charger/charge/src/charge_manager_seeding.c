@@ -22,6 +22,18 @@ ZTEST_SUITE(charge_manager_seeding_pre_main, charger_predicate_pre_main, NULL,
 ZTEST_USER(charge_manager_seeding_pre_main, test_unseeded)
 {
 	zassert_false(charge_manager_is_seeded());
+	zassert_equal(charge_manager_get_available_current(CHARGE_SUPPLIER_PD,
+							   0),
+		      CHARGE_CURRENT_UNINITIALIZED);
+
+	/* Out-of-bounds supplier or port seeding should be rejected. */
+	charge_manager_set_supplier(0, CHARGE_SUPPLIER_NONE);
+	charge_manager_set_supplier(0, CHARGE_SUPPLIER_COUNT);
+	charge_manager_set_supplier(CHARGE_PORT_NONE, CHARGE_SUPPLIER_PD);
+	charge_manager_set_supplier(CHARGE_PORT_COUNT, CHARGE_SUPPLIER_PD);
+	zassert_equal(charge_manager_get_supplier(), CHARGE_SUPPLIER_NONE);
+	zassert_equal(charge_manager_get_active_charge_port(),
+		      CHARGE_PORT_NONE);
 }
 
 ZTEST_SUITE(charge_manager_seeding_post_main, charger_predicate_post_main, NULL,
@@ -48,11 +60,17 @@ ZTEST_USER(charge_manager_seeding_post_main, test_seeded)
 	 * that initially the charge manager won't be fully seeded.
 	 */
 	zassert_false(charge_manager_is_seeded());
+	zassert_equal(charge_manager_get_available_current(
+			      CHARGE_SUPPLIER_DEDICATED, DEDICATED_CHARGE_PORT),
+		      CHARGE_CURRENT_UNINITIALIZED);
 
 	/* Seed the dedciated charger port. */
 
 	charge_manager_update_charge(CHARGE_SUPPLIER_DEDICATED,
 				     DEDICATED_CHARGE_PORT, &charge_dc_jack);
+	zassert_equal(charge_manager_get_available_current(
+			      CHARGE_SUPPLIER_DEDICATED, DEDICATED_CHARGE_PORT),
+		      3000);
 #endif
 
 	/* Charger manager expected to be fully seeded. */

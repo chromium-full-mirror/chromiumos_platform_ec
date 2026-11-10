@@ -12,6 +12,7 @@
 #include "test/drivers/utils.h"
 
 #include <zephyr/fff.h>
+#include <zephyr/irq.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/minmax.h>
 #include <zephyr/ztest.h>
@@ -42,14 +43,10 @@ static void before_panic_log_test(void *state)
 ZTEST_SUITE(panic_log, drivers_predicate_post_main, NULL, before_panic_log_test,
 	    NULL, NULL);
 
-/* Mock panic_get_data to simulate new panic */
-FAKE_VALUE_FUNC(struct panic_data *, panic_get_data);
-struct panic_data panic_data_new = {
-	.flags = 0,
-};
-struct panic_data panic_data_old = {
-	.flags = PANIC_DATA_FLAG_OLD_HOSTCMD,
-};
+/* Mock get_panic_data_flags to simulate new panic */
+FAKE_VALUE_FUNC(uint8_t *, get_panic_data_flags);
+uint8_t panic_flags_new = 0;
+uint8_t panic_flags_old = PANIC_DATA_FLAG_OLD_HOSTCMD;
 
 /*
  * Convenience function for transitioning panic log from unfrozen to frozen.
@@ -149,6 +146,19 @@ ZTEST_USER(panic_log, test_write_str)
 	zassert_true(panic_log_contains(test_str));
 }
 
+ZTEST(panic_log, test_write_under_irq_lock)
+{
+	const char *test_str = __func__;
+
+	unfreeze_panic_log();
+	unsigned int key = irq_lock();
+	panic_log_write_str(test_str, strlen(test_str));
+	irq_unlock(key);
+	freeze_panic_log();
+	zassert_true(panic_log_is_valid());
+	zassert_true(panic_log_contains(test_str));
+}
+
 ZTEST_USER(panic_log, test_printk)
 {
 	const char *test_str = __func__;
@@ -236,7 +246,7 @@ ZTEST_USER(panic_log, test_freeze)
 ZTEST_USER(panic_log, test_init_new_panic_invalid)
 {
 	const char *test_str = __func__;
-	panic_get_data_fake.return_val = &panic_data_new;
+	get_panic_data_flags_fake.return_val = &panic_flags_new;
 
 	/* Write a test string to panic log */
 	write_str_to_panic_log(test_str);
@@ -258,7 +268,7 @@ ZTEST_USER(panic_log, test_init_new_panic_invalid)
 ZTEST_USER(panic_log, test_init_new_panic_valid)
 {
 	const char *test_str = __func__;
-	panic_get_data_fake.return_val = &panic_data_new;
+	get_panic_data_flags_fake.return_val = &panic_flags_new;
 
 	/* Write a test string to panic log */
 	write_str_to_panic_log(test_str);
@@ -276,7 +286,7 @@ ZTEST_USER(panic_log, test_init_new_panic_valid)
 ZTEST_USER(panic_log, test_init_old_panic_valid)
 {
 	const char *test_str = __func__;
-	panic_get_data_fake.return_val = &panic_data_old;
+	get_panic_data_flags_fake.return_val = &panic_flags_old;
 
 	/* Write a test string to panic log */
 	write_str_to_panic_log(test_str);
@@ -295,7 +305,7 @@ ZTEST_USER(panic_log, test_init_old_panic_valid)
 ZTEST_USER(panic_log, test_init_old_panic_invalid)
 {
 	const char *test_str = __func__;
-	panic_get_data_fake.return_val = &panic_data_new;
+	get_panic_data_flags_fake.return_val = &panic_flags_new;
 
 	/* Write a test string to panic log */
 	write_str_to_panic_log(test_str);
@@ -551,7 +561,7 @@ ZTEST_SUITE(panic_log_pre_main, drivers_predicate_pre_main, NULL, NULL, NULL,
 /* This should run before panic_log_init runs,*/
 ZTEST_USER(panic_log_pre_main, test_pre_init)
 {
-	panic_get_data_fake.return_val = &panic_data_old;
+	get_panic_data_flags_fake.return_val = &panic_flags_old;
 
 	/* Verify panic log is uninitialized and frozen */
 	zassert_false(panic_log_initialized);

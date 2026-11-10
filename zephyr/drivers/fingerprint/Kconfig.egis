@@ -91,10 +91,12 @@ config FINGERPRINT_SENSOR_EGIS660_PAL
 config FINGERPRINT_SENSOR_EGIS660_APNS
 	bool "EGIS660 APNS storage"
 	default y
-	depends on $(dt_nodelabel_enabled,egis660_apns_data)
+	depends on PLATFORM_EC_FP_VENDOR_DATA
 	help
 	  If enabled, the APNS(Adaptive Pixel Noise Suppression) data generated
-	  during the enroll and match can be stored on APNS storage.
+	  during the enroll and match can be stored on APNS storage. The data
+	  is kept in the fingerprint sensor vendor data partition
+	  (fingerprint_sensor_vendor_data) and goes through the vendor data cache.
 
 # Enabled in private driver Kconfig
 config HAVE_EGIS660_PRIVATE_DRIVER

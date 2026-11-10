@@ -399,10 +399,10 @@ void ps8xxx_tcpc_update_hpd_status(const struct usb_mux *me,
 		uint64_t now = get_time().val;
 		/* wait for the minimum spacing between IRQ_HPD if needed */
 		if (now < hpd_deadline[port])
-			crec_usleep(hpd_deadline[port] - now);
+			k_usleep(hpd_deadline[port] - now);
 
 		dp_set_irq(me, 0);
-		crec_usleep(HPD_DSTREAM_DEBOUNCE_IRQ);
+		k_usleep(HPD_DSTREAM_DEBOUNCE_IRQ);
 		dp_set_irq(me, hpd_irq);
 	}
 	/* enforce 2-ms delay between HPD pulses */
@@ -448,7 +448,7 @@ static int ps8xxx_tcpm_release(int port)
 	status = tcpc_read(port, reg, &version);
 	if (status != 0) {
 		/* wait for chip to wake up */
-		crec_msleep(10);
+		k_msleep(10);
 	}
 
 	return tcpci_tcpm_release(port);
@@ -460,7 +460,7 @@ static void ps8xxx_role_control_delay(int port)
 
 	delay = ps8xxx_role_control_delay_ms[port];
 	if (delay)
-		crec_msleep(delay);
+		k_msleep(delay);
 }
 
 #ifdef CONFIG_USB_PD_DUAL_ROLE_AUTO_TOGGLE
@@ -662,12 +662,12 @@ static int ps8xxx_lpm_recovery_delay(int port)
 		status = tcpc_read(port, fw_reg, &val);
 		if (status != EC_SUCCESS) {
 			/* wait for chip to wake up */
-			crec_msleep(PS8XXX_I2C_RECOVERY_DELAY_MS);
+			k_msleep(PS8XXX_I2C_RECOVERY_DELAY_MS);
 			continue;
 		}
 		if (val != 0)
 			break;
-		crec_msleep(1);
+		k_msleep(1);
 	}
 
 	return EC_SUCCESS;
@@ -677,35 +677,25 @@ static int
 ps8xxx_fill_chip_info(int port, bool live,
 		      struct ec_response_pd_chip_info_v1 *const cache)
 {
-	/* Populate chip firmware version. */
-	int fw_ver_reg = get_reg_by_product(port, REG_FW_VER);
+	int fw_ver_reg;
 	int fw_version;
-	int rv = tcpc_read(port, fw_ver_reg, &fw_version);
+	int rv;
 
-	if (rv != EC_SUCCESS)
-		return rv;
-	cache->fw_version_number = fw_version;
-
-#if defined(CONFIG_USB_PD_TCPM_PS8751) && \
-	defined(CONFIG_USB_PD_VBUS_DETECT_TCPC)
-	/*
-	 * Min firmware version of PS8751 to ensure that it can detect Vbus
-	 * properly. See b/109769787#comment7
-	 */
-	cache->min_req_fw_version_number = 0x39;
-#endif
+	if (!product_id[port]) {
+		/*
+		 * ps8xxx_tcpm_init() may not have run yet (e.g. an early host
+		 * command).
+		 */
+		product_id[port] = board_get_ps8xxx_product_id(port);
+		if (product_id[port] == 0)
+			return EC_ERROR_UNKNOWN;
+	}
 
 	/*
 	 * Unless live data is requested, override whatever vendor and product
 	 * IDs are reported with the ones that board configuration assumes.
 	 */
 	if (!live) {
-		uint16_t pid;
-
-		pid = board_get_ps8xxx_product_id(port);
-		if (pid == 0)
-			return EC_ERROR_UNKNOWN;
-		product_id[port] = pid;
 		cache->vendor_id = PS8XXX_VENDOR_ID;
 		cache->product_id = product_id[port];
 	}
@@ -751,6 +741,25 @@ ps8xxx_fill_chip_info(int port, bool live,
 			return rv;
 		cache->device_id = val;
 	}
+#endif
+
+	/*
+	 * Populate chip firmware version. This must follow the
+	 * product_id[port] init above, since get_reg_by_product() uses it.
+	 */
+	fw_ver_reg = get_reg_by_product(port, REG_FW_VER);
+	rv = tcpc_read(port, fw_ver_reg, &fw_version);
+	if (rv != EC_SUCCESS)
+		return rv;
+	cache->fw_version_number = fw_version;
+
+#if defined(CONFIG_USB_PD_TCPM_PS8751) && \
+	defined(CONFIG_USB_PD_VBUS_DETECT_TCPC)
+	/*
+	 * Min firmware version of PS8751 to ensure that it can detect Vbus
+	 * properly. See b/109769787#comment7
+	 */
+	cache->min_req_fw_version_number = 0x39;
 #endif
 
 	/* Treat unexpected values as error (FW not initiated from reset) */
@@ -953,7 +962,7 @@ static int ps8751_get_gcc(int port, enum tcpc_cc_voltage_status *cc1,
 		return rv;
 
 	/* Derived empirically */
-	crec_usleep(300);
+	k_usleep(300);
 
 	return tcpci_tcpm_get_cc(port, cc1, cc2);
 }
@@ -1011,7 +1020,7 @@ static int ps8xxx_tcpm_set_vconn(int port, int enable)
 	 * https://partnerissuetracker.corp.google.com/issues/185202064
 	 */
 	if (!enable)
-		crec_msleep(PS8XXX_VCONN_TURN_OFF_DELAY_US);
+		k_msleep(PS8XXX_VCONN_TURN_OFF_DELAY_US);
 
 	if (tcpc_config[port].flags & TCPC_FLAGS_SET_VCONN_IN_SYNC)
 		return true;
@@ -1101,7 +1110,7 @@ void ps8xxx_wake_from_standby(const struct usb_mux *me)
 
 	/* Since we are waking up device, this call will most likely fail */
 	mux_read(me, PS8XXX_REG_I2C_DEBUGGING_ENABLE, &reg);
-	crec_msleep(10);
+	k_msleep(10);
 }
 
 static int ps8xxx_mux_set(const struct usb_mux *me, mux_state_t mux_state,

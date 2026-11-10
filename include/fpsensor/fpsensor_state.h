@@ -12,7 +12,7 @@
 #include "common.h"
 #include "ec_commands.h"
 #include "fpsensor_driver.h"
-#include "fpsensor_frame_size.h"
+#include "fpsensor_image_frame_params.h"
 #include "fpsensor_matcher.h"
 #include "fpsensor_state_driver.h"
 #include "link_defs.h"
@@ -27,11 +27,18 @@
 
 #ifdef CONFIG_ZEPHYR
 #include <zephyr/linker/devicetree_regions.h>
+#include <zephyr/toolchain.h>
 
 #if DT_NODE_EXISTS(DT_CHOSEN(cros_fp_fingerprint_memory_frame))
 #define FP_FRAME_SECTION                                       \
 	__attribute__((__section__(LINKER_DT_NODE_REGION_NAME( \
 		DT_CHOSEN(cros_fp_fingerprint_memory_frame)))))
+#elif defined(CONFIG_NOCACHE_MEMORY)
+/*
+ * Use uncacheable memory region for the frame buffer to enable SPI DMA
+ * transfers, which are unsupported on cached memory.
+ */
+#define FP_FRAME_SECTION __nocache
 #endif
 
 #if DT_NODE_EXISTS(DT_CHOSEN(cros_fp_fingerprint_memory_template))
@@ -98,8 +105,8 @@ struct fpsensor_context {
 	 * most recent successful capture.
 	 */
 	enum fp_capture_type current_capture_type;
-	/** Map of the capture type to frame size. */
-	FpFrameSizeCache fp_frame_size_cache;
+	/** Map of the capture type to frame parameters. */
+	FpImageFrameParamsCache fp_image_frame_params_cache;
 	/** Part of the IKM used to derive encryption keys received from the
 	 * TPM.
 	 */

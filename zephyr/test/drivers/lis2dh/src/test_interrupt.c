@@ -22,6 +22,21 @@
 static const struct emul *emul = EMUL_DT_GET(LIS2DH_NODE);
 static struct motion_sensor_t *acc = &motion_sensors[ACC_SENSOR_ID];
 
+static int count_fifo_src_reads(const struct emul *target, int reg,
+				uint8_t *val, int bytes, void *data)
+{
+	int *reads = data;
+
+	ARG_UNUSED(target);
+	ARG_UNUSED(val);
+	ARG_UNUSED(bytes);
+
+	if (reg == LIS2DH_FIFO_SRC_ADDR) {
+		(*reads)++;
+	}
+	return 1;
+}
+
 ZTEST_USER(lis2dh, test_lis2dh__samples_fifo_read)
 {
 	struct stprivate_data *drvdata = acc->drv_data;
@@ -99,9 +114,11 @@ ZTEST_USER(lis2dh, test_lis2dh__samples_fifo_read_long)
 {
 	struct stprivate_data *drvdata = acc->drv_data;
 	int16_t fake_sample[(FIFO_READ_LEN / OUT_XYZ_SIZE) * 3 + 6];
+	const int num_samples = ARRAY_SIZE(fake_sample) / 3;
 	uint32_t evt = ACCEL_LIS2DH_INT_EVENT;
 	static struct ec_response_motion_sensor_data
 		fifo_data[ARRAY_SIZE(fake_sample) / 3 * 2];
+	int fifo_src_reads = 0;
 	int count;
 	uint16_t read_byte_count;
 	int i;
@@ -116,6 +133,8 @@ ZTEST_USER(lis2dh, test_lis2dh__samples_fifo_read_long)
 	acc->config[SENSOR_CONFIG_AP].odr = 10000;
 	acc->drv->set_data_rate(acc, 10000, 1);
 	acc->oversampling_ratio = 1;
+	/* Space the samples so each one gets a distinct timestamp. */
+	acc->collection_rate = 100 * USEC_PER_MSEC;
 
 	/* Verify fifo mode is enabled */
 	zassert_true(lis2dh_emul_is_fifo_enabled(emul));
@@ -139,8 +158,17 @@ ZTEST_USER(lis2dh, test_lis2dh__samples_fifo_read_long)
 	lis2dh_emul_set_fifo_data(emul, fake_sample,
 				  (uint8_t)(sizeof(fake_sample)));
 
+	i2c_common_emul_set_read_func(emul_lis2dh_get_i2c_common_data(emul),
+				      count_fifo_src_reads, &fifo_src_reads);
+
 	/* Run interrupt handler */
 	zassert_ok(lis2dh_drv.irq_handler(acc, &evt));
+
+	/*
+	 * One read finds the queued samples and one read finds the FIFO
+	 * empty, so a single lis2dh_load_fifo() call drained both chunks.
+	 */
+	zassert_equal(fifo_src_reads, 2);
 
 	/* Read data has been queue up in the motion_sense fifo */
 	count = motion_sense_fifo_read(sizeof(fifo_data),
@@ -155,13 +183,16 @@ ZTEST_USER(lis2dh, test_lis2dh__samples_fifo_read_long)
 
 	/*
 	 * Validate each set of sensor XYZ samples.
-	 * Verify that we read up to FIFO_READ_LEN / OUT_XYZ_SIZE which is 8
-	 * samples.
+	 * Verify that all samples across both FIFO chunks are read.
 	 */
-	for (i = 0; i < FIFO_READ_LEN / OUT_XYZ_SIZE; i++) {
+	for (i = 0; i < num_samples; i++) {
 		zassert_equal(fifo_data[i * 2].flags,
 			      MOTIONSENSE_SENSOR_FLAG_TIMESTAMP);
 		zassert_equal(fifo_data[i * 2].sensor_num, ACC_SENSOR_ID);
+		zassert_equal(fifo_data[i * 2].timestamp,
+			      fifo_data[(num_samples - 1) * 2].timestamp -
+				      acc->collection_rate *
+					      (num_samples - 1 - i));
 		zassert_equal(fifo_data[i * 2 + 1].data[X], fake_sample[i * 3]);
 		zassert_equal(fifo_data[i * 2 + 1].data[Y],
 			      fake_sample[i * 3 + 1]);
@@ -235,7 +266,10 @@ ZTEST_USER(lis2dh, test_lis2dh__samples_fifo_read_fail)
 ZTEST_USER(lis2dh, test_lis2dh__samples_fifo_read_spoof)
 {
 	struct stprivate_data *drvdata = acc->drv_data;
-	int16_t fake_sample[] = { 10, 20, 30 };
+	int16_t fake_sample[] = { 10, 20, 30, 40, 50, 60 };
+	const intv3_t expected_spoof = { 50 << (15 - LIS2DH_RESOLUTION),
+					 60 << (15 - LIS2DH_RESOLUTION),
+					 70 << (15 - LIS2DH_RESOLUTION) };
 	uint32_t evt = ACCEL_LIS2DH_INT_EVENT;
 	static struct ec_response_motion_sensor_data
 		fifo_data[ARRAY_SIZE(fake_sample) / 3 * 2];
@@ -268,9 +302,9 @@ ZTEST_USER(lis2dh, test_lis2dh__samples_fifo_read_spoof)
 	acc->flags |= MOTIONSENSE_FLAG_IN_SPOOF_MODE;
 
 	/* Set values to be spoofed */
-	acc->spoof_xyz[X] = 50 << (15 - LIS2DH_RESOLUTION);
-	acc->spoof_xyz[Y] = 60 << (15 - LIS2DH_RESOLUTION);
-	acc->spoof_xyz[Z] = 70 << (15 - LIS2DH_RESOLUTION);
+	acc->spoof_xyz[X] = expected_spoof[X];
+	acc->spoof_xyz[Y] = expected_spoof[Y];
+	acc->spoof_xyz[Z] = expected_spoof[Z];
 
 	/*
 	 * Samples from the lis2dh are left aligned so shift left by requiired
@@ -297,9 +331,16 @@ ZTEST_USER(lis2dh, test_lis2dh__samples_fifo_read_spoof)
 	zassert_equal(count, ARRAY_SIZE(fake_sample) / 3 * 2);
 
 	/* Data from fifo should match spoof values */
-	zassert_equal(fifo_data[1].data[X], acc->spoof_xyz[X]);
-	zassert_equal(fifo_data[1].data[Y], acc->spoof_xyz[Y]);
-	zassert_equal(fifo_data[1].data[Z], acc->spoof_xyz[Z]);
+	for (i = 0; i < ARRAY_SIZE(fake_sample) / 3; i++) {
+		zassert_equal(fifo_data[i * 2 + 1].data[X], expected_spoof[X]);
+		zassert_equal(fifo_data[i * 2 + 1].data[Y], expected_spoof[Y]);
+		zassert_equal(fifo_data[i * 2 + 1].data[Z], expected_spoof[Z]);
+	}
+
+	/* raw_xyz still tracks the last sample read from the sensor */
+	zassert_equal(acc->raw_xyz[X], fake_sample[3]);
+	zassert_equal(acc->raw_xyz[Y], fake_sample[4]);
+	zassert_equal(acc->raw_xyz[Z], fake_sample[5]);
 }
 
 ZTEST_USER(lis2dh, test_lis2dh__trigger_interrupt)

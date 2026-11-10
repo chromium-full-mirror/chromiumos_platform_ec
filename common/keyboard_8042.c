@@ -96,7 +96,6 @@ static K_MUTEX_DEFINE(to_host_mutex);
 /* Queue command/data to the host */
 enum {
 	CHAN_KBD = 0,
-	CHAN_AUX,
 	CHAN_CMD,
 };
 struct data_byte {
@@ -129,9 +128,6 @@ struct host_byte {
  * Hence, 5 (actually 4 plus one spare) is large enough, but use 8 for safety.
  */
 static struct queue const from_host = QUEUE_NULL(8, struct host_byte);
-
-/* Queue aux data to the host from interrupt context. */
-static struct queue const aux_to_host_queue = QUEUE_NULL(16, uint8_t);
 
 static int i8042_keyboard_irq_enabled;
 static int i8042_aux_irq_enabled;
@@ -195,7 +191,6 @@ struct kblog_t {
 	/*
 	 * Type:
 	 *
-	 * a = aux byte enqueued to send to host
 	 * c = command byte from host
 	 * d = data byte from host
 	 * r = typematic
@@ -203,7 +198,6 @@ struct kblog_t {
 	 * t = to-host queue tail pointer before type='s' bytes enqueued
 	 * u = byte enqueued to send to host with priority
 	 * x = to_host queue was cleared
-	 * A = byte actually sent to host via LPC as AUX
 	 * K = byte actually sent to host via LPC
 	 *
 	 * The to-host head and tail pointers are logged pre-wrapping to the
@@ -217,16 +211,6 @@ struct kblog_t {
 
 static struct kblog_t *kblog_buf; /* Log buffer; NULL if not logging */
 static int kblog_len; /* Current log length */
-
-#ifndef CONFIG_8042_AUX
-/*
- * Stub in case the call did not get optimized away and we do not have
- * LPC configured.
- */
-__attribute__((weak)) void lpc_aux_put_char(uint8_t chr, int send_irq)
-{
-}
-#endif /* !CONFIG_8042_AUX */
 
 /**
  * Add event to keyboard log.
@@ -296,7 +280,7 @@ static void i8042_send_to_host(int len, const uint8_t *bytes, uint8_t chan,
 	struct data_byte data;
 
 	/* Enqueue output data if there's space */
-	mutex_lock(&to_host_mutex);
+	k_mutex_lock(&to_host_mutex, K_FOREVER);
 
 	if (is_typematic && !typematic_len) {
 		for (i = 0; i < len; i++)
@@ -310,9 +294,7 @@ static void i8042_send_to_host(int len, const uint8_t *bytes, uint8_t chan,
 		for (i = 0; i < len; i++) {
 			char type;
 
-			if (chan == CHAN_AUX)
-				type = 'a';
-			else if (chan == CHAN_CMD)
+			if (chan == CHAN_CMD)
 				type = 'u';
 			else
 				type = 's';
@@ -328,7 +310,7 @@ static void i8042_send_to_host(int len, const uint8_t *bytes, uint8_t chan,
 			}
 		}
 	}
-	mutex_unlock(&to_host_mutex);
+	k_mutex_unlock(&to_host_mutex);
 
 	/* Wake up the task to move from queue to host */
 	task_wake(TASK_ID_KEYPROTO);
@@ -445,11 +427,11 @@ test_export_static void reset_rate_and_delay(void)
 void keyboard_clear_buffer(void)
 {
 	CPRINTS("KB Clear Buffer");
-	mutex_lock(&to_host_mutex);
+	k_mutex_lock(&to_host_mutex, K_FOREVER);
 	kblog_put('x', queue_count(&to_host));
 	queue_init(&to_host);
 	queue_init(&to_host_cmd);
-	mutex_unlock(&to_host_mutex);
+	k_mutex_unlock(&to_host_mutex);
 	lpc_keyboard_clear_buffer();
 }
 
@@ -596,39 +578,6 @@ static void update_ctl_ram(uint8_t addr, uint8_t data)
 /**
  * Handle the port 0x60 writes from host.
  *
- * Returns 1 if the event was handled.
- */
-static int handle_mouse_data(uint8_t data, uint8_t *output, int *count)
-{
-	int out_len = 0;
-
-	switch (data_port_state) {
-	case STATE_8042_ECHO_MOUSE:
-		CPRINTS5("STATE_8042_ECHO_MOUSE: 0x%02x", data);
-		output[out_len++] = data;
-		data_port_state = STATE_ATKBD_CMD;
-		break;
-
-	case STATE_8042_SEND_TO_MOUSE:
-		CPRINTS5("STATE_8042_SEND_TO_MOUSE: 0x%02x", data);
-		send_aux_data_to_device(data);
-		data_port_state = STATE_ATKBD_CMD;
-		break;
-
-	default: /* STATE_ATKBD_CMD */
-		return 0;
-	}
-
-	ASSERT(out_len <= MAX_SCAN_CODE_LEN);
-
-	*count = out_len;
-
-	return 1;
-}
-
-/**
- * Handle the port 0x60 writes from host.
- *
  * This functions returns the number of bytes stored in *output buffer.
  */
 static int handle_keyboard_data(uint8_t data, uint8_t *output)
@@ -679,6 +628,17 @@ static int handle_keyboard_data(uint8_t data, uint8_t *output)
 		CPRINTS5("KB eaten by STATE_8042_WRITE_OUTPUT_PORT: 0x%02x",
 			 data);
 		A20_status = (data & BIT(1)) ? 1 : 0;
+		data_port_state = STATE_ATKBD_CMD;
+		break;
+
+	case STATE_8042_ECHO_MOUSE:
+		CPRINTS5("KB eaten by STATE_8042_ECHO_MOUSE: 0x%02x", data);
+		output[out_len++] = data;
+		data_port_state = STATE_ATKBD_CMD;
+		break;
+
+	case STATE_8042_SEND_TO_MOUSE:
+		CPRINTS5("KB eaten by STATE_8042_SEND_TO_MOUSE: 0x%02x", data);
 		data_port_state = STATE_ATKBD_CMD;
 		break;
 
@@ -921,13 +881,8 @@ static void i8042_handle_from_host(void)
 			CPRINTS5("KB recv data: 0x%02x", h.byte);
 			kblog_put('d', h.byte);
 
-			if (IS_ENABLED(CONFIG_8042_AUX) &&
-			    handle_mouse_data(h.byte, output, &ret_len)) {
-				chan = CHAN_AUX;
-			} else {
-				ret_len = handle_keyboard_data(h.byte, output);
-				chan = CHAN_CMD;
-			}
+			ret_len = handle_keyboard_data(h.byte, output);
+			chan = CHAN_CMD;
 		}
 
 		i8042_send_to_host(ret_len, output, chan, 0);
@@ -981,8 +936,7 @@ void keyboard_protocol_task(void *u)
 			 */
 			if (lpc_keyboard_has_char()) {
 				/* If interrupts disabled, nothing we can do */
-				if (!i8042_keyboard_irq_enabled &&
-				    !i8042_aux_irq_enabled)
+				if (!i8042_keyboard_irq_enabled)
 					break;
 
 				/* Give the host a little longer to respond */
@@ -1052,48 +1006,12 @@ void keyboard_protocol_task(void *u)
 			}
 
 			/* Write to host. */
-			if (entry.chan == CHAN_AUX &&
-			    IS_ENABLED(CONFIG_8042_AUX)) {
-				lpc_aux_put_char(entry.byte,
-						 i8042_aux_irq_enabled);
-				kblog_put('A', entry.byte);
-			} else {
-				lpc_keyboard_put_char(
-					entry.byte, i8042_keyboard_irq_enabled);
-				kblog_put('K', entry.byte);
-			}
+			lpc_keyboard_put_char(entry.byte,
+					      i8042_keyboard_irq_enabled);
+			kblog_put('K', entry.byte);
 			retries = 0;
 		}
 	}
-}
-
-static void send_aux_data_to_host_deferred(void)
-{
-	uint8_t data;
-
-	if (IS_ENABLED(CONFIG_DEVICE_EVENT) &&
-	    chipset_in_state(CHIPSET_STATE_ANY_SUSPEND))
-		device_set_single_event(EC_DEVICE_EVENT_TRACKPAD);
-
-	while (!queue_is_empty(&aux_to_host_queue)) {
-		queue_remove_unit(&aux_to_host_queue, &data);
-		if (aux_chan_enabled && IS_ENABLED(CONFIG_8042_AUX))
-			i8042_send_to_host(1, &data, CHAN_AUX, 0);
-		else
-			CPRINTS("AUX Callback ignored");
-	}
-}
-DECLARE_DEFERRED(send_aux_data_to_host_deferred);
-
-/**
- * Send aux data to host from interrupt context.
- *
- * @param data	Aux response to send to host.
- */
-void send_aux_data_to_host_interrupt(uint8_t data)
-{
-	queue_add_unit(&aux_to_host_queue, &data);
-	hook_call_deferred(&send_aux_data_to_host_deferred_data, 0);
 }
 
 /**
@@ -1147,17 +1065,23 @@ test_mockable void keyboard_update_button(enum keyboard_button_type button,
 static int command_typematic(int argc, const char **argv)
 {
 	int i;
+	timestamp_t now;
 
 	if (argc == 3) {
 		typematic_first_delay = strtoi(argv[1], NULL, 0) * MSEC;
 		typematic_inter_delay = strtoi(argv[2], NULL, 0) * MSEC;
 	}
 
+	now = get_time();
+
 	ccprintf("From host:   0x%02x\n", typematic_value_from_host);
 	ccprintf("First delay: %3d ms\n", typematic_first_delay / 1000);
 	ccprintf("Inter delay: %3d ms\n", typematic_inter_delay / 1000);
-	ccprintf("Now:         %.6" PRId64 "\n", get_time().val);
-	ccprintf("Deadline:    %.6" PRId64 "\n", typematic_deadline.val);
+	ccprintf("Now:         %" PRId64 ".%06" PRId64 "\n",
+		 now.val / USEC_PER_SEC, now.val % USEC_PER_SEC);
+	ccprintf("Deadline:    %" PRId64 ".%06" PRId64 "\n",
+		 typematic_deadline.val / USEC_PER_SEC,
+		 typematic_deadline.val % USEC_PER_SEC);
 
 	ccputs("Repeat scan code: {");
 	for (i = 0; i < typematic_len; ++i)
@@ -1228,9 +1152,9 @@ static int command_keyboard_log(int argc, const char **argv)
 
 	if (i) {
 		if (!kblog_buf) {
-			int rv = SHARED_MEM_ACQUIRE_CHECK(sizeof(*kblog_buf) *
-								  MAX_KBLOG,
-							  (char **)&kblog_buf);
+			int rv = shared_mem_acquire(sizeof(*kblog_buf) *
+							    MAX_KBLOG,
+						    (char **)&kblog_buf);
 			if (rv != EC_SUCCESS)
 				kblog_buf = NULL;
 			kblog_len = 0;
@@ -1296,27 +1220,12 @@ static int command_8042_internal(int argc, const char **argv)
 
 		queue_peek_units(&to_host, &entry, i, 1);
 
-		ccprintf("0x%02x%s, ", entry.byte,
-			 entry.chan == CHAN_AUX ? " aux" : "");
+		ccprintf("0x%02x, ", entry.byte);
 	}
 	ccprintf("}\n");
 
 	return EC_SUCCESS;
 }
-
-/* Zephyr only provides these as subcommands*/
-#ifndef CONFIG_ZEPHYR
-DECLARE_CONSOLE_COMMAND(typematic, command_typematic, "[first] [inter]",
-			"Get/set typematic delays");
-DECLARE_CONSOLE_COMMAND(codeset, command_codeset, "[set]",
-			"Get/set keyboard codeset");
-DECLARE_CONSOLE_COMMAND(ctrlram, command_controller_ram, "index [value]",
-			"Get/set keyboard controller RAM");
-DECLARE_CONSOLE_COMMAND(kblog, command_keyboard_log, "[on | off]",
-			"Print or toggle keyboard event log");
-DECLARE_CONSOLE_COMMAND(kbd, command_keyboard, "[on | off]",
-			"Print or toggle keyboard info");
-#endif
 
 static int command_8042(int argc, const char **argv)
 {

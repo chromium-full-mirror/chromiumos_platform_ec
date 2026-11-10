@@ -12,6 +12,7 @@
 #include "common.h"
 #include "panic_defs.h"
 #include "software_panic.h"
+#include "sysjump.h"
 
 #include <stdarg.h>
 #include <stdbool.h>
@@ -24,6 +25,28 @@ extern "C" {
 #ifdef CONFIG_RO_PANIC_DATA_SIZE
 BUILD_ASSERT(sizeof(struct panic_data) == CONFIG_RO_PANIC_DATA_SIZE);
 #endif
+
+/*
+ * Minimum size of panic data: 4-byte header (arch, struct_version, flags,
+ * reserved) + struct_size (4 bytes) + magic (4 bytes).
+ *
+ * This guarantees the 4-byte header (e.g. flags) and 8-byte trailer are in
+ * bounds, but does not guarantee architecture fields (such as panic reason)
+ * are valid.
+ *
+ * TODO(b/581471400): Consider tightening PANIC_DATA_MIN_SIZE and
+ * PANIC_DATA_MAX_SIZE bounds further without risking RO overwriting valid
+ * future RW panic_data.
+ */
+#define PANIC_DATA_MIN_SIZE 12
+
+/*
+ * Maximum size of panic data preserved at the end of RAM, leaving room
+ * for jump_data and at least one maximum-sized jump tag.
+ */
+#define PANIC_DATA_MAX_SIZE                                            \
+	(CONFIG_PRESERVED_END_OF_RAM_SIZE - sizeof(struct jump_data) - \
+	 JUMP_TAG_MAX_SIZE)
 
 /* Use PANIC_DATA_PTR to refer to the persistent storage location */
 #define PANIC_DATA_PTR ((struct panic_data *)CONFIG_PANIC_DATA_BASE)
@@ -72,31 +95,6 @@ void panic_data_ccprint(const struct panic_data *pdata);
  * @param fname		File name where assertion happened
  * @param linenum	Line number where assertion happened
  */
-#if !(defined(CONFIG_ZEPHYR))
-#ifdef CONFIG_DEBUG_ASSERT_BRIEF
-#if !(defined(CONFIG_ZTEST))
-__noreturn
-#endif
-	void panic_assert_fail(const char *fname, int linenum);
-#else
-#if !(defined(CONFIG_ZTEST))
-__noreturn
-#endif
-	void panic_assert_fail(const char *msg, const char *func,
-			       const char *fname, int linenum);
-#endif
-
-/**
- * Display a custom panic message and reset
- *
- * @param msg	Panic message
- */
-#if !(defined(CONFIG_ZTEST))
-__noreturn
-#endif
-	void panic(const char *msg);
-
-#endif /* !CONFIG_ZEPHYR */
 
 /**
  * Display a default message and reset
@@ -105,17 +103,6 @@ __noreturn
 __noreturn
 #endif
 	void panic_reboot(void);
-
-#if !(defined(CONFIG_ZEPHYR))
-/**
- * Store a panic log and halt the system for a software-related reason, such as
- * stack overflow or assertion failure.
- */
-#if !(defined(CONFIG_ZTEST))
-__noreturn
-#endif
-	void software_panic(uint32_t reason, uint32_t info);
-#endif /* !CONFIG_ZEPHYR */
 
 struct arch_esf;
 struct k_thread;
@@ -252,6 +239,13 @@ struct panic_data *panic_get_data(void);
  */
 uintptr_t get_panic_data_start(void);
 
+/**
+ * Return a pointer to the flags field of valid panic data, or NULL if none.
+ *
+ * This safely accesses header flags across panic_data struct_size differences.
+ */
+uint8_t *get_panic_data_flags(void);
+
 #if defined(CONFIG_BOARD_NATIVE_POSIX) || defined(CONFIG_BOARD_NATIVE_SIM)
 /**
  * @brief Test-only function for accessing the pdata_ptr object.
@@ -311,6 +305,13 @@ int command_crash_nested_handler(void);
  * @return int Return value
  */
 int test_command_crash(int argc, const char **argv);
+
+/**
+ * Return size of panic data if valid, or 0 if no valid panic data.
+ *
+ * Checks magic, minimum size, maximum size, and 4-byte alignment.
+ */
+uint32_t get_panic_data_size(void);
 #endif /* TEST_BUILD*/
 
 #ifdef __cplusplus

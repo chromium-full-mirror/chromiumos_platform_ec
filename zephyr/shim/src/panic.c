@@ -19,6 +19,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/logging/log_ctrl.h>
+#include <zephyr/sys/zassert.h>
 
 LOG_MODULE_REGISTER(panic, LOG_LEVEL_INF);
 
@@ -39,6 +40,16 @@ LOG_MODULE_REGISTER(panic, LOG_LEVEL_INF);
 #if defined(CONFIG_ARM)
 #define PANIC_ARCH PANIC_ARCH_CORTEX_M
 #if defined(CONFIG_EXTRA_EXCEPTION_INFO)
+#if defined(CONFIG_ARMV7_M_ARMV8_M_MAINLINE)
+#define EXTRA_MAINLINE_PANIC_REG_LIST(M)   \
+	M(extra_info.cfsr, cm.cfsr, cfsr)  \
+	M(extra_info.bfar, cm.bfar, bfar)  \
+	M(extra_info.mmfar, cm.mfar, mfar) \
+	M(extra_info.hfsr, cm.hfsr, hfsr)  \
+	M(extra_info.dfsr, cm.dfsr, dfsr)
+#else
+#define EXTRA_MAINLINE_PANIC_REG_LIST(M)
+#endif
 #define EXTRA_PANIC_REG_LIST(M, M_GPR)                                       \
 	M_GPR(extra_info.callee->v1, cm.regs[CORTEX_PANIC_REGISTER_R4], v1)  \
 	M_GPR(extra_info.callee->v2, cm.regs[CORTEX_PANIC_REGISTER_R5], v2)  \
@@ -51,7 +62,8 @@ LOG_MODULE_REGISTER(panic, LOG_LEVEL_INF);
 	M(extra_info.callee->psp, cm.regs[CORTEX_PANIC_REGISTER_PSP], psp)   \
 	M(basic.xpsr, cm.regs[CORTEX_PANIC_REGISTER_IPSR], ipsr)             \
 	M(extra_info.exc_return, cm.regs[CORTEX_PANIC_REGISTER_LR], exc_rtn) \
-	M(extra_info.msp, cm.regs[CORTEX_PANIC_REGISTER_MSP], msp)
+	M(extra_info.msp, cm.regs[CORTEX_PANIC_REGISTER_MSP], msp)           \
+	EXTRA_MAINLINE_PANIC_REG_LIST(M)
 /*
  * IPSR is a subset of xPSR, which is already captured in PANIC_REG_LIST, but
  * print it anyway because it may contain panic exception.
@@ -59,7 +71,6 @@ LOG_MODULE_REGISTER(panic, LOG_LEVEL_INF);
 #else
 #define EXTRA_PANIC_REG_LIST(M, M_GPR)
 #endif
-/* TODO(b/245423691): Copy other status registers (e.g. CFSR) when available. */
 #define PANIC_REG_LIST(M, M_GPR)          \
 	M_GPR(basic.r0, cm.frame[0], a1)  \
 	M_GPR(basic.r1, cm.frame[1], a2)  \
@@ -296,38 +307,74 @@ void k_sys_fatal_error_handler(unsigned int reason, const struct arch_esf *esf)
 	 * the watchdog will overwrite this panic.
 	 */
 	panic_reboot();
-	__ASSERT_UNREACHABLE;
 }
 #endif /* CONFIG_ZTEST_FATAL_HOOK */
 
 #ifdef CONFIG_PLATFORM_EC_DEBUG_ASSERT
-#ifdef CONFIG_ASSERT_NO_FILE_INFO
-__override void assert_post_action(void)
+static bool in_assert;
+
+FUNC_NORETURN
+__override void zassert_fail(const char *cond, const char *file,
+			     unsigned int line, const char *fmt, ...)
 {
-	panic_data_write_assert(NULL, 0);
+	/*
+	 * Upstream Zephyr runs zassert_fail() with interrupts unlocked
+	 * because assertions can be configured as recoverable. On EC, asserts
+	 * are fatal, so lock interrupts immediately to prevent preemption and
+	 * force synchronous console/log output.
+	 */
+	irq_lock();
+
+	if (in_assert) {
+		panic_puts("Recursive assert\n");
+		panic_reboot();
+		CODE_UNREACHABLE;
+	}
+	in_assert = true;
+
+	/*
+	 * Save assert panic data first before printing, logging, or stack
+	 * walking.
+	 */
+	panic_data_write_assert(file, line);
+
+	if (cond != NULL && file != NULL) {
+		zassert_print("ASSERTION FAIL [%s] @ %s:%d\n", cond, file,
+			      line);
+	} else if (file != NULL) {
+		zassert_print("ASSERTION FAIL @ %s:%d\n", file, line);
+	} else {
+		zassert_print("ASSERTION FAIL\n");
+	}
+
+	if (fmt != NULL) {
+		va_list ap;
+
+		zassert_print("\t");
+		va_start(ap, fmt);
+		zassert_vprint(fmt, ap);
+		va_end(ap);
+		zassert_print("\n");
+	}
+
+	/*
+	 * Switch the logger to panic mode and flush queued log messages
+	 * before printing the stack trace.
+	 */
+	LOG_PANIC();
 
 	if (IS_ENABLED(CONFIG_PLATFORM_EC_CONSOLE_CMD_CRASH_NESTED))
 		command_crash_nested_handler();
 
-	panic_reboot();
-	__ASSERT_UNREACHABLE;
-}
-#else
-__override void assert_post_action(const char *path, unsigned int line)
-{
-	panic_data_write_assert(path, line);
-
-	if (IS_ENABLED(CONFIG_PLATFORM_EC_CONSOLE_CMD_CRASH_NESTED))
-		command_crash_nested_handler();
-
-	if (IS_ENABLED(CONFIG_PLATFORM_EC_PANIC_PRINT_STACK_ON_ASSERT)) {
+	if (!IS_ENABLED(CONFIG_ASSERT_NO_FILE_INFO) &&
+	    IS_ENABLED(CONFIG_PLATFORM_EC_PANIC_PRINT_STACK_ON_ASSERT)) {
 		print_stack_trace(k_current_get());
 	}
 
 	panic_reboot();
-	__ASSERT_UNREACHABLE;
+
+	CODE_UNREACHABLE;
 }
-#endif /* CONFIG_ASSERT_NO_FILE_INFO */
 #endif /* CONFIG_PLATFORM_EC_DEBUG_ASSERT */
 
 uint32_t panic_get_reason_reg(const struct panic_data *pdata)
@@ -441,12 +488,25 @@ SYS_INIT(panic_data_init, PRE_KERNEL_2, 0);
 #if defined(CONFIG_PLATFORM_EC_PANIC_HOST_EVENT)
 static void panic_host_event_init(void)
 {
-	struct panic_data *pdata = panic_get_data();
+	uint8_t *flags = get_panic_data_flags();
 
-	if (pdata && !(pdata->flags & PANIC_DATA_FLAG_OLD_HOSTEVENT)) {
+	if (flags && !(*flags & PANIC_DATA_FLAG_OLD_HOSTEVENT)) {
 		host_set_single_event(EC_HOST_EVENT_PANIC);
-		pdata->flags |= PANIC_DATA_FLAG_OLD_HOSTEVENT;
+		*flags |= PANIC_DATA_FLAG_OLD_HOSTEVENT;
 	}
 }
 DECLARE_HOOK(HOOK_CHIPSET_STARTUP, panic_host_event_init, HOOK_PRIO_LAST);
+#endif
+
+#if defined(CONFIG_ZTEST) && defined(CONFIG_PLATFORM_EC_DEBUG_ASSERT)
+#include <zephyr/ztest.h>
+
+static void panic_assert_reset_rule_before(const struct ztest_unit_test *test,
+					   void *data)
+{
+	ARG_UNUSED(test);
+	ARG_UNUSED(data);
+	in_assert = false;
+}
+ZTEST_RULE(panic_assert_reset, panic_assert_reset_rule_before, NULL);
 #endif

@@ -13,7 +13,6 @@
 #include "console.h"
 #include "cpu.h"
 #include "cros_board_info.h"
-#include "dma.h"
 #include "extpower.h"
 #include "flash.h"
 #include "gpio.h"
@@ -40,6 +39,9 @@
 #include "usb_pd_tcpm.h"
 #include "util.h"
 #include "watchdog.h"
+
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/kernel.h>
 
 /* Console output macros */
 #define CPUTS(outstr) cputs(CC_SYSTEM, outstr)
@@ -440,62 +442,6 @@ test_mockable void system_disable_jump(void)
 
 #ifdef CONFIG_MPU
 	if (system_is_locked()) {
-#ifndef CONFIG_ZEPHYR
-		int ret;
-		enum ec_image __attribute__((unused)) copy;
-
-		CPRINTS("MPU type: %08x", mpu_get_type());
-		/*
-		 * Protect data RAM from code execution
-		 */
-		ret = mpu_protect_data_ram();
-		if (ret == EC_SUCCESS) {
-			CPRINTS("data RAM locked. Exclusion %p-%p",
-				&__iram_text_start, &__iram_text_end);
-		} else {
-			CPRINTS("Failed to lock data RAM (%d)", ret);
-			return;
-		}
-
-#if defined(CONFIG_EXTERNAL_STORAGE) || !defined(CONFIG_FLASH_PHYSICAL)
-		/*
-		 * Protect code RAM from being overwritten
-		 */
-		ret = mpu_protect_code_ram();
-		if (ret == EC_SUCCESS) {
-			CPRINTS("code RAM locked.");
-		} else {
-			CPRINTS("Failed to lock code RAM (%d)", ret);
-			return;
-		}
-#else
-		/*
-		 * Protect inactive image (ie. RO if running RW, vice versa)
-		 * from code execution.
-		 */
-		switch (system_get_image_copy()) {
-		case EC_IMAGE_RO:
-			ret = mpu_lock_rw_flash();
-			copy = EC_IMAGE_RW;
-			break;
-		case EC_IMAGE_RW:
-			ret = mpu_lock_ro_flash();
-			copy = EC_IMAGE_RO;
-			break;
-		default:
-			copy = EC_IMAGE_UNKNOWN;
-			ret = !EC_SUCCESS;
-		}
-		if (ret == EC_SUCCESS) {
-			CPRINTS("%s image locked", ec_image_to_string(copy));
-		} else {
-			CPRINTS("Failed to lock %s image (%d)",
-				ec_image_to_string(copy), ret);
-			return;
-		}
-#endif /* !CONFIG_EXTERNAL_STORAGE */
-#endif /* !CONFIG_ZEPHYR */
-
 		/* All regions were configured successfully, enable MPU */
 		mpu_enable();
 	} else {
@@ -579,11 +525,15 @@ const char *ec_image_to_string(enum ec_image copy)
 	return image_names[copy < ARRAY_SIZE(image_names) ? copy : 0];
 }
 
-__overridable void board_pulse_entering_rw(void)
+test_export_static void pulse_entering_rw(void)
 {
-	gpio_set_level(GPIO_ENTERING_RW, 1);
-	crec_usleep(MSEC);
-	gpio_set_level(GPIO_ENTERING_RW, 0);
+	const struct gpio_dt_spec *spec = gpio_get_dt_spec(GPIO_ENTERING_RW);
+
+	if (spec != NULL) {
+		gpio_pin_set_dt(spec, 1);
+		k_busy_wait(USEC_PER_MSEC);
+		gpio_pin_set_dt(spec, 0);
+	}
 }
 
 /**
@@ -606,30 +556,12 @@ test_mockable_static void jump_to_image(uintptr_t init_addr)
 	 * drop it again so we don't leak power through the pulldown in the
 	 * Silego.
 	 */
-	board_pulse_entering_rw();
-
-	/*
-	 * Since in EFS2, USB/PD won't be enabled in RO or if it's enabled in
-	 * RO, EC won't jump to RW, pd_prepare_sysjump is not needed. Even if
-	 * PD is enabled because the device is not write protected, EFS2 jumps
-	 * to RW before PD tasks start. So, there is no states to clean up.
-	 *
-	 *  Even if EFS2 is enabled, late sysjump can happen when secdata
-	 *  kernel is missing or a communication error happens. So, we need to
-	 *  check whether PD tasks have started (instead of VBOOT_EFS2, which
-	 *  is static).
-	 */
-	if (IS_ENABLED(CONFIG_USB_PD_ALT_MODE_DFP) && task_start_called())
-		/* Note: must be before i2c module is locked down */
-		pd_prepare_sysjump();
+	pulse_entering_rw();
 
 #ifdef CONFIG_I2C_CONTROLLER
 	/* Prepare I2C module for sysjump */
 	i2c_prepare_sysjump();
 #endif
-
-	/* Flush UART output */
-	cflush();
 
 	/* Fill in preserved data between jumps */
 	jdata->reserved0 = 0;
@@ -639,40 +571,20 @@ test_mockable_static void jump_to_image(uintptr_t init_addr)
 	jdata->jump_tag_total = 0; /* Reset tags */
 	jdata->struct_size = sizeof(struct jump_data);
 
-	/*
-	 * Disable interrupts before running sysjump hooks. This guarantees
-	 * that all teardown hooks (e.g., MPU disabling or peripheral resets)
-	 * execute atomically in a non-preemptible context to prevent race
-	 * conditions during image transition.
-	 *
-	 * Note: HOOK_SYSJUMP handlers run with interrupts disabled and must
-	 * not depend on interrupt-driven driver I/O or kernel sleeps.
-	 */
-	interrupt_disable_all();
-
-	/* Call other hooks; these may add tags
-	 *
-	 * Note: HOOK_SYSJUMP handlers run with interrupts disabled and in a
-	 * non-preemptible context. Handlers MUST NOT:
-	 *   - Sleep or yield thread execution (e.g., k_msleep, crec_msleep,
-	 *     task_wait_event). Use busy-waits (k_busy_wait / udelay) instead.
-	 *   - Perform interrupt-driven driver I/O (e.g., blocking I2C/SPI
-	 *     transactions expecting IRQ completion).
-	 *   - Acquire mutexes or block on synchronization primitives
-	 *     (e.g., mutex_lock, k_mutex_lock, k_sem_take).
-	 *   - Rely on deferred functions or timer interrupts.
-	 */
+	/* Call other hooks; these may add tags */
 	hook_notify(HOOK_SYSJUMP);
+
+	/* Flush UART output */
+	cflush();
+
+	/* Disable interrupts before jump */
+	interrupt_disable_all();
 
 	/* Ensure the next image starts with a fresh watchdog timer */
 	watchdog_reload();
 
 	chip_pre_system_jump();
-
-#ifdef CONFIG_DMA_CROS
-	/* Disable all DMA channels to avoid memory corruption */
-	dma_disable_all();
-#endif /* CONFIG_DMA_CROS */
+	arch_pre_system_jump();
 
 	/* Jump to the reset vector */
 	resetvec = (void (*)(void))init_addr;
@@ -948,6 +860,18 @@ static void init_jump_data(void)
 	jdata = get_jump_data();
 
 	/*
+	 * If a sysjump target resets before init_jump_data() clears
+	 * jdata->magic, stale jump_data remains in RAM when RO boots.
+	 * Discard jump_data if RO booted from a reset (excluding POWER_ON
+	 * and RESET_PIN, which some chip drivers set even on a sysjump).
+	 */
+	if (IS_ENABLED(CONFIG_CROS_EC_RO) &&
+	    (reset_flags & (EC_RESET_FLAG_WATCHDOG | EC_RESET_FLAG_SOFT |
+			    EC_RESET_FLAG_HARD | EC_RESET_FLAG_HIBERNATE))) {
+		goto clear_jump_data;
+	}
+
+	/*
 	 * Check jump data if this is a jump between images.
 	 */
 	if (jdata->magic == JUMP_DATA_MAGIC && jdata->version >= 1) {
@@ -1209,7 +1133,7 @@ static int handle_pending_reboot(struct ec_params_reboot_ec *p)
 			 * Give enough time to apply CC Open and brown out if
 			 * we are running with out a battery.
 			 */
-			crec_msleep(20);
+			k_msleep(20);
 		}
 
 		/* Reset external PD chips. */
@@ -1238,7 +1162,7 @@ static int handle_pending_reboot(struct ec_params_reboot_ec *p)
 		 */
 		if (IS_ENABLED(CONFIG_HIBERNATE)) {
 			CPRINTS("Waiting 1s before hibernating...");
-			crec_msleep(1000);
+			k_msleep(1000);
 			CPRINTS("system hibernating");
 			system_hibernate(hibernate_seconds,
 					 hibernate_microseconds);
@@ -1385,20 +1309,22 @@ static int command_sysinfo(int argc, const char **argv)
 DECLARE_SAFE_CONSOLE_COMMAND(sysinfo, command_sysinfo, NULL,
 			     "Print system info");
 
-static enum ec_status host_command_sysinfo(struct host_cmd_handler_args *args)
+static enum ec_host_cmd_status
+host_command_sysinfo(struct ec_host_cmd_handler_args *args)
 {
-	struct ec_response_sysinfo *r = args->response;
+	struct ec_response_sysinfo *r = args->output_buf;
 
 	if (sysinfo(r) != EC_SUCCESS)
-		return EC_RES_ERROR;
+		return EC_HOST_CMD_ERROR;
 
-	args->response_size = sizeof(*r);
+	args->output_buf_size = sizeof(*r);
 
-	return EC_RES_SUCCESS;
+	return EC_HOST_CMD_SUCCESS;
 }
 
-DECLARE_HOST_COMMAND(EC_CMD_SYSINFO, host_command_sysinfo,
-		     EC_VER_MASK(EC_VER_SYSINFO));
+EC_HOST_CMD_HANDLER_RESP_ONLY(EC_CMD_SYSINFO, host_command_sysinfo,
+			      EC_VER_MASK(EC_VER_SYSINFO),
+			      struct ec_response_sysinfo);
 #endif
 
 #ifdef CONFIG_CMD_SCRATCHPAD
@@ -1769,10 +1695,10 @@ DECLARE_CONSOLE_COMMAND(rflags, command_rflags, NULL,
 /*****************************************************************************/
 /* Host commands */
 
-static enum ec_status
-host_command_get_version(struct host_cmd_handler_args *args)
+static enum ec_host_cmd_status
+host_command_get_version(struct ec_host_cmd_handler_args *args)
 {
-	struct ec_response_get_version_v1 *r = args->response;
+	struct ec_response_get_version_v1 *r = args->output_buf;
 	enum ec_image active_slot = system_get_active_copy();
 
 	strzcpy(r->version_string_ro, system_get_version(EC_IMAGE_RO),
@@ -1798,8 +1724,9 @@ host_command_get_version(struct host_cmd_handler_args *args)
 	 * to zero uninitialized fields here.
 	 */
 	if (args->version > 0 && IS_ENABLED(CONFIG_CROS_FWID_VERSION)) {
-		if (args->response_max < sizeof(*r))
-			return EC_RES_RESPONSE_TOO_BIG;
+		if (args->output_buf_max < sizeof(*r)) {
+			return EC_HOST_CMD_OVERFLOW;
+		}
 
 		strzcpy(r->cros_fwid_ro, system_get_cros_fwid(EC_IMAGE_RO),
 			sizeof(r->cros_fwid_ro));
@@ -1813,94 +1740,108 @@ host_command_get_version(struct host_cmd_handler_args *args)
 	 * of one field (reserved to cros_fwid_ro) and adds one additional field
 	 * (cros_fwid_rw). So simply adjusting the response size here is safe.
 	 */
-	if (args->version == 0)
-		args->response_size = sizeof(struct ec_response_get_version);
-	else if (args->version == 1)
-		args->response_size = sizeof(struct ec_response_get_version_v1);
-	else
+	if (args->version == 0) {
+		if (args->output_buf_max <
+		    sizeof(struct ec_response_get_version)) {
+			return EC_HOST_CMD_RESPONSE_TOO_BIG;
+		}
+		args->output_buf_size = sizeof(struct ec_response_get_version);
+	} else if (args->version == 1) {
+		if (args->output_buf_max <
+		    sizeof(struct ec_response_get_version_v1)) {
+			return EC_HOST_CMD_RESPONSE_TOO_BIG;
+		}
+		args->output_buf_size =
+			sizeof(struct ec_response_get_version_v1);
+	} else {
 		/* Shouldn't happen because of EC_VER_MASK */
-		return EC_RES_INVALID_VERSION;
+		return EC_HOST_CMD_INVALID_VERSION;
+	}
 
-	return EC_RES_SUCCESS;
+	return EC_HOST_CMD_SUCCESS;
 }
-DECLARE_HOST_COMMAND(EC_CMD_GET_VERSION, host_command_get_version,
-		     EC_VER_MASK(0) | EC_VER_MASK(1));
+EC_HOST_CMD_HANDLER_RESP_ONLY(EC_CMD_GET_VERSION, host_command_get_version,
+			      EC_VER_MASK(0) | EC_VER_MASK(1),
+			      SMALLEST_TYPE(struct ec_response_get_version,
+					    struct ec_response_get_version_v1));
 
 #ifdef CONFIG_HOSTCMD_SKUID
-static enum ec_status
-host_command_get_sku_id(struct host_cmd_handler_args *args)
+static enum ec_host_cmd_status
+host_command_get_sku_id(struct ec_host_cmd_handler_args *args)
 {
-	struct ec_sku_id_info *r = args->response;
+	struct ec_sku_id_info *r = args->output_buf;
 
 	r->sku_id = system_get_sku_id();
-	args->response_size = sizeof(*r);
+	args->output_buf_size = sizeof(*r);
 
-	return EC_RES_SUCCESS;
+	return EC_HOST_CMD_SUCCESS;
 }
-DECLARE_HOST_COMMAND(EC_CMD_GET_SKU_ID, host_command_get_sku_id,
-		     EC_VER_MASK(0));
+EC_HOST_CMD_HANDLER_RESP_ONLY(EC_CMD_GET_SKU_ID, host_command_get_sku_id,
+			      EC_VER_MASK(0), struct ec_sku_id_info);
 #endif
 
 #ifdef CONFIG_HOSTCMD_AP_SET_SKUID
-static enum ec_status
-host_command_set_sku_id(struct host_cmd_handler_args *args)
+static enum ec_host_cmd_status
+host_command_set_sku_id(struct ec_host_cmd_handler_args *args)
 {
-	const struct ec_sku_id_info *p = args->params;
+	const struct ec_sku_id_info *p = args->input_buf;
 
 	ap_sku_id = p->sku_id;
 
-	return EC_RES_SUCCESS;
+	return EC_HOST_CMD_SUCCESS;
 }
-DECLARE_HOST_COMMAND(EC_CMD_SET_SKU_ID, host_command_set_sku_id,
-		     EC_VER_MASK(0));
+EC_HOST_CMD_HANDLER_REQ_ONLY(EC_CMD_SET_SKU_ID, host_command_set_sku_id,
+			     EC_VER_MASK(0), struct ec_sku_id_info);
 #endif
 
-static enum ec_status
-host_command_build_info(struct host_cmd_handler_args *args)
+static enum ec_host_cmd_status
+host_command_build_info(struct ec_host_cmd_handler_args *args)
 {
-	strzcpy(args->response, system_get_build_info(), args->response_max);
-	args->response_size = strlen(args->response) + 1;
+	strzcpy(args->output_buf, system_get_build_info(),
+		args->output_buf_max);
+	args->output_buf_size = strlen(args->output_buf) + 1;
 
-	return EC_RES_SUCCESS;
+	return EC_HOST_CMD_SUCCESS;
 }
-DECLARE_HOST_COMMAND(EC_CMD_GET_BUILD_INFO, host_command_build_info,
-		     EC_VER_MASK(0));
+EC_HOST_CMD_HANDLER_RESP_ONLY(EC_CMD_GET_BUILD_INFO, host_command_build_info,
+			      EC_VER_MASK(0), uint8_t);
 
-static enum ec_status
-host_command_get_chip_info(struct host_cmd_handler_args *args)
+static enum ec_host_cmd_status
+host_command_get_chip_info(struct ec_host_cmd_handler_args *args)
 {
-	struct ec_response_get_chip_info *r = args->response;
+	struct ec_response_get_chip_info *r = args->output_buf;
 
 	strzcpy(r->vendor, system_get_chip_vendor(), sizeof(r->vendor));
 	strzcpy(r->name, system_get_chip_name(), sizeof(r->name));
 	strzcpy(r->revision, system_get_chip_revision(), sizeof(r->revision));
 
-	args->response_size = sizeof(*r);
+	args->output_buf_size = sizeof(*r);
 
-	return EC_RES_SUCCESS;
+	return EC_HOST_CMD_SUCCESS;
 }
-DECLARE_HOST_COMMAND(EC_CMD_GET_CHIP_INFO, host_command_get_chip_info,
-		     EC_VER_MASK(0));
+EC_HOST_CMD_HANDLER_RESP_ONLY(EC_CMD_GET_CHIP_INFO, host_command_get_chip_info,
+			      EC_VER_MASK(0), struct ec_response_get_chip_info);
 
-static enum ec_status
-host_command_get_board_version(struct host_cmd_handler_args *args)
+static enum ec_host_cmd_status
+host_command_get_board_version(struct ec_host_cmd_handler_args *args)
 {
-	struct ec_response_board_version *r = args->response;
+	struct ec_response_board_version *r = args->output_buf;
 	int board_version;
 
 	board_version = system_get_board_version();
 	if (board_version < 0) {
 		CPRINTS("Failed (%d) getting board version", -board_version);
-		return EC_RES_ERROR;
+		return EC_HOST_CMD_ERROR;
 	}
 
 	r->board_version = board_version;
-	args->response_size = sizeof(*r);
+	args->output_buf_size = sizeof(*r);
 
-	return EC_RES_SUCCESS;
+	return EC_HOST_CMD_SUCCESS;
 }
-DECLARE_HOST_COMMAND(EC_CMD_GET_BOARD_VERSION, host_command_get_board_version,
-		     EC_VER_MASK(0));
+EC_HOST_CMD_HANDLER_RESP_ONLY(EC_CMD_GET_BOARD_VERSION,
+			      host_command_get_board_version, EC_VER_MASK(0),
+			      struct ec_response_board_version);
 
 #ifdef CONFIG_HAS_HOSTCMD
 static int is_full_reboot_command(int cmd)
@@ -1931,7 +1872,8 @@ DECLARE_DEFERRED(deferred_reboot);
 #endif /* CONFIG_HAS_HOSTCMD*/
 
 STATIC_IF_NOT(CONFIG_ZTEST)
-enum ec_status host_command_reboot(struct host_cmd_handler_args *args)
+enum ec_host_cmd_status
+host_command_reboot(struct ec_host_cmd_handler_args *args)
 {
 	struct ec_params_reboot_ec p;
 
@@ -1939,19 +1881,19 @@ enum ec_status host_command_reboot(struct host_cmd_handler_args *args)
 	 * Ensure reboot parameters don't get clobbered when the response
 	 * is sent in case data argument points to the host tx/rx buffer.
 	 */
-	memcpy(&p, args->params, sizeof(p));
+	memcpy(&p, args->input_buf, sizeof(p));
 
 	if (p.cmd == EC_REBOOT_CANCEL) {
 		/* Cancel pending reboot */
 		reboot_at_shutdown.cmd = EC_REBOOT_CANCEL;
 		reboot_at_shutdown.flags = 0;
-#if defined(CONFIG_HAS_HOSTCMD) && defined(CONFIG_EC_HOST_CMD)
+#ifdef CONFIG_EC_HOST_CMD
 		if (reboot_scheduled) {
 			hook_call_deferred(&deferred_reboot_data, -1);
 			reboot_scheduled = false;
 		}
-#endif
-		return EC_RES_SUCCESS;
+#endif /* CONFIG_EC_HOST_CMD */
+		return EC_HOST_CMD_SUCCESS;
 	}
 
 	if (p.flags & EC_REBOOT_FLAG_SWITCH_RW_SLOT) {
@@ -1959,14 +1901,14 @@ enum ec_status host_command_reboot(struct host_cmd_handler_args *args)
 		if (system_set_active_copy(system_get_update_copy()))
 			CPRINTS("Failed to set active slot");
 #else
-		return EC_RES_INVALID_PARAM;
+		return EC_HOST_CMD_INVALID_PARAM;
 #endif
 	}
 	if (p.flags & EC_REBOOT_FLAG_ON_AP_SHUTDOWN) {
 		/* Store request for processing at chipset shutdown */
 		p.flags &= ~(EC_REBOOT_FLAG_ON_AP_SHUTDOWN);
 		reboot_at_shutdown = p;
-		return EC_RES_SUCCESS;
+		return EC_HOST_CMD_SUCCESS;
 	}
 
 	CPRINTS("Executing host reboot command \'%s\'",
@@ -1984,7 +1926,8 @@ enum ec_status host_command_reboot(struct host_cmd_handler_args *args)
 		status = validate_reboot_command(&p);
 
 		if (status != EC_SUCCESS)
-			return ec_error_to_status(status);
+			return (enum ec_host_cmd_status)ec_error_to_status(
+				status);
 
 		if (!reboot_scheduled) {
 			/* Store the parameters and schedule the reboot */
@@ -1992,7 +1935,7 @@ enum ec_status host_command_reboot(struct host_cmd_handler_args *args)
 			reboot_scheduled = true;
 			hook_call_deferred(&deferred_reboot_data, 50 * MSEC);
 		}
-		return EC_RES_SUCCESS;
+		return EC_HOST_CMD_SUCCESS;
 #else
 		/*
 		 * Quiesce the host-interface IRQ so no new host command is
@@ -2011,19 +1954,21 @@ enum ec_status host_command_reboot(struct host_cmd_handler_args *args)
 	}
 #endif /* CONFIG_HAS_HOSTCMD */
 
-	return ec_error_to_status(handle_pending_reboot(&p));
+	return (enum ec_host_cmd_status)ec_error_to_status(
+		handle_pending_reboot(&p));
 }
-DECLARE_HOST_COMMAND(EC_CMD_REBOOT_EC, host_command_reboot, EC_VER_MASK(0));
+EC_HOST_CMD_HANDLER_REQ_ONLY(EC_CMD_REBOOT_EC, host_command_reboot,
+			     EC_VER_MASK(0), struct ec_params_reboot_ec);
 
 #ifdef CONFIG_PLATFORM_EC_HOST_COMMAND_ENTER_BOOTLOADER
-static enum ec_status
-host_command_bootloader(struct host_cmd_handler_args *args)
+static enum ec_host_cmd_status
+host_command_bootloader(struct ec_host_cmd_handler_args *args)
 {
-	const struct ec_params_enter_bootloader *p = args->params;
+	const struct ec_params_enter_bootloader *p = args->input_buf;
 	uint8_t mode = p->mode;
 
 	if (system_is_locked()) {
-		return EC_RES_ACCESS_DENIED;
+		return EC_HOST_CMD_ACCESS_DENIED;
 	}
 
 	/*
@@ -2034,8 +1979,7 @@ host_command_bootloader(struct host_cmd_handler_args *args)
 	args->result = EC_RES_SUCCESS;
 	host_send_response(args);
 #else
-	ec_host_cmd_send_response(EC_HOST_CMD_SUCCESS,
-				  (struct ec_host_cmd_handler_args *)args);
+	ec_host_cmd_send_response(EC_HOST_CMD_SUCCESS, args);
 #endif
 	/*
 	 * Make sure to send response before entering bootloader, which can
@@ -2046,10 +1990,10 @@ host_command_bootloader(struct host_cmd_handler_args *args)
 	chip_enter_bootloader(mode);
 	CPRINTS("Failed to enter bootloader");
 
-	return EC_RES_ERROR;
+	return EC_HOST_CMD_ERROR;
 }
-DECLARE_HOST_COMMAND(EC_CMD_ENTER_BOOTLOADER, host_command_bootloader,
-		     EC_VER_MASK(0));
+EC_HOST_CMD_HANDLER_REQ_ONLY(EC_CMD_ENTER_BOOTLOADER, host_command_bootloader,
+			     EC_VER_MASK(0), struct ec_params_enter_bootloader);
 #endif /* CONFIG_PLATFORM_EC_HOST_COMMAND_ENTER_BOOTLOADER */
 
 test_mockable int system_can_boot_ap(void)
@@ -2145,6 +2089,10 @@ __overridable int board_write_poweron_conf(const uint8_t *poweron_conf)
 #endif /* CONFIG_POWERON_CONF_LEN */
 
 __overridable void chip_pre_system_jump(void)
+{
+}
+
+__overridable void arch_pre_system_jump(void)
 {
 }
 

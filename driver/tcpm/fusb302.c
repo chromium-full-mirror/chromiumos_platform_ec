@@ -119,7 +119,7 @@ static int measure_cc_pin_source(int port, int cc_measure)
 	int reg;
 	int cc_lvl;
 
-	mutex_lock(&measure_lock);
+	k_mutex_lock(&measure_lock, K_FOREVER);
 
 	/* Read status register */
 	tcpc_read(port, TCPC_REG_SWITCHES0, &reg);
@@ -142,7 +142,7 @@ static int measure_cc_pin_source(int port, int cc_measure)
 	tcpc_write(port, TCPC_REG_MEASURE, state[port].mdac_vnc);
 
 	/* Wait on measurement */
-	crec_usleep(250);
+	k_usleep(250);
 
 	/* Read status register */
 	tcpc_read(port, TCPC_REG_STATUS0, &reg);
@@ -156,7 +156,7 @@ static int measure_cc_pin_source(int port, int cc_measure)
 		tcpc_write(port, TCPC_REG_MEASURE, state[port].mdac_rd);
 
 		/* Wait on measurement */
-		crec_usleep(250);
+		k_usleep(250);
 
 		/* Read status register */
 		tcpc_read(port, TCPC_REG_STATUS0, &reg);
@@ -168,7 +168,7 @@ static int measure_cc_pin_source(int port, int cc_measure)
 	/* Restore SWITCHES0 register to its value prior */
 	tcpc_write(port, TCPC_REG_SWITCHES0, switches0_reg);
 
-	mutex_unlock(&measure_lock);
+	k_mutex_unlock(&measure_lock);
 
 	return cc_lvl;
 }
@@ -204,7 +204,7 @@ static void detect_cc_pin_sink(int port, enum tcpc_cc_voltage_status *cc1,
 	int bc_lvl_cc1;
 	int bc_lvl_cc2;
 
-	mutex_lock(&measure_lock);
+	k_mutex_lock(&measure_lock, K_FOREVER);
 
 	/*
 	 * Measure CC1 first.
@@ -231,7 +231,7 @@ static void detect_cc_pin_sink(int port, enum tcpc_cc_voltage_status *cc1,
 	/* CC1 is now being measured by FUSB302. */
 
 	/* Wait on measurement */
-	crec_usleep(250);
+	k_usleep(250);
 
 	tcpc_read(port, TCPC_REG_STATUS0, &bc_lvl_cc1);
 
@@ -253,7 +253,7 @@ static void detect_cc_pin_sink(int port, enum tcpc_cc_voltage_status *cc1,
 	/* CC2 is now being measured by FUSB302. */
 
 	/* Wait on measurement */
-	crec_usleep(250);
+	k_usleep(250);
 
 	tcpc_read(port, TCPC_REG_STATUS0, &bc_lvl_cc2);
 
@@ -276,7 +276,7 @@ static void detect_cc_pin_sink(int port, enum tcpc_cc_voltage_status *cc1,
 
 	tcpc_write(port, TCPC_REG_SWITCHES0, reg);
 
-	mutex_unlock(&measure_lock);
+	k_mutex_unlock(&measure_lock);
 }
 
 /* Parse header bytes for the size of packet */
@@ -454,7 +454,7 @@ static int fusb302_tcpm_init(int port)
 
 #if defined(CONFIG_USB_PD_VBUS_DETECT_TCPC) && defined(CONFIG_USB_CHARGER)
 	/* Wait for the reference voltage to stablize */
-	crec_usleep(250);
+	k_usleep(250);
 	/*
 	 * Initialize VBUS supplier when VBUS is already present before
 	 * init (e.g. Cold reboot with charger plugged).
@@ -604,7 +604,7 @@ static int fusb302_tcpm_set_polarity(int port, enum tcpc_cc_polarity polarity)
 	tcpc_write(port, TCPC_REG_SWITCHES1, reg);
 
 	/* Save the polarity for later */
-	state[port].cc_polarity = polarity;
+	state[port].cc_polarity = polarity_rm_dts(polarity);
 
 	return 0;
 }
@@ -1031,8 +1031,9 @@ void fusb302_tcpc_alert(int port)
 		/* (this interrupt fires after the GoodCRC finishes) */
 		if (state[port].rx_enable) {
 			/* Pull all RX messages from TCPC into EC memory */
-			while (!fusb302_rx_fifo_is_empty(port))
-				tcpm_enqueue_message(port);
+			while (!fusb302_rx_fifo_is_empty(port) &&
+			       tcpm_enqueue_message(port) == EC_SUCCESS)
+				;
 		} else {
 			/* flush rx fifo if rx isn't enabled */
 			fusb302_flush_rx_fifo(port);
@@ -1112,7 +1113,7 @@ static int fusb302_tcpm_enter_low_power_mode(int port)
 	if (rv)
 		return rv;
 
-	crec_usleep(250);
+	k_usleep(250);
 
 	rv = i2c_read8(tcpc_config[port].i2c_info.port,
 		       tcpc_config[port].i2c_info.addr_flags, TCPC_REG_CONTROL2,
@@ -1134,7 +1135,7 @@ static int fusb302_compare_mdac(int port, int mdac)
 {
 	int orig_reg, status0;
 
-	mutex_lock(&measure_lock);
+	k_mutex_lock(&measure_lock, K_FOREVER);
 
 	/* backup REG_MEASURE */
 	tcpc_read(port, TCPC_REG_MEASURE, &orig_reg);
@@ -1143,7 +1144,7 @@ static int fusb302_compare_mdac(int port, int mdac)
 		   (mdac & TCPC_REG_MEASURE_MDAC_MASK) | TCPC_REG_MEASURE_VBUS);
 
 	/* Wait on measurement */
-	crec_usleep(350);
+	k_usleep(350);
 
 	/*
 	 * Read status register, if STATUS0_COMP=1 then vbus is higher than
@@ -1153,7 +1154,7 @@ static int fusb302_compare_mdac(int port, int mdac)
 	/* write back original value */
 	tcpc_write(port, TCPC_REG_MEASURE, orig_reg);
 
-	mutex_unlock(&measure_lock);
+	k_mutex_unlock(&measure_lock);
 
 	return status0 & TCPC_REG_STATUS0_COMP;
 }

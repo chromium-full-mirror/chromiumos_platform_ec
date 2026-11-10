@@ -39,9 +39,15 @@ static bool body_detect_enable;
 
 static struct body_detect_motion_data {
 	int history[CONFIG_BODY_DETECTION_MAX_WINDOW_SIZE]; /* acceleration */
+	int prev[2]; /* prior samples for single-impulse rejection */
 	int sum; /* sum(history) */
 	uint64_t n2_variance; /* n^2 * var(history) */
 } data[2]; /* motion data for X-axis and Y-axis */
+
+static int median3(int a, int b, int c)
+{
+	return max(min(a, b), min(max(a, b), c));
+}
 
 /*
  * This function will update new variance and new sum according to incoming
@@ -57,12 +63,24 @@ static struct body_detect_motion_data {
  * n^2 * var(x') = n^2 * var(x) + (x_n - x_0) *
  *                 (n * (x_n + x_0) - sum(x') - sum(x))
  */
-static void update_motion_data(struct body_detect_motion_data *x, int x_n)
+static void update_motion_data(struct body_detect_motion_data *x, int raw_x)
 {
 	const int n = window_size;
 	const int x_0 = x->history[history_idx];
-	const int sum_diff = x_n - x_0;
-	const int new_sum = x->sum + sum_diff;
+	int x_n;
+	int sum_diff;
+	int new_sum;
+
+	if (!history_initialized && history_idx == 0) {
+		x->prev[0] = raw_x;
+		x->prev[1] = raw_x;
+	}
+	x_n = median3(x->prev[0], x->prev[1], raw_x);
+	x->prev[0] = x->prev[1];
+	x->prev[1] = raw_x;
+
+	sum_diff = x_n - x_0;
+	new_sum = x->sum + sum_diff;
 
 	x->n2_variance +=
 		sum_diff * ((int64_t)n * (x_n + x_0) - new_sum - x->sum);
@@ -87,12 +105,14 @@ static uint64_t get_motion_variance(void)
 
 static int calculate_motion_confidence(uint64_t var)
 {
-	if (var < var_threshold_scaled - confidence_delta_scaled)
+	const uint64_t delta =
+		min(confidence_delta_scaled, var_threshold_scaled);
+
+	if (var <= var_threshold_scaled - delta)
 		return 0;
-	if (var > var_threshold_scaled + confidence_delta_scaled)
+	if (var >= var_threshold_scaled + delta)
 		return 100;
-	return 100 * (var - var_threshold_scaled + confidence_delta_scaled) /
-	       (2 * confidence_delta_scaled);
+	return 100 * (var - (var_threshold_scaled - delta)) / (2 * delta);
 }
 
 /* Determine window size for 1 second by sensor data rate. */

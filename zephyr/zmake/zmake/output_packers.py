@@ -268,8 +268,13 @@ class BinmanPacker(BasePacker):
             proc.stderr,
             job_id=job_id,
         )
-        if proc.wait(timeout=60):
-            raise OSError("Failed to run binman")
+        try:
+            if proc.wait(timeout=300):
+                raise OSError("Failed to run binman")
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            raise
 
         yield work_dir / "ec.bin", "ec.bin"
         yield rw_dir / "zephyr" / ".config", "ec.config"

@@ -18,19 +18,14 @@
 #ifndef PLATFORM_EC_INCLUDE_CONFIG_H_
 #define PLATFORM_EC_INCLUDE_CONFIG_H_
 
+#ifndef HOST_TOOLS_BUILD
+
 /*
  * When building for Zephyr tests, a shimmed_tasks.h header is defined
  * to create all the HAS_TASK_* definitions.  Since those are used in
  * config.h, we need to include that header first.
  */
-#ifdef CONFIG_ZEPHYR
 #include "shimmed_tasks.h"
-#else
-#ifdef HAS_TASK_HOSTCMD
-/* This is needed for legacy tests that use HAS_TASK_HOSTCMD */
-#define CONFIG_HAS_HOSTCMD
-#endif
-#endif /* CONFIG_ZEPHYR */
 
 #ifdef INCLUDE_ENV_CONFIG
 /*
@@ -304,11 +299,6 @@
  */
 #undef CONFIG_SYNC_INT_EVENT
 
-#ifndef CONFIG_ZEPHYR
-/* Compile chip support for digital-to-analog converter */
-#undef CONFIG_DAC
-#endif /* CONFIG_ZEPHYR */
-
 /*
  * Allow runtime configuration of the adc_channels[] array
  */
@@ -416,10 +406,6 @@
  */
 #undef CONFIG_ASSEMBLY_MULA32
 
-#ifndef CONFIG_ZEPHYR
-/* Support audio codec. */
-#undef CONFIG_AUDIO_CODEC
-#endif /* CONFIG_ZEPHYR */
 /* Audio codec caps. */
 #undef CONFIG_AUDIO_CODEC_CAP_WOV_AUDIO_SHM
 #undef CONFIG_AUDIO_CODEC_CAP_WOV_LANG_SHM
@@ -556,16 +542,6 @@
  * and to check the charge/discharge FET status.
  */
 #undef CONFIG_BATTERY_FUEL_GAUGE
-
-/*
- * Defines retry count for reading Manuf/Device name in init_battery_type
- */
-#define CONFIG_BATTERY_INIT_TYPE_RETRY_COUNT 0
-
-/*
- * Number of deferred retries when initializing the battery type.
- */
-#define CONFIG_BATTERY_INIT_TYPE_DEFERRED_RETRY_COUNT 0
 
 /*
  * Critical battery shutdown timeout (seconds)
@@ -807,18 +783,6 @@
  */
 #undef CONFIG_BOARD_FORCE_RESET_PIN
 
-/*
- * For some boards on power-on, the EC is reset by the H1 after power-on,
- * so the EC sees 2 resets. This config enables the EC to save a flag
- * on the first power-up restart, and then wait for the second reset before
- * any other setup is done (such as GPIOs, timers, UART etc.)
- * On the second reset, the saved flag is used to detect the previous
- * power-on, and treat the second reset as a power-on instead of a reset.
- *
- * NOTE: Implemented only for npcx and ite
- */
-#undef CONFIG_BOARD_RESET_AFTER_POWER_ON
-
 /* Permanent LM4 boot configuration */
 #undef CONFIG_BOOTCFG_VALUE
 
@@ -959,11 +923,6 @@
 
 /*****************************************************************************/
 /* Charger config */
-
-#ifndef CONFIG_ZEPHYR
-/* Compile common charge state code. */
-#undef CONFIG_CHARGER
-#endif
 
 /* Compile charger-specific code for these chargers (pick at most one) */
 #undef CONFIG_CHARGER_BD9995X
@@ -1566,18 +1525,8 @@
 
 /* AP chipset support; pick at most one */
 #undef CONFIG_CHIPSET_ALDERLAKE /* Intel Alderlake (x86) */
-#ifndef CONFIG_ZEPHYR
-#undef CONFIG_CHIPSET_ALDERLAKE_SLG4BD44540 /* Intel Alderlake (x86) \
-					     * with power sequencer  \
-					     * chip                  \
-					     */
-#endif /* CONFIG_ZEPHYR */
 #undef CONFIG_CHIPSET_APOLLOLAKE /* Intel Apollolake (x86) */
 #undef CONFIG_CHIPSET_CANNONLAKE /* Intel Cannonlake (x86) */
-#undef CONFIG_CHIPSET_COMETLAKE /* Intel Cometlake (x86) */
-#undef CONFIG_CHIPSET_COMETLAKE_DISCRETE /* Intel Cometlake (x86), \
-					  * discrete EC control    \
-					  */
 #undef CONFIG_CHIPSET_ECDRIVEN /* Mock power module */
 #undef CONFIG_CHIPSET_FALCONLITE /* Falcon-lite*/
 #undef CONFIG_CHIPSET_GEMINILAKE /* Intel Geminilake (x86) */
@@ -1585,7 +1534,6 @@
 #undef CONFIG_CHIPSET_JASPERLAKE /* Intel Jasperlake (x86) */
 #undef CONFIG_CHIPSET_MT817X /* MediaTek MT817x */
 #undef CONFIG_CHIPSET_MT8183 /* MediaTek MT8183 */
-#undef CONFIG_CHIPSET_MT8192 /* MediaTek MT8192 */
 #undef CONFIG_CHIPSET_CEZANNE /* AMD Cezanne (x86) */
 #undef CONFIG_CHIPSET_SKYLAKE /* Intel Skylake (x86) */
 #undef CONFIG_CHIPSET_SC7180 /* Qualcomm SC7180 */
@@ -1756,7 +1704,6 @@
 #undef CONFIG_CMD_FLASH
 #define CONFIG_CMD_FLASHINFO
 #undef CONFIG_CMD_FLASH_TRISTATE
-#undef CONFIG_CMD_FORCETIME
 #undef CONFIG_CMD_FPSENSOR_DEBUG
 #define CONFIG_CMD_GETTIME
 #undef CONFIG_CMD_GL3590
@@ -1969,12 +1916,6 @@
  */
 #define CONFIG_COMMON_RUNTIME
 
-/**
- * Use a common implementation of mutex that supports recursive
- * locking within the same task.
- */
-#undef CONFIG_COMMON_RECURSIVE_MUTEX
-
 /* Allow deferred (async) flash protect*/
 #define CONFIG_FLASH_PROTECT_DEFERRED
 
@@ -2142,15 +2083,6 @@
 /* Monitor the states of other devices */
 #undef CONFIG_DEVICE_STATE
 
-/* Support DMA transfers inside the EC */
-#undef CONFIG_DMA_CROS
-
-/* Use the common interrupt handlers for DMA IRQs */
-#define CONFIG_DMA_DEFAULT_HANDLERS
-
-/* Compile extra debugging and tests for the DMA module */
-#undef CONFIG_DMA_HELP
-
 /*
  * If the board supports DRAM, base DRAM address for the chip, where we want
  * to load extra code/data (address from chip address space).
@@ -2171,11 +2103,6 @@
 
 /* Maximal EC sampling rate */
 #undef CONFIG_EC_MAX_SENSOR_FREQ_MILLIHZ
-
-#ifndef CONFIG_ZEPHYR
-/* Support EC chip internal data EEPROM */
-#undef CONFIG_EEPROM
-#endif /* CONFIG_ZEPHYR */
 
 /*
  * Support for sending emulated sysrq events to AP (on designs with a keyboard,
@@ -2393,11 +2320,6 @@
 /* Allow EC serial console input to wake up the EC from STOP mode */
 #undef CONFIG_FORCE_CONSOLE_RESUME
 
-#ifndef CONFIG_ZEPHYR
-/* Enable support for floating point unit */
-#undef CONFIG_FPU
-#endif /* CONFIG_ZEPHYR */
-
 /* Enable warnings on FPU exceptions */
 #undef CONFIG_FPU_WARNINGS
 
@@ -2546,6 +2468,7 @@
 
 /* Enable double tap support. */
 #undef CONFIG_GESTURE_SENSOR_DOUBLE_TAP
+#undef CONFIG_GESTURE_SENSOR_DOUBLE_TAP_FOR_HOST
 
 /*
  * Double tap detection parameters
@@ -2789,11 +2712,6 @@
 		EC_CMD_GET_UPTIME_INFO
 
 /*****************************************************************************/
-
-/* Enable debugging and profiling statistics for hook functions */
-#undef CONFIG_HOOK_DEBUG
-
-/*****************************************************************************/
 /* CRC configuration */
 
 /* Enable the hardware accelerator for CRC computation */
@@ -2871,9 +2789,6 @@
 /*****************************************************************************/
 /* I2C configuration */
 
-#ifndef CONFIG_ZEPHYR
-#undef CONFIG_I2C
-#endif /* CONFIG_ZEPHYR */
 #undef CONFIG_I2C_DEBUG
 #undef CONFIG_I2C_DEBUG_PASSTHRU
 #undef CONFIG_I2C_PASSTHRU_RESTRICTED
@@ -2990,15 +2905,6 @@
  * Compile driver for INA219 or INA231 or INA3221.
  * Only one of these may be defined (if any).
  */
-#ifndef CONFIG_ZEPHYR
-/*
- * These symbols also exist as Kconfigs in Zephyr. Zephyr based boards
- * need to use the upstream driver, or these symbols need to be changed
- * downstream to not conflict.
- */
-#undef CONFIG_INA219
-#undef CONFIG_INA3221
-#endif /* CONFIG_ZEPHYR */
 #undef CONFIG_INA231
 
 /*****************************************************************************/
@@ -3046,72 +2952,6 @@
 /* Number of IRQs supported on the EC chip */
 #undef CONFIG_IRQ_COUNT
 
-/* Enable LDN for KBC mouse */
-#undef CONFIG_IT83XX_ENABLE_MOUSE_DEVICE
-
-/*
- * Enable more ILM to cache chip's drivers to reduce latency in fetching
- * instructions from internal flash.
- */
-#undef CONFIG_IT83XX_EXTENDED_ILM
-/* IT8320 hardware timer driver runs from ILM */
-#undef CONFIG_IT83XX_EXTENDED_ILM_HWTIMER_DRIVER
-/* I2C controller runs from ILM */
-#undef CONFIG_IT83XX_EXTENDED_ILM_I2C_CONTROLLER
-/* IT8320 I2C driver runs from ILM */
-#undef CONFIG_IT83XX_EXTENDED_ILM_I2C_DRIVER
-/* IT8320 IRQ driver runs from ILM */
-#undef CONFIG_IT83XX_EXTENDED_ILM_IRQ_DRIVER
-/* IT8320 UART driver runs from ILM */
-#undef CONFIG_IT83XX_EXTENDED_ILM_UART_DRIVER
-/* USBC PD timer runs from ILM */
-#undef CONFIG_IT83XX_EXTENDED_ILM_USBC_PD_TIMER
-/* TCPCI driver runs from ILM */
-#undef CONFIG_IT83XX_EXTENDED_ILM_TCPCI_DRIVER
-/* Timer runs from ILM */
-#undef CONFIG_IT83XX_EXTENDED_ILM_TIMER
-/* RAA489000 driver runs from ILM */
-#undef CONFIG_IT83XX_EXTENDED_ILM_RAA489000_DRIVER
-
-/*
- * The IT8320 supports e-flash clock up to 48 MHz (IT8390 maximum is 32 MHz).
- * Enable it if we want better performance of fetching instruction from e-flash.
- *
- * This is valid with PLL frequency equal to 48/96MHz only.
- */
-#undef CONFIG_IT83XX_FLASH_CLOCK_48MHZ
-
-/*
- * If this option is enabled, EC will assert GPG1 pin to reset itself instead of
- * triggering an internal reset while receiving a reset request.
- *
- * IMPORTANT:
- * - Don't enable this option if board doesn't support the mechanism.
- * - If this option is enabled, please don't declare GPG1 signal in gpio.inc to
- *   keep its output level is low after reset.
- */
-#undef CONFIG_IT83XX_HARD_RESET_BY_GPG1
-
-/*
- * Use i2c command queue mode for a single i2c transaction.
- * (Applied to port D, E, and F)
- */
-#undef CONFIG_IT83XX_I2C_CMD_QUEUE
-
-/*
- * Enable it if EC's VBAT won't go low when system's power isn't
- * presented (no battery and no AC)
- * If EC's VSTBY and VBAT(power source of BRAM) aren't connected to the same
- * power rail and VBAT doesn't go low immediately (eg: there is a larger
- * capacitance on the rail) after all power off: PD contract recorded in BRAM
- * won't get cleared (But actually we have unplugged type-c adaptor, so the
- * contract should be cleared).
- */
-#undef CONFIG_IT83XX_RESET_PD_CONTRACT_IN_BRAM
-
-/* To define it, if I2C channel C and PECI used at the same time. */
-#undef CONFIG_IT83XX_SMCLK2_ON_GPC7
-
 /*
  * Enable board to tune cc physical parameters (ex.rising, falling time).
  * NOTE: board must define board_get_cc_tuning_parameter(enum usbpd_port port)
@@ -3120,30 +2960,10 @@
 #undef CONFIG_IT83XX_TUNE_CC_PHY
 
 /*
- * Enable the corresponding config option, according to EC's VCC is connected
- * to 1.8V or 3.3V
- */
-#undef CONFIG_IT83XX_VCC_1P8V
-#undef CONFIG_IT83XX_VCC_3P3V
-
-/*
  * Overwrite integer multiplication and division arithmetic library routines
  * with using hardware multiplication and division and nop instructions.
  */
 #undef CONFIG_IT8XXX2_MUL_WORKAROUND
-
-/*
- * Allows pre-watchdog timer interrupt to be unmasked even when all interrupts
- * are disabled.
- * NOTE: this config is only relevant for non-zephyr boards with NDS32 arch
- */
-#undef CONFIG_IT83XX_PREWDT_ALWAYS_ENABLED
-
-/*
- * For IT83xx boards shipped with Watchdog timer locked in RO this config
- * allows to extend the duration of Watchdog timer by resetting it once.
- */
-#undef CONFIG_IT83XX_LOCKED_WATCHDOG_EXTENSION
 
 /*
  * Support the standard integer multiplication and division instruction
@@ -3328,12 +3148,6 @@
 #undef CONFIG_KEYBOARD_STRAUSS
 
 /*
- * Enable the 8042 AUX port. This is typically used for PS/2 mouse devices.
- * You will need to implement send_aux_data_to_device and lpc_aux_put_char.
- */
-#undef CONFIG_8042_AUX
-
-/*
  * Invert the IRQ1/IRQ12 interrupts that come from the NPCX keyboard controller
  * such that they are active low.
  */
@@ -3350,14 +3164,6 @@
 
 /* Support common LED interface */
 #undef CONFIG_LED_COMMON
-
-#ifndef CONFIG_ZEPHYR
-/*
- * Support common PWM-controlled LEDs that conform to the Chrome OS LED
- * behaviour specification.
- */
-#undef CONFIG_LED_PWM
-#endif /* CONFIG_ZEPHYR */
 
 /*
  * Support common PWM-controlled LEDs that do not conform to the Chrom OS LED
@@ -3596,11 +3402,6 @@
 /* Size of low power RAM. */
 #undef CONFIG_LPRAM_SIZE
 
-#ifndef CONFIG_ZEPHYR
-/* Use Link-Time Optimizations to try to reduce the firmware code size */
-#undef CONFIG_LTO
-#endif /* CONFIG_ZEPHYR */
-
 /* Provide rudimentary malloc/free like services for shared memory. */
 #undef CONFIG_SHARED_MALLOC
 
@@ -3726,11 +3527,6 @@
  */
 #undef CONFIG_MKBP_INPUT_DEVICES
 
-#ifndef CONFIG_ZEPHYR
-/* Support memory protection unit (MPU) */
-#undef CONFIG_MPU
-#endif /* CONFIG_ZEPHYR */
-
 /* Support RAM write/fetch protection */
 #undef CONFIG_RAM_LOCK
 
@@ -3749,11 +3545,6 @@
  */
 #undef CONFIG_PANIC_DATA_BASE
 #undef CONFIG_PANIC_DATA_SIZE
-
-#ifndef CONFIG_ZEPHYR
-/* Support PECI interface to x86 processor */
-#undef CONFIG_PECI
-#endif /* CONFIG_ZEPHYR */
 
 /* Common code for PECI interface to x86 processor */
 #undef CONFIG_PECI_COMMON
@@ -3921,11 +3712,6 @@
  */
 #undef CONFIG_CPU_PROCHOT_GATE_ON_C10
 
-#ifndef CONFIG_ZEPHYR
-/* Support PS/2 interface */
-#undef CONFIG_PS2
-#endif /* CONFIG_ZEPHYR */
-
 /* Support Power Sourcing Equipment */
 #undef CONFIG_PSE_LTC4291
 
@@ -3938,10 +3724,6 @@
 #undef CONFIG_PVD
 
 /*****************************************************************************/
-#ifndef CONFIG_ZEPHYR
-/* Support PWM control */
-#undef CONFIG_PWM
-#endif /* CONFIG_ZEPHYR */
 
 /* Define clock input to PWM module. */
 #undef CONFIG_PWM_INPUT_LFCLK
@@ -3975,11 +3757,6 @@
  * Call keyboard backlight init function during init hook instead of start-up
  */
 #undef CONFIG_KBLIGHT_HOOK_INIT
-
-#ifndef CONFIG_ZEPHYR
-/* Support Real-Time Clock (RTC) */
-#undef CONFIG_RTC
-#endif /* CONFIG_ZEPHYR */
 
 /* Size of each RAM bank in chip, default is CONFIG_RAM_SIZE */
 #undef CONFIG_RAM_BANK_SIZE
@@ -4141,11 +3918,6 @@
  */
 /* #undef CONFIG_SMBUS */
 
-#ifndef CONFIG_ZEPHYR
-/* Support SPI interfaces */
-#undef CONFIG_SPI
-#endif /* CONFIG_ZEPHYR */
-
 /* Define the SPI port to use to access SPI accelerometer */
 #undef CONFIG_SPI_ACCEL_PORT
 
@@ -4173,11 +3945,6 @@
 
 /* Define the SPI port to use to access the fingerprint sensor */
 #undef CONFIG_SPI_FP_PORT
-
-#ifndef CONFIG_ZEPHYR
-/* Support JEDEC SFDP based Serial NOR flash */
-#undef CONFIG_SPI_NOR
-#endif /* CONFIG_ZEPHYR */
 
 /* Enable SPI_NOR debugging providing additional console output while
  * initializing Serial NOR Flash devices including SFDP discovery. */
@@ -4315,65 +4082,6 @@
 #undef CONFIG_MCHP_TFDP
 
 /*****************************************************************************/
-/* Task config */
-
-/*
- * List of enabled tasks in ascending priority order. This is normally
- * defined in each board's ec.tasklist file.
- *
- * For each task, use the macro TASK_ALWAYS(n, r, d, s) for base tasks and
- * TASK_NOTEST(n, r, d, s) for tasks that can be excluded in test binaries,
- * where:
- * 'n' is the name of the task
- * 'r' is the main routine of the task
- * 'd' is an opaque parameter passed to the routine at startup
- * 's' is the stack size in bytes; must be a multiple of 8
- *
- * Some cores use TASK_ALWAYS(n, r, d, s, f), where:
- * 'f' is the bit flags for the platform specific information
- *    - MIA_TASK_FLAG_USE_FPU : bit 0, task uses FPU H/W
- *
- * For USB PD tasks, IDs must be in consecutive order and correspond to
- * the port which they are for. See TASK_ID_TO_PD_PORT() macro.
- */
-#undef CONFIG_TASK_LIST
-
-/*
- * List of test tasks.  Same format as CONFIG_TASK_LIST, but used to define
- * additional tasks for a unit test.  Normally defined in
- * test/{testname}.tasklist.
- */
-#undef CONFIG_TEST_TASK_LIST
-
-/*
- * List of tasks that support reset. Tasks listed here must also be included in
- * CONFIG_TASK_LIST.
- *
- * For each task, use macro ENABLE_RESET(n) to enable resets. The parameter n
- * must match the value passed to TASK_{ALWAYS,NOTEST} in CONFIG_TASK_LIST.
- *
- * Tasks that enable resets *must* call task_reset_cleanup() once at the
- * beginning of their main function, and perform task-specific cleanup if
- * necessary.
- *
- * By default, tasks can be reset at any time. To change this behavior, call
- * task_disable_resets() immediately after task_reset_cleanup(), and then enable
- * resets where appropriate.
- *
- * Tasks that predominantly have resets disabled are expected to periodically
- * enable resets, and should always ensure to do so before waiting for long
- * periods (eg when waiting for an event to process).
- */
-#undef CONFIG_TASK_RESET_LIST
-
-/*
- * Enable task profiling.
- *
- * Boards may #undef this to reduce image size and RAM usage.
- */
-#define CONFIG_TASK_PROFILING
-
-/*****************************************************************************/
 /* Mock config */
 
 /*
@@ -4484,15 +4192,6 @@
  */
 #undef CONFIG_DPTF_MULTI_PROFILE
 
-/*
- * Sometime EC was already driver thermal sensor power pin to high, but sensor
- * power is still not ready. That cause the system will thermal shutdown when
- * first boot EC.
- *
- * This config can be used to delay thermal sensor read in the first time.
- */
-#undef CONFIG_TEMP_SENSOR_FIRST_READ_DELAY_MS
-
 /*****************************************************************************/
 /* Touchpad config */
 
@@ -4564,11 +4263,6 @@
 
 /* Baud rate for UARTs */
 #define CONFIG_UART_BAUD_RATE 115200
-
-#ifndef CONFIG_ZEPHYR
-/* UART index (number) for EC console */
-#undef CONFIG_UART_CONSOLE
-#endif /* CONFIG_ZEPHYR */
 
 /* UART index (number) for host UART, if present */
 #undef CONFIG_UART_HOST
@@ -4688,23 +4382,6 @@
 #undef CONFIG_USB_VPD
 #undef CONFIG_USB_CTVPD
 #undef CONFIG_USB_DRP_ACC_TRYSRC
-
-/*
- * TCPMv2 statemachine layers
- *
- * All layers are defined by default. To opt-out, you must undef in your board.
- * Also these defines don't take effect unless CONFIG_USB_PD_TCPMV2 is also
- * defined.
- *
- * TYPEC_SM - Type-C deals with CC lines voltage level connections
- * PRL_SM - Protocol handles flow and chunking TX and RX messages
- * PE - Policy Engine handles PD communication flow
- * DPM - Device Policy Manager layer is used to determine port policy
- */
-#define CONFIG_USB_TYPEC_SM
-#define CONFIG_USB_PRL_SM
-#define CONFIG_USB_PE_SM
-#define CONFIG_USB_DPM_SM
 
 /* Enables PD Console commands */
 #define CONFIG_USB_PD_CONSOLE_CMD
@@ -5117,10 +4794,8 @@
 /*
  * Defined automatically by chip and depends on chip. This guards the onboard
  * TCPM driver, but CONFIG_USB_PD_TCPM_ITE_ON_CHIP needs to be defined in
- * board.h for either of these driver to actually be included in the final
- * image.
+ * board.h for the driver to actually be included in the final image.
  */
-#undef CONFIG_USB_PD_TCPM_DRIVER_IT83XX
 #undef CONFIG_USB_PD_TCPM_DRIVER_IT8XXX2
 
 /*
@@ -5353,9 +5028,6 @@
 #undef CONFIG_USBC_PPC_AOZ1380
 #undef CONFIG_USBC_PPC_KTU1125
 #undef CONFIG_USBC_PPC_NX20P3481
-#ifndef CONFIG_ZEPHYR
-#undef CONFIG_USBC_PPC_NX20P3483
-#endif /* CONFIG_ZEPHYR */
 #undef CONFIG_USBC_PPC_RT1718S
 #undef CONFIG_USBC_PPC_SN5S330
 #undef CONFIG_USBC_PPC_SYV682C
@@ -5611,11 +5283,6 @@
 /* Support reporting of configuration bMaxPower in mA */
 #define CONFIG_USB_MAXPOWER_MA 500
 
-#ifndef CONFIG_ZEPHYR
-/* Support reporting as self powered in USB configuration. */
-#undef CONFIG_USB_SELF_POWERED
-#endif /* CONFIG_ZEPHYR */
-
 /* Support correct handling of USB suspend (host-initiated). */
 #undef CONFIG_USB_SUSPEND
 
@@ -5807,9 +5474,6 @@
  * if the hook task (which is the lowest-priority task on the system) gets
  * starved for CPU time and isn't able to fire its HOOK_TICK event.
  */
-#ifndef CONFIG_ZEPHYR
-#define CONFIG_WATCHDOG
-#endif
 
 /*
  * Try to detect a watchdog that is about to fire, and print a trace.  This is
@@ -6017,21 +5681,8 @@
  * Used to include files for unit and other builds tests.
  */
 
-/* Define to enable Policy Engine State Machine. */
-#undef CONFIG_TEST_USB_PE_SM
-
 /* Define to enable USB State Machine framework. */
 #undef CONFIG_TEST_SM
-
-/*
- * This build is not a complete platform/ec based EC, but instead
- * using the platform/ec zephyr module.
- *
- * Note: this is here purely for stylistic purposes and documentation.
- */
-#ifndef CONFIG_ZEPHYR
-#undef CONFIG_ZEPHYR
-#endif
 
 /*
  * Define the following to drive CCD_MODE_ODL when a DTS accessory is
@@ -6040,11 +5691,6 @@
  * GPIO_CCD_MODE_ODL should be configured with GPIO_ODR_HIGH flag
  */
 #undef CONFIG_ASSERT_CCD_MODE_ON_DTS_CONNECT
-
-#ifndef CONFIG_ZEPHYR
-/* Define this to enable system boot time logging */
-#undef CONFIG_SYSTEM_BOOT_TIME_LOGGING
-#endif /* CONFIG_ZEPHYR */
 
 /*
  * The USB port used for CCD. Defaults to 0/C0.
@@ -6086,11 +5732,7 @@
 #endif
 
 #include "config_chip.h"
-#ifdef CONFIG_ZEPHYR
 #include "zephyr_shim.h"
-#else
-#include "board.h"
-#endif
 
 /* Default hcdebug mode, e.g. HCDEBUG_OFF or HCDEBUG_NORMAL */
 #if !defined(CONFIG_HOSTCMD_DEBUG_MODE)
@@ -6127,10 +5769,6 @@
  * Note that in Zephyr OS, eSPI can be enabled for virtual wires
  * without using eSPI for host commands.
  */
-#if (!defined(CONFIG_ZEPHYR) && defined(CONFIG_HOST_ESPI_VW_POWER_SIGNAL) && \
-     !defined(CONFIG_HOST_INTERFACE_ESPI))
-#error Must enable eSPI to enable virtual wires.
-#endif
 
 /******************************************************************************/
 /*
@@ -6157,20 +5795,6 @@
 #if !defined(CONFIG_USBC_SS_MUX) && !defined(CONFIG_USB_PD_CONTROLLER)
 #error CONFIG_USBC_SS_MUX must be enabled for TCPM USB4 mode support
 #endif
-#if !defined(CONFIG_ZEPHYR) && !defined(CONFIG_USB_PD_ALT_MODE_DFP)
-#error CONFIG_USB_PD_ALT_MODE_DFP must be enabled for USB4 mode support
-#endif
-#endif
-
-/******************************************************************************/
-/*
- * If CONFIG_USB_PD_ALT_MODE_DFP is set and this isn't a zephyr build (which
- * already did its preprocessing earlier), then enable DP Mode by default and
- * also enable discovery by default.
- */
-#if defined(CONFIG_USB_PD_ALT_MODE_DFP) && !defined(CONFIG_ZEPHYR)
-#define CONFIG_USB_PD_DP_MODE
-#define CONFIG_USB_PD_DISCOVERY
 #endif
 
 /******************************************************************************/
@@ -6353,35 +5977,6 @@
 
 /******************************************************************************/
 /*
- * Set minimum shared memory size, unless it is defined in board file.
- */
-#ifndef CONFIG_SHAREDMEM_MINIMUM_SIZE
-#ifdef CONFIG_COMMON_RUNTIME
-/* If RWSIG is used, we may need more space. */
-#if defined(CONFIG_RWSIG)
-#define CONFIG_SHAREDMEM_MINIMUM_SIZE_RWSIG (CONFIG_RSA_KEY_SIZE / 8 * 3)
-#else
-#define CONFIG_SHAREDMEM_MINIMUM_SIZE_RWSIG 0
-#endif
-
-/*
- * We can't use the "MAX" function here, as it is too smart and BUILD_ASSERT
- * calls do not allow it as parameter. BUILD_MAX below works for both compiler
- * and linker.
- */
-#define BUILD_MAX(x, y) ((x) > (y) ? (x) : (y))
-
-/* Minimum: 1kb */
-#define CONFIG_SHAREDMEM_MINIMUM_SIZE \
-	BUILD_MAX(1024, CONFIG_SHAREDMEM_MINIMUM_SIZE_RWSIG)
-#else /* !CONFIG_COMMON_RUNTIME */
-/* Without common runtime, we do not have support for shared memory. */
-#define CONFIG_SHAREDMEM_MINIMUM_SIZE 0
-#endif
-#endif /* !CONFIG_SHAREDMEM_MINIMUM_SIZE */
-
-/******************************************************************************/
-/*
  * Thermal throttling AP must have temperature sensor enabled to get
  * the temperature readings.
  */
@@ -6537,29 +6132,6 @@
 #define CONFIG_USBC_OCP
 #endif
 
-#ifndef CONFIG_ZEPHYR
-/*****************************************************************************/
-/*
- * Define CONFIG_USB_PD_VBUS_MEASURE_CHARGER if the charger on the board
- * supports VBUS measurement.
- */
-#if defined(CONFIG_CHARGER_BD9995X) || defined(CONFIG_CHARGER_RT9466) ||      \
-	defined(CONFIG_CHARGER_RT9467) || defined(CONFIG_CHARGER_RT9490) ||   \
-	defined(CONFIG_CHARGER_MT6370) || defined(CONFIG_CHARGER_BQ25710) ||  \
-	defined(CONFIG_CHARGER_BQ25720) || defined(CONFIG_CHARGER_ISL9241) || \
-	defined(CONFIG_CHARGER_RAA489110) ||                                  \
-	defined(CONFIG_CHARGER_BQ25770) || defined(CONFIG_CHARGER_RT9478)
-#if !defined(CONFIG_USB_PD_VBUS_MEASURE_TCPC) &&              \
-	!defined(CONFIG_USB_PD_VBUS_MEASURE_ADC_EACH_PORT) && \
-	!defined(CONFIG_USB_PD_VBUS_MEASURE_BY_BOARD)
-#define CONFIG_USB_PD_VBUS_MEASURE_CHARGER
-#endif /* VBUS_MEASURE options */
-
-#ifdef CONFIG_USB_PD_VBUS_MEASURE_NOT_PRESENT
-#error CONFIG_USB_PD_VBUS_MEASURE_NOT_PRESENT defined, but charger can measure
-#endif /* VBUS_NOT_PRESENT */
-#endif /* Charger chips */
-#endif /* CONFIG_ZEPHYR */
 /*****************************************************************************/
 /*
  * Define CONFIG_USB_PD_VBUS_MEASURE_TCPC if the tcpc on the board supports
@@ -6581,8 +6153,7 @@
  */
 #ifdef CONFIG_USB_PD_TCPM_ITE_ON_CHIP
 #define CONFIG_USB_PD_TCPC_ON_CHIP
-#if !defined(CONFIG_USB_PD_TCPM_DRIVER_IT8XXX2) && \
-	!defined(CONFIG_USB_PD_TCPM_DRIVER_IT83XX)
+#if !defined(CONFIG_USB_PD_TCPM_DRIVER_IT8XXX2)
 #error "No drivers for ITE ON CHIP"
 #endif
 #endif
@@ -6621,12 +6192,6 @@
 #ifdef CONFIG_DEDICATED_RECOVERY_BUTTON
 #define CONFIG_BUTTON_TRIGGERED_RECOVERY
 #endif /* defined(CONFIG_DEDICATED_RECOVERY_BUTTON) */
-
-#ifndef CONFIG_ZEPHYR
-#ifdef CONFIG_LED_PWM_COUNT
-#define CONFIG_LED_PWM
-#endif /* defined(CONFIG_LED_PWM_COUNT) */
-#endif /* CONFIG_ZEPHYR */
 
 #ifdef CONFIG_LED_PWM_ACTIVE_CHARGE_PORT_ONLY
 #define CONFIG_LED_PWM_CHARGE_STATE_ONLY
@@ -6725,18 +6290,13 @@
 #ifndef HAS_TASK_CHIPSET
 #undef CONFIG_AP_HANG_DETECT
 #undef CONFIG_CHIPSET_ALDERLAKE
-#ifndef CONFIG_ZEPHYR
-#undef CONFIG_CHIPSET_ALDERLAKE_SLG4BD44540
-#endif /* CONFIG_ZEPHYR */
 #undef CONFIG_CHIPSET_APOLLOLAKE
 #undef CONFIG_CHIPSET_CANNONLAKE
-#undef CONFIG_CHIPSET_COMETLAKE
 #undef CONFIG_CHIPSET_GEMINILAKE
 #undef CONFIG_CHIPSET_ICELAKE
 #undef CONFIG_CHIPSET_JASPERLAKE
 #undef CONFIG_CHIPSET_MT817X
 #undef CONFIG_CHIPSET_MT8183
-#undef CONFIG_CHIPSET_MT8192
 #undef CONFIG_CHIPSET_CEZANNE
 #undef CONFIG_CHIPSET_SDM845
 #undef CONFIG_CHIPSET_SKYLAKE
@@ -6744,19 +6304,6 @@
 #undef CONFIG_CHIPSET_TIGERLAKE
 #undef CONFIG_POWER_COMMON
 #endif
-
-/*
- * If the chipset task is enabled, this implies there is an AP to manage power
- * for. In Zephyr this can be implied by multiple options, so we provide the
- * same symbol here instead of making code examine HAS_TASK_CHIPSET.
- */
-#ifndef CONFIG_ZEPHYR
-#ifndef CONFIG_AP_POWER_CONTROL
-#ifdef HAS_TASK_CHIPSET
-#define CONFIG_AP_POWER_CONTROL
-#endif /* HAS_TASK_CHIPSET */
-#endif /* CONFIG_AP_POWER_CONTROL */
-#endif /* CONFIG_ZEPHYR */
 
 /*
  * If a board has a chipset task, set the minimum charger power required for
@@ -6863,19 +6410,15 @@
 #define CONFIG_CHIPSET_X86_RSMRST_AFTER_S5
 #endif
 
-#if defined(CONFIG_CHIPSET_ALDERLAKE_SLG4BD44540) ||  \
-	defined(CONFIG_CHIPSET_APOLLOLAKE) ||         \
-	defined(CONFIG_CHIPSET_CANNONLAKE) ||         \
-	defined(CONFIG_CHIPSET_COMETLAKE) ||          \
-	defined(CONFIG_CHIPSET_COMETLAKE_DISCRETE) || \
-	defined(CONFIG_CHIPSET_GEMINILAKE) ||         \
+#if defined(CONFIG_CHIPSET_APOLLOLAKE) ||     \
+	defined(CONFIG_CHIPSET_CANNONLAKE) || \
+	defined(CONFIG_CHIPSET_GEMINILAKE) || \
 	defined(CONFIG_CHIPSET_ICELAKE) || defined(CONFIG_CHIPSET_SKYLAKE)
 #define CONFIG_POWER_COMMON
 #endif
 
-#if defined(CONFIG_CHIPSET_ALDERLAKE_SLG4BD44540) || \
-	defined(CONFIG_CHIPSET_CANNONLAKE) ||        \
-	defined(CONFIG_CHIPSET_ICELAKE) || defined(CONFIG_CHIPSET_SKYLAKE)
+#if defined(CONFIG_CHIPSET_CANNONLAKE) || defined(CONFIG_CHIPSET_ICELAKE) || \
+	defined(CONFIG_CHIPSET_SKYLAKE)
 #define CONFIG_CHIPSET_X86_RSMRST_DELAY
 #endif
 
@@ -7244,16 +6787,6 @@
 #error CONFIG_BODY_DETECTION_SENSOR must be defined to use body detection
 #endif /* ifndef(CONFIG_BODY_DETECTION_SENSOR) */
 
-/* Non-zephyr only support V1 version of the body detection algorithm. */
-#ifndef CONFIG_ZEPHYR
-#ifdef CONFIG_BODY_DETECTION_ALOGIRTHM_V2
-#error "Only V1 algo for body detection is supported."
-#endif
-#ifndef CONFIG_BODY_DETECTION_ALOGIRTHM_V1
-#define CONFIG_BODY_DETECTION_ALOGIRTHM_V1
-#endif
-#endif /* ifndef CONFIG_ZEPHYR */
-
 #ifndef CONFIG_BODY_DETECTION_MAX_WINDOW_SIZE
 #define CONFIG_BODY_DETECTION_MAX_WINDOW_SIZE 250 /* max sensor odr (Hz) */
 #endif
@@ -7349,28 +6882,6 @@
 #error "CONFIG_CBI_FLASH and CONFIG_CBI_GPIO are mutually exclusive."
 #endif
 
-#if !defined(CONFIG_ZEPHYR) && !defined(CONFIG_ACCELGYRO_ICM_COMM_SPI) && \
-	!defined(CONFIG_ACCELGYRO_ICM_COMM_I2C)
-#ifdef I2C_PORT_ACCEL
-#define CONFIG_ACCELGYRO_ICM_COMM_I2C
-#else
-#define CONFIG_ACCELGYRO_ICM_COMM_SPI
-#endif
-#endif /* !CONFIG_ZEPHYR && !CONFIG_ACCELGYRO_ICM_COMM_SPI && \
-	* !CONFIG_ACCELGYRO_ICM_COMM_I2C                      \
-	*/
-
-#if !defined(CONFIG_ZEPHYR) && !defined(CONFIG_ACCELGYRO_BMI_COMM_SPI) && \
-	!defined(CONFIG_ACCELGYRO_BMI_COMM_I2C)
-#ifdef I2C_PORT_ACCEL
-#define CONFIG_ACCELGYRO_BMI_COMM_I2C
-#else
-#define CONFIG_ACCELGYRO_BMI_COMM_SPI
-#endif
-#endif /* !CONFIG_ZEPHYR && !CONFIG_ACCELGYRO_BMI_SPI && \
-	* !CONFIG_ACCELGYRO_BMI_I2C                      \
-	*/
-
 /* AMD STT requires AMD SB-RMI to be enabled */
 #if defined(CONFIG_AMD_STT) && !defined(CONFIG_AMD_SB_RMI)
 #define CONFIG_AMD_SB_RMI
@@ -7394,21 +6905,10 @@
 #define CONFIG_PRESERVED_END_OF_RAM_SIZE 1024
 #endif
 
-/* Select CONFIG_IT83XX_EXTENDED_ILM automatically */
-#if defined(CONFIG_IT83XX_EXTENDED_ILM_HWTIMER_DRIVER) ||     \
-	defined(CONFIG_IT83XX_EXTENDED_ILM_I2C_CONTROLLER) || \
-	defined(CONFIG_IT83XX_EXTENDED_ILM_I2C_DRIVER) ||     \
-	defined(CONFIG_IT83XX_EXTENDED_ILM_IRQ_DRIVER) ||     \
-	defined(CONFIG_IT83XX_EXTENDED_ILM_UART_DRIVER) ||    \
-	defined(CONFIG_IT83XX_EXTENDED_ILM_USBC_PD_TIMER) ||  \
-	defined(CONFIG_IT83XX_EXTENDED_ILM_TCPCI_DRIVER) ||   \
-	defined(CONFIG_IT83XX_EXTENDED_ILM_TIMER) ||          \
-	defined(CONFIG_IT83XX_EXTENDED_ILM_RAA489000_DRIVER)
-#define CONFIG_IT83XX_EXTENDED_ILM
-#endif
-
 #ifdef HAVE_PRIVATE
 #include "private_config.h"
 #endif /* HAVE_PRIVATE */
+
+#endif /* !HOST_TOOLS_BUILD */
 
 #endif /* PLATFORM_EC_INCLUDE_CONFIG_H_ */

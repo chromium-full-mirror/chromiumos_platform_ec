@@ -105,11 +105,49 @@ int heci_register(struct heci_client_t *client);
 /*
  * @brief
  * send HECI message to HOST client with certain connection
+ *
+ * Note: For blocking sends, if the underlying IPC transfer times out across a
+ * host suspend transition, the remaining payload pointer in @p msg->buf is
+ * retained for deferred retry when the host resumes. Callers must ensure
+ * @p msg->buf remains valid and unmodified until the response is delivered
+ * (i.e. until the next request arrives on the connection or the connection is
+ * reset/closed), and @p msg->next must be NULL.
+ *
  * @param conn_id connection id for sending.
  * @param msg message content pointer to send.
  * @retval true If successful.
  */
 bool heci_send(uint32_t conn_id, struct mrd_t *msg);
+
+/*
+ * @brief
+ * send HECI message to HOST client with timeout
+ *
+ * Note: When called with a non-zero @p timeout (blocking send), @p msg->buf
+ * may be retained for deferred retry if the transfer times out across a host
+ * suspend transition; see heci_send() for buffer lifetime requirements.
+ *
+ * @param conn_id connection id for sending.
+ * @param msg message content pointer to send.
+ * @param timeout wait timeout (e.g. K_NO_WAIT for non-blocking).
+ * @retval true If successful.
+ */
+bool heci_send_timeout(uint32_t conn_id, struct mrd_t *msg,
+		       k_timeout_t timeout);
+
+/*
+ * @brief
+ * non-blocking HECI send: sends message only if flow control credit is
+ * immediately available, otherwise returns false without waiting
+ * @param conn_id connection id for sending.
+ * @param msg message content pointer to send.
+ * @retval true If message was successfully transmitted.
+ * @retval false If transmission failed or no flow control credit was available.
+ */
+static inline bool heci_send_nowait(uint32_t conn_id, struct mrd_t *msg)
+{
+	return heci_send_timeout(conn_id, msg, K_NO_WAIT);
+}
 
 /*
  * @brief

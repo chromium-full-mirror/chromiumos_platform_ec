@@ -19,6 +19,10 @@
 #include <zephyr/device.h>
 #include <zephyr/kernel.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Size to reload the watchdog timer to prevent any reset. */
 #define FLASH_WATCHDOG_RELOAD_SIZE 0x10000
 
@@ -292,6 +296,10 @@ z_impl_cros_flash_physical_get_status(const struct device *dev, uint8_t *sr1,
 	return DEVICE_API_GET(cros_flash, dev)
 		->physical_get_status(dev, sr1, sr2);
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 /**
  * @}

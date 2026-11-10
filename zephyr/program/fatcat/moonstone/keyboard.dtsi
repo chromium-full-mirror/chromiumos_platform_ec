@@ -132,6 +132,7 @@
 		compatible = "cros-ec,col-gpio";
 		col-num = <2>;
 		col-gpios = <&gpioksol 2 GPIO_ACTIVE_LOW>;
+		settle-time-us = <0>;
 	};
 
 	boot-keys {

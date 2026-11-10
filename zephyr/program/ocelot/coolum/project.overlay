@@ -1,0 +1,52 @@
+/* Copyright 2026 The ChromiumOS Authors
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file.
+ */
+
+/* coolum common DTS includes */
+#include <cros/integrated_fwid.dtsi>
+#include "../ite_hibernate.dtsi"
+#include "../rvp_usba.dtsi"
+#include "../rvp_keyboard.dtsi"
+#include "../rvp_temp_sensors.dtsi"
+
+/* coolum board-specific DTS includes */
+#include "battery.dtsi"
+#include "binman.dtsi"
+#include "gpio.dtsi"
+#include "i2c.dtsi"
+#include "imvp.dtsi"
+#include "interrupt.dtsi"
+#include "keyboard.dtsi"
+#include "power_signals.dtsi"
+#include "thermal.dtsi"
+#include "usbc.dtsi"
+
+/*
+ * Map GPIOs used for interrupts to common names
+ */
+gpio_temp_sensor_power_good: &gpio_en_s5_rails {};
+
+/* Power sequencing */
+gpio_ec_pch_wake_odl: &gpio_ec_soc_wake_odl {};
+
+/ {
+	cse_early_recovery: cse-early-recovery {
+		compatible = "cros-ec,cse-early-rec";
+		cse-early-rec-gpios = <&gpioj 3 (GPIO_OPEN_DRAIN | GPIO_ACTIVE_HIGH)>;
+	};
+
+	ap-power-events {
+		compatible = "cros-ec,ap-power-events";
+		/* GPIO H0: Power down signal(C_EC_PDB_CTRL_R) for codec amplifier */
+		event-gpios = <&gpioh 0 GPIO_ACTIVE_HIGH>;
+	};
+};
+
+&espi0 {
+	status = "okay";
+};
+
+&sha0 {
+	status = "okay";
+};

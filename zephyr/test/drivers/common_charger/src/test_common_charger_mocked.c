@@ -341,16 +341,16 @@ ZTEST(common_charger_mocked_driver,
       test_charger_get_input_current_limit__invalid)
 {
 	zassert_equal(EC_ERROR_INVAL,
-		      charger_get_input_current_limit(-1, false));
+		      charger_get_input_current_limit(-1, NULL));
 	zassert_equal(EC_ERROR_INVAL,
-		      charger_get_input_current_limit(INT_MAX, false));
+		      charger_get_input_current_limit(INT_MAX, NULL));
 }
 
 ZTEST(common_charger_mocked_driver,
       test_charger_get_input_current_limit__unimpl)
 {
 	zassert_equal(EC_ERROR_UNIMPLEMENTED,
-		      charger_get_input_current_limit(CHG_NUM, false));
+		      charger_get_input_current_limit(CHG_NUM, NULL));
 }
 
 ZTEST(common_charger_mocked_driver, test_charger_get_input_current__invalid)
@@ -469,7 +469,8 @@ ZTEST(common_charger_mocked_driver, test_charger_post_init__invalid)
 
 ZTEST(common_charger_mocked_driver, test_charger_post_init__unimpl)
 {
-	zassert_equal(EC_ERROR_UNIMPLEMENTED, charger_post_init());
+	/* Returns EC_SUCCESS if post_init not implemented */
+	zassert_ok(charger_post_init());
 }
 
 ZTEST(common_charger_mocked_driver, test_charger_get_info__invalid)

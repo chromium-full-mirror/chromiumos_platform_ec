@@ -80,8 +80,10 @@ static int ft98xx_algorithm_init(const struct fingerprint_algorithm *const alg)
 		data->tpl_finger_size, data->tpl_head_size,
 		data->tpl_subtemplate_size);
 
-	if (data->tpl_finger_size > CONFIG_FP_ALGORITHM_TEMPLATE_SIZE) {
-		LOG_ERR("algorithm template size per finger exceed the CONFIG_FP_ALGORITHM_TEMPLATE_SIZE");
+	if (data->tpl_finger_size == 0 ||
+	    data->tpl_finger_size > CONFIG_FP_ALGORITHM_TEMPLATE_SIZE) {
+		LOG_ERR("invalid algorithm template size per finger (%u)",
+			data->tpl_finger_size);
 		return -EINVAL;
 	}
 

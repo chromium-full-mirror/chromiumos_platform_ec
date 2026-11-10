@@ -25,11 +25,11 @@ __attribute__((weak)) void system_reset(int flags)
 	__builtin_unreachable();
 }
 
-static uint8_t bbram[SYSTEM_BBRAM_IDX_TRY_SLOT + 1];
+static uint8_t bbram[SYSTEM_BBRAM_IDX_MAX];
 
 test_mockable int system_get_bbram(enum system_bbram_idx idx, uint8_t *value)
 {
-	if (idx <= SYSTEM_BBRAM_IDX_TRY_SLOT) {
+	if (idx < SYSTEM_BBRAM_IDX_MAX) {
 		*value = bbram[idx];
 		return EC_SUCCESS;
 	}
@@ -38,7 +38,7 @@ test_mockable int system_get_bbram(enum system_bbram_idx idx, uint8_t *value)
 
 test_mockable int system_set_bbram(enum system_bbram_idx idx, uint8_t value)
 {
-	if (idx <= SYSTEM_BBRAM_IDX_TRY_SLOT) {
+	if (idx < SYSTEM_BBRAM_IDX_MAX) {
 		bbram[idx] = value;
 		return EC_SUCCESS;
 	}
@@ -92,3 +92,32 @@ test_mockable void board_reset_pd_mcu(void)
 test_mockable void system_hibernate(uint32_t seconds, uint32_t microseconds)
 {
 }
+
+#if defined(CONFIG_TEST) && !defined(CONFIG_ZTEST)
+#include <zephyr/logging/log_ctrl.h>
+
+#include <posix_board_if.h>
+
+/*
+ * On native_sim (CONFIG_ARCH_POSIX), the host main() loops forever in
+ * nsi_hws_one_event() while bg_thread_main() invokes the embedded main().
+ * Standard ztest suites call LOG_PANIC() and posix_exit() via TC_END_POST(),
+ * whereas non-ztest binaries (such as Pigweed gtest suites) simply return
+ * RUN_ALL_TESTS() from main(). Without posix_exit(), the binary hangs until
+ * Twister's post-status timeout kills it (potentially interrupting
+ * __gcov_exit() while writing coverage .gcda files).
+ *
+ * CMakeLists.txt passes -Wl,--wrap=main so __wrap_main() intercepts main(),
+ * flushes logs, and exits the simulator cleanly when main() returns.
+ */
+extern int __real_main(int argc, char **argv);
+
+int __wrap_main(int argc, char **argv)
+{
+	int ret = __real_main(argc, argv);
+
+	LOG_PANIC();
+	posix_exit(ret);
+	return ret;
+}
+#endif

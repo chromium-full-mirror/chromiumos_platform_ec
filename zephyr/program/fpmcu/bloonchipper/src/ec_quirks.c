@@ -3,7 +3,7 @@
  * found in the LICENSE file.
  */
 
-#include "hooks.h"
+#include "system.h"
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
@@ -13,6 +13,7 @@
 #include <zephyr/init.h>
 #include <zephyr/kernel.h>
 
+#include <cmsis_core.h>
 #include <stm32f4xx_ll_tim.h>
 
 #define RESET_PERIPHERAL(idx) \
@@ -20,35 +21,29 @@
 
 #define TIMER2_NODE DT_NODELABEL(timers2)
 
-extern void arm_core_mpu_disable(void);
-
-static void prepare_for_sysjump_to_ec(void)
+void chip_pre_system_jump(void)
 {
 	/* Reset timers and UARTs to the defaults. */
 	DT_FOREACH_STATUS_OKAY(st_stm32_timers, RESET_PERIPHERAL);
 	DT_FOREACH_STATUS_OKAY(st_stm32_uart, RESET_PERIPHERAL);
 
 	/*
-	 * When HW_STACK_PROTECTION is enabled on ARMv7-M microcontroller then
-	 * the last 64 bytes of the stack is protected to detect stack
-	 * overflows. Size of protected region must be greater than exception
-	 * frame, so CPU won't overwrite some other data when exception occurs.
-	 *
-	 * EC uses different RAM layout than Zephyr, so it's possible that after
-	 * sysjump some variables are stored in the protected region. EC also
-	 * reconfigures MPU late (Zephyr does it in reset handler).
-	 *
-	 * Disable MPU protection to avoid problems after sysjump to EC.
-	 */
-	arm_core_mpu_disable();
-
-	/*
 	 * Disable system clock (Cortex-M Systick it this case) because it's
 	 * unused in EC.
 	 */
 	sys_clock_disable();
+
+	/*
+	 * Legacy EC only uses PRIMASK for interrupt masking and does not
+	 * clear BASEPRI in its reset handler. Mask PRIMASK and clear
+	 * BASEPRI before jumping so Legacy EC enters init.S with
+	 * PRIMASK=1 and BASEPRI=0.
+	 */
+	__disable_irq();
+	__set_BASEPRI(0);
+	__DSB();
+	__ISB();
 }
-DECLARE_HOOK(HOOK_SYSJUMP, prepare_for_sysjump_to_ec, HOOK_PRIO_LAST);
 
 /*
  * Old FPMCU RO (EC based) uses TIM2 to measure system uptime and schedule

@@ -8,7 +8,6 @@
  * and the new (i.e. usb_sm_*) USB-C PD stacks.
  */
 
-#include "atomic.h"
 #include "charge_manager.h"
 #include "charge_state.h"
 #include "chipset.h"
@@ -35,6 +34,8 @@
 #include "usbc_ocp.h"
 #include "usbc_ppc.h"
 #include "util.h"
+
+#include <zephyr/sys/atomic.h>
 
 #ifdef CONFIG_COMMON_RUNTIME
 #define CPRINTS(format, args...) cprints(CC_USBPD, format, ##args)
@@ -170,7 +171,7 @@ __overridable int pd_board_check_request(uint32_t rdo, int pdo_cnt)
 
 int pd_get_source_pdo(const uint32_t **src_pdo_p, const int port)
 {
-#if defined(CONFIG_USB_PD_TCPMV2) && defined(CONFIG_USB_PE_SM)
+#if defined(CONFIG_USB_PD_TCPMV2)
 	const uint32_t *src_pdo;
 	const int pdo_cnt = dpm_get_source_pdo(&src_pdo, port);
 #else
@@ -577,21 +578,17 @@ static void gpio_discharge_vbus(int port, int enable)
 
 test_mockable void pd_set_vbus_discharge(int port, int enable)
 {
-	static mutex_t discharge_lock[CONFIG_USB_PD_PORT_MAX_COUNT];
-#ifdef CONFIG_ZEPHYR
+	static struct k_mutex discharge_lock[CONFIG_USB_PD_PORT_MAX_COUNT];
 	static bool inited[CONFIG_USB_PD_PORT_MAX_COUNT];
-#endif
 
 	if (port >= board_get_usb_pd_port_count())
 		return;
 
-#ifdef CONFIG_ZEPHYR
 	if (!inited[port]) {
 		(void)k_mutex_init(&discharge_lock[port]);
 		inited[port] = true;
 	}
-#endif
-	mutex_lock(&discharge_lock[port]);
+	k_mutex_lock(&discharge_lock[port], K_FOREVER);
 	enable &= !board_vbus_source_enabled(port);
 
 	if (get_usb_pd_discharge() == USB_PD_DISCHARGE_GPIO) {
@@ -606,7 +603,7 @@ test_mockable void pd_set_vbus_discharge(int port, int enable)
 #endif
 	}
 
-	mutex_unlock(&discharge_lock[port]);
+	k_mutex_unlock(&discharge_lock[port]);
 }
 #endif /* CONFIG_USB_PD_DISCHARGE */
 
@@ -802,28 +799,15 @@ void pd_srccaps_dump(int port)
 	}
 }
 
-int pd_broadcast_alert_msg(uint32_t ado)
-{
-#if defined(CONFIG_USB_PD_TCPMV2) && defined(CONFIG_USB_PE_SM) && \
-	!defined(CONFIG_USB_VPD) && !defined(CONFIG_USB_CTVPD)
-	int ret = EC_SUCCESS;
-
-	for (int i = 0; i < CONFIG_USB_PD_PORT_MAX_COUNT; i++) {
-		if (pd_send_alert_msg(i, ado) != EC_SUCCESS)
-			ret = EC_ERROR_BUSY;
-	}
-
-	return ret;
-#else
-	return EC_ERROR_INVALID_CONFIG;
-#endif
-}
-
 int pd_send_alert_msg(int port, uint32_t ado)
 {
-#if defined(CONFIG_USB_PD_TCPMV2) && defined(CONFIG_USB_PE_SM) && \
-	!defined(CONFIG_USB_VPD) && !defined(CONFIG_USB_CTVPD)
+#if defined(CONFIG_USB_PD_TCPMV2) && !defined(CONFIG_USB_VPD) && \
+	!defined(CONFIG_USB_CTVPD)
 	struct rmdo partner_rmdo;
+	int rv;
+
+	if (!pd_is_connected(port))
+		return EC_ERROR_UNAVAILABLE;
 
 	/*
 	 * The Alert Data Object (ADO) definition changed between USB PD
@@ -840,8 +824,9 @@ int pd_send_alert_msg(int port, uint32_t ado)
 	if (!ado)
 		return EC_ERROR_INVAL;
 
-	if (pe_set_ado(port, ado) != EC_SUCCESS)
-		return EC_ERROR_BUSY;
+	rv = pe_set_ado(port, ado);
+	if (rv != EC_SUCCESS)
+		return rv;
 
 	pd_dpm_request(port, DPM_REQUEST_SEND_ALERT);
 	return EC_SUCCESS;

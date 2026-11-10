@@ -101,6 +101,10 @@
 #define EFLASH_TYPE_KGD 0x02
 #define EFLASH_TYPE_NONE 0xFF
 
+/* Flash ID command sequence retry parameters */
+#define CHECK_FLASHID_MAX_RETRIES 5
+#define CHECK_FLASHID_RETRY_DELAY_US 2000
+
 uint8_t eflash_type;
 uint8_t spi_cmd_sector_erase;
 
@@ -111,6 +115,13 @@ static volatile sig_atomic_t exit_requested;
 
 struct i2c_interface;
 
+#define MAX_SKIP_RANGES 16
+
+struct skip_range {
+	size_t base;
+	size_t size;
+};
+
 /* Config mostly comes from the command line.  Defaults are set in main(). */
 struct iteflash_config {
 	char *input_filename;
@@ -119,9 +130,11 @@ struct iteflash_config {
 	int erase; /* boolean */
 	int i2c_mux; /* boolean */
 	int debug; /* boolean */
+	int reset_gpio; /* boolean */
 	int disable_watchdog; /* boolean */
 	int disable_protect_path; /* boolean */
 	int block_write_size;
+	int preserve_pin;
 	int usb_interface;
 	int usb_vid;
 	int usb_pid;
@@ -132,6 +145,8 @@ struct iteflash_config {
 	const struct i2c_interface *i2c_if;
 	size_t range_base;
 	size_t range_size;
+	struct skip_range skip_ranges[MAX_SKIP_RANGES];
+	int num_skip_ranges;
 };
 
 struct common_hnd {
@@ -664,18 +679,34 @@ static int check_flashid(struct common_hnd *chnd)
 {
 	int ret = 0;
 	uint8_t id[16], i;
+	int retry;
 	struct cmds commands[] = { { 0x07, 0x7f }, { 0x06, 0xff },
 				   { 0x04, 0x00 }, { 0x05, 0xfe },
 				   { 0x08, 0x00 }, { 0x05, 0xfd },
 				   { 0x08, 0x9f } };
 
-	for (i = 0; i < ARRAY_SIZE(commands); i++) {
-		ret = i2c_write_byte(chnd, commands[i].addr, commands[i].cmd);
-		if (ret) {
-			fprintf(stderr, "Flash ID Failed : cmd %x ,data %x\n",
-				commands[i].addr, commands[i].cmd);
-			return ret;
+	/*
+	 * Retry command sequence up to CHECK_FLASHID_MAX_RETRIES times to let
+	 * the I2C bridge recover after dbgr_reset_gpio(), safely preserving CBI
+	 * and flash state.
+	 */
+	for (retry = 0; retry < CHECK_FLASHID_MAX_RETRIES; retry++) {
+		if (retry > 0)
+			usleep(CHECK_FLASHID_RETRY_DELAY_US);
+		ret = 0;
+		for (i = 0; i < ARRAY_SIZE(commands); i++) {
+			ret = i2c_write_byte(chnd, commands[i].addr,
+					     commands[i].cmd);
+			if (ret)
+				break;
 		}
+		if (!ret)
+			break;
+	}
+	if (ret) {
+		fprintf(stderr, "Flash ID Failed : cmd %x ,data %x\n",
+			commands[i].addr, commands[i].cmd);
+		return ret;
 	}
 
 	ret = i2c_byte_transfer(chnd, I2C_DATA_ADDR, id, 0, 16);
@@ -759,6 +790,30 @@ static int check_chipid(struct common_hnd *chnd)
 		if (ret < 0)
 			return ret;
 
+		/*
+		 * In deep rescue mode when the main EC core clock domain is
+		 * asleep, 0xF02085 reads back 0x00 (e.g. 0x01202 on IT81202 or
+		 * 0x01302 on IT81302). Restore the leading 0x8 nibble and skip
+		 * 0xF0xxxx EC core register writes (GPIO reset, watchdog
+		 * disable, and protect-path disable) which NACK while the core
+		 * clock domain is gated.
+		 */
+		if ((id & 0xff00f) == 0x01002 || (id & 0xff00f) == 0x02002 ||
+		    (id & 0xff00f) == 0x03002) {
+			id |= 0x80000;
+			if (chnd->conf.reset_gpio ||
+			    chnd->conf.disable_watchdog ||
+			    chnd->conf.disable_protect_path) {
+				printf("Boot ROM deep-rescue mode detected "
+				       "(0xF0xxxx core clock gated); skipping "
+				       "GPIO reset, watchdog disable, and "
+				       "protect-path disable.\n");
+				chnd->conf.reset_gpio = 0;
+				chnd->conf.disable_watchdog = 0;
+				chnd->conf.disable_protect_path = 0;
+			}
+		}
+
 		if ((id & 0xf000f) == 0x80001 || (id & 0xf000f) == 0x80002) {
 			chnd->flash_cmd_v2 = 1;
 			chnd->dbgr_addr_3bytes = 1;
@@ -836,17 +891,48 @@ static int dbgr_reset_gpio(struct common_hnd *chnd)
 {
 	int ret = 0;
 
-	printf("Reset GPIOs to default.\n");
+	if (chnd->conf.preserve_pin == 0)
+		return 0;
+
+	printf("Reset GPIOs to default safely.\n");
 	if (chnd->dbgr_addr_3bytes)
 		ret |= i2c_write_byte(chnd, 0x80, 0xf0);
-	ret |= i2c_write_byte(chnd, 0x2f, 0x20);
-	ret |= i2c_write_byte(chnd, 0x2e, 0x07);
-	ret |= i2c_write_byte(chnd, 0x30, BIT(1));
+
+	if (chnd->conf.preserve_pin == -1) {
+		ret |= i2c_write_byte(chnd, 0x2f, 0x20);
+		ret |= i2c_write_byte(chnd, 0x2e, 0x07);
+		ret |= i2c_write_byte(chnd, 0x30, BIT(1));
+	} else {
+		/*
+		 * Iterate GPCR registers (0xF01610..0xF0166F) instead of
+		 * issuing a global GPIO reset (0xF02007 = BIT(1)) so
+		 * alternate-function pins and the caller-specified
+		 * preserve_pin (e.g. AP_RST_L) are not floated to High-Z
+		 * input mid-flash. Only switch pins configured as Output
+		 * (BIT(6)) to Input (0x80).
+		 */
+		ret |= i2c_write_byte(chnd, 0x2f, 0x16);
+		for (int addr = 0x1610; addr <= 0x166f; addr++) {
+			uint8_t val = 0;
+			int r;
+
+			if (addr == chnd->conf.preserve_pin)
+				continue;
+
+			r = i2c_write_byte(chnd, 0x2e, addr & 0xff);
+			if (!r)
+				r = i2c_read_byte(chnd, 0x30, &val);
+			if (r < 0)
+				ret |= r;
+			else if (val & BIT(6))
+				ret |= i2c_write_byte(chnd, 0x30, 0x80);
+		}
+	}
 
 	if (ret < 0)
 		fprintf(stderr, "DBGR RESET GPIO FAILED\n");
 
-	return 0;
+	return ret < 0 ? -EIO : 0;
 }
 
 /* disable watchdog */
@@ -1248,9 +1334,6 @@ static int send_special_waveform(struct common_hnd *chnd)
 		if (ret)
 			break;
 
-		/* wait for PLL stable for 5ms (plus remaining USB transfers) */
-		usleep(10 * MSEC);
-
 		/* Stop EC ASAP after sending special waveform. */
 		if (dbgr_stop_ec(chnd) >= 0) {
 			/*
@@ -1378,6 +1461,19 @@ static bool is_empty_page(uint8_t *buffer, int size)
 	return true;
 }
 
+static bool is_in_skip_range(const struct common_hnd *chnd, size_t addr,
+			     size_t len)
+{
+	for (int i = 0; i < chnd->conf.num_skip_ranges; i++) {
+		size_t base = chnd->conf.skip_ranges[i].base;
+		size_t size = chnd->conf.skip_ranges[i].size;
+
+		if (size && addr < base + size && addr + len > base)
+			return true;
+	}
+	return false;
+}
+
 static int command_write_pages(struct common_hnd *chnd, uint32_t address,
 			       uint32_t size, uint8_t *buffer)
 {
@@ -1394,6 +1490,12 @@ static int command_write_pages(struct common_hnd *chnd, uint32_t address,
 	while (remaining) {
 		cnt = (remaining > block_write_size) ? block_write_size :
 						       remaining;
+		if (is_in_skip_range(chnd, address, cnt)) {
+			buffer += cnt;
+			address += cnt;
+			remaining -= cnt;
+			continue;
+		}
 		addr_H = (address >> 16) & 0xFF;
 		addr_M = (address >> 8) & 0xFF;
 		addr_L = address & 0xFF;
@@ -1534,7 +1636,16 @@ static int command_erase(struct common_hnd *chnd, uint32_t len, uint32_t off)
 		goto failed_erase;
 
 	while (remaining) {
+		uint32_t sector_bytes = sector_erase_pages * PAGE_SIZE;
+		uint32_t addr = page * PAGE_SIZE;
+
 		draw_spinner(remaining, len);
+
+		if (is_in_skip_range(chnd, addr, sector_bytes)) {
+			page += sector_erase_pages;
+			remaining -= sector_bytes;
+			continue;
+		}
 
 		if (spi_flash_command_short(chnd, SPI_CMD_WRITE_ENABLE,
 					    "write enable for erase") < 0)
@@ -1544,7 +1655,8 @@ static int command_erase(struct common_hnd *chnd, uint32_t len, uint32_t off)
 			goto failed_erase;
 
 		/* do chip erase */
-		if (remaining == chnd->flash_size) {
+		if (remaining == chnd->flash_size &&
+		    !chnd->conf.num_skip_ranges) {
 			if (spi_flash_command_short(chnd, SPI_CMD_CHIP_ERASE,
 						    "chip erase") < 0)
 				goto failed_erase;
@@ -1569,12 +1681,13 @@ static int command_erase(struct common_hnd *chnd, uint32_t len, uint32_t off)
 					    "write disable for erase") < 0)
 			goto failed_erase;
 
-		if (remaining == chnd->flash_size) {
+		if (remaining == chnd->flash_size &&
+		    !chnd->conf.num_skip_ranges) {
 			remaining = 0;
 			draw_spinner(remaining, len);
 		} else {
 			page += sector_erase_pages;
-			remaining -= sector_erase_pages * PAGE_SIZE;
+			remaining -= sector_bytes;
 		}
 	}
 
@@ -1624,7 +1737,17 @@ static int command_erase2(struct common_hnd *chnd, uint32_t len, uint32_t off,
 		goto failed_erase;
 
 	while (remaining) {
+		uint32_t sector_bytes = sector_erase_pages * PAGE_SIZE;
+		uint32_t addr = page * PAGE_SIZE;
+
 		draw_spinner(remaining, len);
+
+		if (is_in_skip_range(chnd, addr, sector_bytes)) {
+			page += sector_erase_pages;
+			remaining -= sector_bytes;
+			draw_spinner(remaining, len);
+			continue;
+		}
 
 		if (spi_flash_command_short(chnd, SPI_CMD_WRITE_ENABLE,
 					    "write enable for erase") < 0)
@@ -1797,7 +1920,7 @@ static int write_flash2(struct common_hnd *chnd, const char *filename,
 	int block_write_size = chnd->conf.block_write_size;
 	FILE *hnd;
 	int size = chnd->flash_size;
-	int cnt, two_bytes_sent, ret;
+	int cnt, two_bytes_sent, ret = 0;
 	uint8_t addr_h, addr_m, addr_l, data_ff = 0xff;
 	uint8_t *buffer = (uint8_t *)malloc(size);
 
@@ -1841,6 +1964,14 @@ static int write_flash2(struct common_hnd *chnd, const char *filename,
 	printf("Writing %d bytes at 0x%08x.......\n", res, offset);
 
 __send_aai_cmd:
+	while (res >= 2 && is_in_skip_range(chnd, offset, 2)) {
+		offset += 2;
+		res -= 2;
+		draw_spinner(res, res + offset);
+	}
+	if (res < 2)
+		goto failed_write;
+
 	addr_h = (offset >> 16) & 0xff;
 	addr_m = (offset >> 8) & 0xff;
 	addr_l = offset & 0xff;
@@ -1880,6 +2011,24 @@ __send_aai_cmd:
 		if (two_bytes_sent) {
 			two_bytes_sent = 0;
 			cnt -= 2;
+		}
+		if (is_in_skip_range(chnd, offset, cnt)) {
+			for (int i = 0; i < chnd->conf.num_skip_ranges; i++) {
+				size_t base = chnd->conf.skip_ranges[i].base;
+
+				if (base > offset &&
+				    base < offset + (size_t)cnt)
+					cnt = base - offset;
+			}
+			if (is_in_skip_range(chnd, offset, cnt)) {
+				i2c_byte_transfer(chnd, I2C_DATA_ADDR, &data_ff,
+						  1, 1);
+				i2c_write_byte(chnd, 0x10, 0x00);
+				spi_flash_command_short(chnd,
+							SPI_CMD_WRITE_DISABLE,
+							"SPI write disable");
+				goto __send_aai_cmd;
+			}
 		}
 		if (i2c_byte_transfer(chnd, I2C_BLOCK_ADDR, &buffer[offset], 1,
 				      cnt) < 0) {
@@ -1979,7 +2128,8 @@ static int write_flash3(struct common_hnd *chnd, const char *filename,
 
 	while (res) {
 		cnt = (res > block_write_size) ? block_write_size : res;
-		if (chnd->conf.erase && is_empty_page(&buf[offset], cnt)) {
+		if (is_in_skip_range(chnd, offset, cnt) ||
+		    (chnd->conf.erase && is_empty_page(&buf[offset], cnt))) {
 			/* do nothing */
 		} else if (command_write_pages3(chnd, offset, cnt,
 						&buf[offset]) < 0) {
@@ -2048,8 +2198,25 @@ static int verify_flash(struct common_hnd *chnd, const char *filename,
 
 	printf("Verify %d bytes at 0x%08x\n", file_size, offset);
 	res = command_read_pages(chnd, offset, chnd->flash_size, buffer2);
-	if (res > 0)
+	if (res > 0) {
+		for (int i = 0; i < chnd->conf.num_skip_ranges; i++) {
+			size_t skip_start = chnd->conf.skip_ranges[i].base;
+			size_t skip_end =
+				skip_start + chnd->conf.skip_ranges[i].size;
+			size_t end_off = offset + (size_t)file_size;
+
+			if (skip_start < offset)
+				skip_start = offset;
+			if (skip_end > end_off)
+				skip_end = end_off;
+			if (skip_start < skip_end) {
+				memcpy(buffer2 + (skip_start - offset),
+				       buffer + (skip_start - offset),
+				       skip_end - skip_start);
+			}
+		}
 		res = memcmp(buffer, buffer2, file_size);
+	}
 
 	printf("\n\rVerify %s\n", res ? "Failed!" : "Done.");
 
@@ -2256,6 +2423,7 @@ static int strdup_with_errmsg(const char *source, char **dest, const char *name)
 }
 
 static const struct option longopts[] = { { "block-write-size", 1, 0, 'b' },
+					  { "dbgr-preserve-pin", 1, 0, 'P' },
 					  { "debug", 0, 0, 'd' },
 					  { "erase", 0, 0, 'e' },
 					  { "help", 0, 0, 'h' },
@@ -2272,6 +2440,7 @@ static const struct option longopts[] = { { "block-write-size", 1, 0, 'b' },
 					  { "read", 1, 0, 'r' },
 					  { "send-waveform", 1, 0, 'W' },
 					  { "serial", 1, 0, 's' },
+					  { "skip-range", 1, 0, 'S' },
 					  { "vendor", 1, 0, 'v' },
 					  { "write", 1, 0, 'w' },
 					  { NULL, 0, 0, 0 } };
@@ -2301,6 +2470,9 @@ static void display_usage(const char *program)
 	fprintf(stderr, "-n, --noverify : Don't auto verify.\n");
 	fprintf(stderr, "-b, --block-write-size <size> : Perform writes in\n"
 			"\tblocks of this many bytes.\n");
+	fprintf(stderr,
+		"-P, --dbgr-preserve-pin <addr|port_pin|all> : Skip resetting\n"
+		"\tspecified GPCR offset (e.g. 0x1641, G1, or all) during DBGR.\n");
 	fprintf(stderr, "-p, --product <0x1234> : USB product ID\n");
 	fprintf(stderr,
 		"-R, --range base[:size] : Allow to read or write"
@@ -2311,6 +2483,9 @@ static void display_usage(const char *program)
 	fprintf(stderr, "-r, --read <file> : Read the flash content and"
 			" write it into <file>.\n");
 	fprintf(stderr, "-s, --serial <serialname> : USB serial string\n");
+	fprintf(stderr,
+		"-S, --skip-range base:size : Skip erasing, writing, and\n"
+		"\tverifying the specified range (base:size or base size).\n");
 	fprintf(stderr, "-v, --vendor <0x1234> : USB vendor ID\n");
 	fprintf(stderr,
 		"-W, --send-waveform <0|1|false|true> : Send the"
@@ -2360,13 +2535,99 @@ static int parse_range_options(char *str, struct iteflash_config *conf)
 	return 0;
 }
 
+static int parse_skip_range_options(const char *str, const char *size_arg,
+				    struct iteflash_config *conf)
+{
+	char *endptr = NULL;
+	size_t skip_base, skip_size;
+
+	if (!str || !*str) {
+		fprintf(stderr,
+			"missing skip-range base address specification\n");
+		return -1;
+	}
+	if (conf->num_skip_ranges >= MAX_SKIP_RANGES) {
+		fprintf(stderr, "too many skip-range specifications\n");
+		return -1;
+	}
+
+	skip_base = strtoull(str, &endptr, 0);
+	if (size_arg) {
+		if (!endptr || *endptr) {
+			fprintf(stderr, "wrong skip-range specification\n");
+			return -1;
+		}
+	} else {
+		if (!endptr || *endptr != ':' || !endptr[1]) {
+			fprintf(stderr, "wrong skip-range specification\n");
+			return -1;
+		}
+		size_arg = endptr + 1;
+	}
+
+	skip_size = strtoull(size_arg, &endptr, 0);
+	if (!endptr || *endptr || !skip_size) {
+		fprintf(stderr, "wrong skip-range size specification\n");
+		return -1;
+	}
+
+	conf->skip_ranges[conf->num_skip_ranges].base = skip_base;
+	conf->skip_ranges[conf->num_skip_ranges].size = skip_size;
+	conf->num_skip_ranges++;
+
+	return 0;
+}
+
+/*
+ * Parses -P / --dbgr-preserve-pin parameter, accepting a GPCR register
+ * offset (e.g. "0x1641"), a port+pin name (e.g. "G1" -> 0x1641), or "all"
+ * (0, skip GPIO reset completely).
+ */
+static int parse_preserve_pin_option(const char *str,
+				     struct iteflash_config *conf)
+{
+	char *endptr = NULL;
+	long val;
+
+	if (!str || !*str)
+		return -1;
+
+	if (!strcasecmp(str, "all")) {
+		conf->preserve_pin = 0;
+		return 0;
+	}
+
+	if (((str[0] >= 'A' && str[0] <= 'L') ||
+	     (str[0] >= 'a' && str[0] <= 'l')) &&
+	    (str[1] >= '0' && str[1] <= '7') && str[2] == '\0') {
+		int port_idx = (str[0] >= 'a') ? (str[0] - 'a') :
+						 (str[0] - 'A');
+		int pin = str[1] - '0';
+
+		conf->preserve_pin = 0x1610 + (port_idx * 8) + pin;
+		return 0;
+	}
+
+	val = strtol(str, &endptr, 0);
+	if (!endptr || *endptr != '\0' || val < 0x1610 || val > 0x166f) {
+		fprintf(stderr,
+			"Invalid -P / --dbgr-preserve-pin value: %s "
+			"(expected 0x1610..0x166f, A0..L7, or all)\n",
+			str);
+		return -1;
+	}
+
+	conf->preserve_pin = (int)val;
+	return 0;
+}
+
 static int parse_parameters(int argc, char **argv, struct iteflash_config *conf)
 {
 	int opt, idx, ret = 0;
 
-	while (!ret &&
-	       (opt = getopt_long(argc, argv, "?b:c:D:dehi:mp:R:r:s:uv:W:w:Zz",
-				  longopts, &idx)) != -1) {
+	while (!ret && (opt = getopt_long(argc, argv,
+					  "?b:c:D:dehi:mnP:p:R:r:S:s:uv:W:w:Zz",
+					  longopts, &idx)) != -1) {
 		switch (opt) {
 		case 'b':
 			conf->block_write_size = strtol(optarg, NULL, 10);
@@ -2411,6 +2672,9 @@ static int parse_parameters(int argc, char **argv, struct iteflash_config *conf)
 		case 'n':
 			conf->verify = 0;
 			break;
+		case 'P':
+			ret = parse_preserve_pin_option(optarg, conf);
+			break;
 		case 'p':
 			conf->usb_pid = strtol(optarg, NULL, 16);
 			break;
@@ -2421,6 +2685,15 @@ static int parse_parameters(int argc, char **argv, struct iteflash_config *conf)
 			ret = strdup_with_errmsg(optarg, &conf->input_filename,
 						 "-r / --read");
 			break;
+		case 'S': {
+			const char *size_arg = NULL;
+
+			if (!strchr(optarg, ':') && optind < argc &&
+			    argv[optind][0] != '-')
+				size_arg = argv[optind++];
+			ret = parse_skip_range_options(optarg, size_arg, conf);
+			break;
+		}
 		case 's':
 			ret = strdup_with_errmsg(optarg, &conf->usb_serial,
 						 "-s / --serial");
@@ -2492,8 +2765,10 @@ int main(int argc, char **argv)
 		/* Default flag settings. */
 		.conf = {
 			.send_waveform = 1,
+			.reset_gpio = 1,
 			.disable_watchdog = 1,
 			.disable_protect_path = 1,
+			.preserve_pin = -1,
 			.usb_interface = SERVO_INTERFACE,
 			.verify = 1,
 			.wdt_enable = 0,
@@ -2545,12 +2820,14 @@ int main(int argc, char **argv)
 	}
 
 	/* Turn off power rails by reset GPIOs to default (input). */
-	dbgr_reset_gpio(&chnd);
+	if (chnd.conf.reset_gpio)
+		dbgr_reset_gpio(&chnd);
 
 	check_flashid(&chnd);
 
 	/* add wdt restart to prevent wdt interrupt flashing */
-	restart_wdt(&chnd);
+	if (chnd.conf.disable_watchdog)
+		restart_wdt(&chnd);
 
 	ret = post_waveform_work(&chnd);
 	if (ret)

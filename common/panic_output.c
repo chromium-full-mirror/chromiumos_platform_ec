@@ -21,6 +21,8 @@
 #include "usb_console.h"
 #include "util.h"
 
+#include <zephyr/logging/log_ctrl.h>
+
 #include <stdalign.h>
 
 /*
@@ -138,47 +140,22 @@ void panic_printf(const char *format, ...)
  */
 void panic_reboot(void)
 {
+	/*
+	 * Lock interrupts to disable preemption and force synchronous output.
+	 */
+	unsigned int key = irq_lock();
+
+	/*
+	 * Flush any remaining deferred log messages before printing the reboot
+	 * banner. LOG_PANIC() is idempotent if already called earlier.
+	 */
+	LOG_PANIC();
 	panic_puts("\n\nRebooting...\n");
 	system_reset(0);
-}
 
-#if !(defined(CONFIG_ZEPHYR))
-/* Complete the processing of a panic, after the initial message is shown */
-test_mockable_static
-#if !(defined(CONFIG_ZTEST))
-	__noreturn
-#endif
-	void complete_panic(const char *fname, int linenum)
-{
-	/* Top two bytes of info register is first two characters of file name.
-	 * Bottom two bytes of info register is line number.
-	 */
-	software_panic(PANIC_SW_ASSERT, (fname[0] << 24) | (fname[1] << 16) |
-						(linenum & 0xffff));
+	if (IS_ENABLED(CONFIG_ZTEST))
+		irq_unlock(key);
 }
-
-#ifdef CONFIG_DEBUG_ASSERT_BRIEF
-void panic_assert_fail(const char *fname, int linenum)
-{
-	panic_printf("\nASSERTION FAILURE at %s:%d\n", fname, linenum);
-	complete_panic(fname, linenum);
-}
-#else
-void panic_assert_fail(const char *msg, const char *func, const char *fname,
-		       int linenum)
-{
-	panic_printf("\nASSERTION FAILURE '%s' in %s() at %s:%d\n", msg, func,
-		     fname, linenum);
-	complete_panic(fname, linenum);
-}
-#endif
-
-void panic(const char *msg)
-{
-	panic_printf("\n** PANIC: %s\n", msg);
-	panic_reboot();
-}
-#endif /* !CONFIG_ZEPHYR */
 
 test_mockable struct panic_data *panic_get_data(void)
 {
@@ -199,11 +176,42 @@ test_mockable struct panic_data *panic_get_data(void)
 	return pdata_ptr;
 }
 
+test_mockable uint8_t *get_panic_data_flags(void)
+{
+	uintptr_t start = get_panic_data_start();
+
+	if (!start)
+		return NULL;
+
+	return &((struct panic_data *)start)->flags;
+}
+
 bool panic_data_is_new(void)
 {
-	struct panic_data *const pdata = panic_get_data();
+	const uint8_t *flags = get_panic_data_flags();
 
-	return pdata && !(pdata->flags & PANIC_DATA_FLAG_OLD_HOSTCMD);
+	return flags && !(*flags & PANIC_DATA_FLAG_OLD_HOSTCMD);
+}
+
+test_export_static uint32_t get_panic_data_size(void)
+{
+	BUILD_ASSERT(CONFIG_PANIC_DATA_SIZE >= PANIC_DATA_MIN_SIZE);
+	BUILD_ASSERT((CONFIG_PANIC_DATA_SIZE % 4) == 0);
+
+	if (pdata_ptr->magic != PANIC_DATA_MAGIC)
+		return 0;
+
+	/*
+	 * struct_size must be 4-byte aligned because it is subtracted from
+	 * the 4-byte-aligned end of RAM to locate panic_data and jump_data,
+	 * both of which contain 32-bit fields requiring 4-byte alignment.
+	 */
+	if (pdata_ptr->struct_size < PANIC_DATA_MIN_SIZE ||
+	    pdata_ptr->struct_size > PANIC_DATA_MAX_SIZE ||
+	    (pdata_ptr->struct_size % 4) != 0)
+		return 0;
+
+	return pdata_ptr->struct_size;
 }
 
 /*
@@ -213,25 +221,12 @@ bool panic_data_is_new(void)
  */
 uintptr_t get_panic_data_start(void)
 {
-	if (pdata_ptr->magic != PANIC_DATA_MAGIC)
+	uint32_t size = get_panic_data_size();
+
+	if (!size)
 		return 0;
 
-	if (IS_ENABLED(CONFIG_BOARD_NATIVE_POSIX) ||
-	    IS_ENABLED(CONFIG_BOARD_NATIVE_SIM))
-		return (uintptr_t)pdata_ptr;
-
-	/* LCOV_EXCL_START - Can't cover non posix lines (yet) */
-	return ((uintptr_t)CONFIG_PANIC_DATA_BASE + CONFIG_PANIC_DATA_SIZE -
-		pdata_ptr->struct_size);
-	/* LCOV_EXCL_STOP */
-}
-
-static uint32_t get_panic_data_size(void)
-{
-	if (pdata_ptr->magic != PANIC_DATA_MAGIC)
-		return 0;
-
-	return pdata_ptr->struct_size;
+	return (uintptr_t)pdata_ptr + CONFIG_PANIC_DATA_SIZE - size;
 }
 
 /*
@@ -270,15 +265,12 @@ test_mockable struct panic_data *get_panic_data_write(void)
 
 	/*
 	 * If panic data exists, jump data and jump tags should be moved
-	 * about difference between size of panic_data structure and size of
+	 * by the difference between size of panic_data structure and size of
 	 * structure that is present in memory.
 	 *
-	 * If panic data doesn't exist, lets create place for a one
+	 * If panic data doesn't exist, create space for one.
 	 */
-	if (pdata_ptr->magic == PANIC_DATA_MAGIC)
-		delta = CONFIG_PANIC_DATA_SIZE - pdata_ptr->struct_size;
-	else
-		delta = CONFIG_PANIC_DATA_SIZE;
+	delta = CONFIG_PANIC_DATA_SIZE - get_panic_data_size();
 
 	/* If delta is 0, there is no need to move anything */
 	if (delta == 0)
@@ -362,7 +354,7 @@ static void stack_overflow_recurse(int n)
 	 * Force task context switch, since that's where we do stack overflow
 	 * checking.
 	 */
-	crec_msleep(10);
+	k_msleep(10);
 
 	stack_overflow_recurse(n + 1);
 
@@ -547,69 +539,77 @@ DECLARE_CONSOLE_COMMAND(panicinfo, command_panicinfo, "[clear]",
 /*****************************************************************************/
 /* Host commands */
 
-static enum ec_status
-host_command_panic_info(struct host_cmd_handler_args *args)
+static enum ec_host_cmd_status
+host_command_panic_info(struct ec_host_cmd_handler_args *args)
 {
 	uint32_t pdata_size = get_panic_data_size();
 	uintptr_t pdata_start = get_panic_data_start();
-	struct panic_data *pdata = panic_get_data();
+	uint8_t *flags = get_panic_data_flags();
 	uint32_t read_size = pdata_size;
 	uintptr_t read_start = pdata_start;
 	uint16_t read_offset = 0;
 	uint8_t preserve_old_hostcmd_flag = 0;
 
+	if (args->version == 1) {
+		if (args->input_buf_size <
+		    sizeof(struct ec_params_get_panic_info_v1))
+			return EC_HOST_CMD_REQUEST_TRUNCATED;
+	} else if (args->version >= 2) {
+		if (args->input_buf_size <
+		    sizeof(struct ec_params_get_panic_info_v2))
+			return EC_HOST_CMD_REQUEST_TRUNCATED;
+	}
+
 	if (args->version >= 1) {
-		const struct ec_params_get_panic_info_v1 *p1 = args->params;
+		const struct ec_params_get_panic_info_v1 *p1 = args->input_buf;
 
 		preserve_old_hostcmd_flag = p1->preserve_old_hostcmd_flag;
 	}
 
 	if (args->version >= 2) {
-		const struct ec_params_get_panic_info_v2 *p2 = args->params;
+		const struct ec_params_get_panic_info_v2 *p2 = args->input_buf;
 
 		read_offset = p2->read_offset;
 	}
 
 	/* No panic data, just return empty success */
 	if (!pdata_start || pdata_size <= 0) {
-		args->response_size = 0;
-		return EC_RES_SUCCESS;
+		args->output_buf_size = 0;
+		return EC_HOST_CMD_SUCCESS;
 	}
 
 	/* Signal end of data with empty success */
 	if (read_offset == pdata_size) {
-		args->response_size = 0;
-		return EC_RES_SUCCESS;
+		args->output_buf_size = 0;
+		return EC_HOST_CMD_SUCCESS;
 	}
 
 	if (read_offset > pdata_size)
-		return EC_RES_INVALID_PARAM;
+		return EC_HOST_CMD_INVALID_PARAM;
 
 	read_size -= read_offset;
 	read_start += read_offset;
 
-	if (read_size > args->response_max) {
-		read_size = args->response_max;
+	if (read_size > args->output_buf_max) {
+		read_size = args->output_buf_max;
 		if (args->version < 2) {
 			panic_printf("Panic data size %u is too "
 				     "large, truncating to %u\n",
 				     pdata_size, read_size);
-			if (pdata) {
-				pdata->flags |= PANIC_DATA_FLAG_TRUNCATED;
-			}
+			*flags |= PANIC_DATA_FLAG_TRUNCATED;
 		}
 	}
-	memcpy(args->response, (void *)read_start, read_size);
-	args->response_size = read_size;
+	memcpy(args->output_buf, (void *)read_start, read_size);
+	args->output_buf_size = read_size;
 
-	if (pdata && !preserve_old_hostcmd_flag &&
+	if (!preserve_old_hostcmd_flag &&
 	    /* For version >= 2, only set flag if last byte has been read */
 	    (args->version < 2 || read_offset + read_size == pdata_size)) {
 		/* Data has now been returned */
-		pdata->flags |= PANIC_DATA_FLAG_OLD_HOSTCMD;
+		*flags |= PANIC_DATA_FLAG_OLD_HOSTCMD;
 	}
 
-	return EC_RES_SUCCESS;
+	return EC_HOST_CMD_SUCCESS;
 }
-DECLARE_HOST_COMMAND(EC_CMD_GET_PANIC_INFO, host_command_panic_info,
-		     EC_VER_MASK(0) | EC_VER_MASK(1) | EC_VER_MASK(2));
+EC_HOST_CMD_HANDLER_UNBOUND(EC_CMD_GET_PANIC_INFO, host_command_panic_info,
+			    EC_VER_MASK(0) | EC_VER_MASK(1) | EC_VER_MASK(2));

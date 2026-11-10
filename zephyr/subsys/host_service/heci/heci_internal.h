@@ -290,6 +290,9 @@ struct heci_conn_t {
 	uint32_t dma_buff_size;
 	uint32_t dma_ts; /* DMA timestamp */
 	uint8_t connection_id;
+	bool rx_fc_pending;
+	uint16_t pending_resp_len;
+	const uint8_t *pending_resp_buf;
 };
 
 struct host_rx_dma_info {

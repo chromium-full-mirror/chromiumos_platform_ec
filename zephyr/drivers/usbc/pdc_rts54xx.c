@@ -8,6 +8,7 @@
  */
 #include "drivers/ucsi_v3.h"
 #include "pdc_rts54xx.h"
+#include "task_id.h"
 
 #include <assert.h>
 #include <string.h>
@@ -1569,8 +1570,9 @@ static void st_disable_entry(void *o)
 	struct pdc_data_t *data = (struct pdc_data_t *)o;
 
 	print_current_state(data);
-	/* If entering from ST_INIT state */
-	data->init_done = true;
+	/* Port is disabled. pdc_is_init_done() returns FAILED so the upper
+	 * layer stops polling GET_CONNECTOR_STATUS on this dead port.
+	 */
 	data->error_status.port_disabled = 1;
 }
 
@@ -2691,11 +2693,16 @@ static void rts54_start_thread(const struct device *dev)
 	k_thread_start(data->thread);
 }
 
-static bool rts54_is_init_done(const struct device *dev)
+static enum pdc_driver_init_state_t rts54_is_init_done(const struct device *dev)
 {
 	struct pdc_data_t *data = dev->data;
 
-	return data->init_done;
+	if (get_state(data) == ST_DISABLE) {
+		return PDC_DRIVER_INIT_STATE_FAILED;
+	}
+
+	return data->init_done ? PDC_DRIVER_INIT_STATE_SUCCESS :
+				 PDC_DRIVER_INIT_STATE_WAIT;
 }
 
 static int rts54_get_vdo(const struct device *dev, union get_vdo_t vdo_req,

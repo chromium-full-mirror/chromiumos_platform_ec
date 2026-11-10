@@ -90,7 +90,8 @@ ZTEST(lid_angle, test_wake_max_large_angle)
 
 int emul_lid_close(void);
 int board_is_lid_angle_tablet_mode(void);
-enum ec_status host_cmd_motion_lid(struct host_cmd_handler_args *args);
+enum ec_host_cmd_status
+host_cmd_motion_lid(struct ec_host_cmd_handler_args *args);
 
 static void set_mock_sensors_angle(double angle_deg)
 {
@@ -148,19 +149,54 @@ ZTEST(lid_angle, test_symmetric_debounce)
 	set_mock_sensors_angle(180.0);
 	motion_lid_calc();
 
-	/* Large-to-small: initial angle 340 deg, noisy reading 25 deg */
+	/* Large-to-small: enter tablet mode at 340 deg */
 	set_mock_sensors_angle(340.0);
-	motion_lid_calc();
+	for (int i = 0; i < (TABLET_MODE_DEBOUNCE_COUNT + 1); i++)
+		motion_lid_calc();
+	zassert_equal(tablet_get_mode(), 1, "Should be in tablet mode");
 	zassert_within(motion_lid_get_angle(), 340, 2,
 		       "Initial angle should be ~340, got %d",
 		       motion_lid_get_angle());
 
-	/* With symmetric debounce, it should correct 25 to 335 (360 - 25) */
+	/* In tablet mode, it should correct noisy 25 to 335 (360 - 25) */
 	set_mock_sensors_angle(25.0);
 	motion_lid_calc();
 	zassert_within(motion_lid_get_angle(), 335, 2,
 		       "Noisy 25 should be debounced to ~335, got %d",
 		       motion_lid_get_angle());
+
+	/*
+	 * Transition back to clamshell through 90 deg (< 160 deg threshold)
+	 * so that tablet mode is exited before testing clamshell latch-up
+	 * prevention.
+	 */
+	set_mock_sensors_angle(90.0);
+	for (int i = 0; i < (TABLET_MODE_DEBOUNCE_COUNT + 1); i++)
+		motion_lid_calc();
+	zassert_equal(tablet_get_mode(), 0, "Must return to clamshell mode");
+
+	/* Set angle to 20 deg in clamshell */
+	set_mock_sensors_angle(20.0);
+	motion_lid_calc();
+	zassert_within(motion_lid_get_angle(), 20, 2,
+		       "Angle must stay ~20 deg in clamshell, got %d",
+		       motion_lid_get_angle());
+
+	/* Noisy reading at 335 deg in clamshell should be debounced to 25 deg
+	 */
+	set_mock_sensors_angle(335.0);
+	motion_lid_calc();
+	zassert_within(motion_lid_get_angle(), 25, 2,
+		       "Noisy 335 should be debounced to ~25, got %d",
+		       motion_lid_get_angle());
+
+	/* Next clean reading at 20 deg must stay 20 deg */
+	set_mock_sensors_angle(20.0);
+	motion_lid_calc();
+	zassert_within(motion_lid_get_angle(), 20, 2,
+		       "Angle must stay ~20 deg in clamshell, got %d",
+		       motion_lid_get_angle());
+	zassert_equal(tablet_get_mode(), 0, "Must stay in clamshell mode");
 }
 
 ZTEST(lid_angle, test_lid_angle_cycle_and_tablet_mode)
@@ -331,11 +367,11 @@ ZTEST(lid_angle, test_tablet_mode_threshold_and_host_cmd)
 {
 	struct ec_params_motion_sense params;
 	struct ec_response_motion_sense response;
-	struct host_cmd_handler_args args = {
-		.params = &params,
-		.params_size = sizeof(params),
-		.response = &response,
-		.response_max = sizeof(response),
+	struct ec_host_cmd_handler_args args = {
+		.input_buf = &params,
+		.input_buf_size = sizeof(params),
+		.output_buf = &response,
+		.output_buf_max = sizeof(response),
 		.version = 0,
 	};
 
@@ -344,58 +380,58 @@ ZTEST(lid_angle, test_tablet_mode_threshold_and_host_cmd)
 	params.cmd = MOTIONSENSE_CMD_TABLET_MODE_LID_ANGLE;
 	params.tablet_mode_threshold.lid_angle = EC_MOTION_SENSE_NO_VALUE;
 	params.tablet_mode_threshold.hys_degree = EC_MOTION_SENSE_NO_VALUE;
-	zassert_equal(host_cmd_motion_lid(&args), EC_RES_SUCCESS);
+	zassert_equal(host_cmd_motion_lid(&args), EC_HOST_CMD_SUCCESS);
 
 	params.tablet_mode_threshold.lid_angle = 180;
 	params.tablet_mode_threshold.hys_degree = 20;
-	zassert_equal(host_cmd_motion_lid(&args), EC_RES_SUCCESS);
+	zassert_equal(host_cmd_motion_lid(&args), EC_HOST_CMD_SUCCESS);
 
 	/* Negative values other than EC_MOTION_SENSE_NO_VALUE (-1) are invalid
 	 */
 	params.tablet_mode_threshold.lid_angle = -10;
 	params.tablet_mode_threshold.hys_degree = 20;
-	zassert_equal(host_cmd_motion_lid(&args), EC_RES_INVALID_PARAM);
+	zassert_equal(host_cmd_motion_lid(&args), EC_HOST_CMD_INVALID_PARAM);
 
 	params.tablet_mode_threshold.lid_angle = 180;
 	params.tablet_mode_threshold.hys_degree = -10;
-	zassert_equal(host_cmd_motion_lid(&args), EC_RES_INVALID_PARAM);
+	zassert_equal(host_cmd_motion_lid(&args), EC_HOST_CMD_INVALID_PARAM);
 
 	params.tablet_mode_threshold.lid_angle = 10;
 	params.tablet_mode_threshold.hys_degree = 20;
-	zassert_equal(host_cmd_motion_lid(&args), EC_RES_INVALID_PARAM);
+	zassert_equal(host_cmd_motion_lid(&args), EC_HOST_CMD_INVALID_PARAM);
 
 	params.tablet_mode_threshold.lid_angle = 350;
 	params.tablet_mode_threshold.hys_degree = 20;
-	zassert_equal(host_cmd_motion_lid(&args), EC_RES_INVALID_PARAM);
+	zassert_equal(host_cmd_motion_lid(&args), EC_HOST_CMD_INVALID_PARAM);
 
 	/* 2. Test host_cmd_motion_lid MOTIONSENSE_CMD_KB_WAKE_ANGLE */
 	memset(&params, 0, sizeof(params));
 	params.cmd = MOTIONSENSE_CMD_KB_WAKE_ANGLE;
 	params.kb_wake_angle.data = 60;
-	zassert_equal(host_cmd_motion_lid(&args), EC_RES_SUCCESS);
+	zassert_equal(host_cmd_motion_lid(&args), EC_HOST_CMD_SUCCESS);
 	zassert_equal(response.kb_wake_angle.ret, 60);
 	zassert_equal(lid_angle_get_wake_angle(), 60);
 
 	params.kb_wake_angle.data = EC_MOTION_SENSE_NO_VALUE;
-	zassert_equal(host_cmd_motion_lid(&args), EC_RES_SUCCESS);
+	zassert_equal(host_cmd_motion_lid(&args), EC_HOST_CMD_SUCCESS);
 	zassert_equal(response.kb_wake_angle.ret, 60);
 
 	/* 3. Test host_cmd_motion_lid MOTIONSENSE_CMD_LID_ANGLE */
 	params.cmd = MOTIONSENSE_CMD_LID_ANGLE;
-	zassert_equal(host_cmd_motion_lid(&args), EC_RES_SUCCESS);
+	zassert_equal(host_cmd_motion_lid(&args), EC_HOST_CMD_SUCCESS);
 	zassert_equal(response.lid_angle.value, motion_lid_get_angle());
 
 	/* 4. Test host_cmd_motion_lid MOTIONSENSE_CMD_TABLET_MODE_LID_ANGLE */
 	params.cmd = MOTIONSENSE_CMD_TABLET_MODE_LID_ANGLE;
 	params.tablet_mode_threshold.lid_angle = 190;
 	params.tablet_mode_threshold.hys_degree = 15;
-	zassert_equal(host_cmd_motion_lid(&args), EC_RES_SUCCESS);
+	zassert_equal(host_cmd_motion_lid(&args), EC_HOST_CMD_SUCCESS);
 	zassert_equal(response.tablet_mode_threshold.lid_angle, 190);
 	zassert_equal(response.tablet_mode_threshold.hys_degree, 15);
 
 	/* 5. Test host_cmd_motion_lid invalid command */
 	params.cmd = 0xff;
-	zassert_equal(host_cmd_motion_lid(&args), EC_RES_INVALID_PARAM);
+	zassert_equal(host_cmd_motion_lid(&args), EC_HOST_CMD_INVALID_PARAM);
 }
 
 ZTEST(lid_angle, test_lid_angle_unreliable_in_tablet_mode)

@@ -8,11 +8,12 @@
 #ifndef PLATFORM_EC_INCLUDE_TIMER_H_
 #define PLATFORM_EC_INCLUDE_TIMER_H_
 
-#ifndef CONFIG_ZEPHYR
+#ifdef HOST_TOOLS_BUILD
 #include <time.h>
 
 #include <sys/types.h>
 #else
+#include <zephyr/kernel.h>
 #ifndef __clock_t_defined
 #define __clock_t_defined 1
 /* Data type for POSIX style clock() implementation */
@@ -21,7 +22,6 @@ typedef long unsigned int clock_t;
 #endif
 
 #include "common.h"
-#include "task_id.h"
 
 /* Time units in microseconds */
 #define MSEC 1000
@@ -44,11 +44,6 @@ typedef union {
 } timestamp_t;
 
 /**
- * Initialize the timer module.
- */
-void timer_init(void);
-
-/**
  * Check if a timestamp has passed / expired
  *
  * @param deadline	deadline timer value to check
@@ -57,19 +52,7 @@ void timer_init(void);
  */
 int timestamp_expired(timestamp_t deadline, const timestamp_t *now);
 
-/**
- * Busy-wait.
- *
- * This may be called with interrupts disabled, at any time after timer_init()
- * has been called.
- *
- * Note that calling this with us>1000 may impact system performance; use
- * crec_usleep() for longer delays.
- *
- * @param us		Number of microseconds to delay.
- */
-void udelay(unsigned int us);
-
+#ifdef CONFIG_PLATFORM_EC_FINGERPRINT
 /**
  * Sleep.
  *
@@ -95,36 +78,12 @@ static inline void crec_msleep(unsigned int ms)
 {
 	crec_usleep(ms * MSEC);
 }
-
-/**
- * Sleep for seconds
- *
- * Otherwise the same as crec_usleep().
- *
- * @param sec		Number of seconds to sleep.
- * @return 0 if the requested time has elapsed, or the number of seconds left
- *   to sleep, if the call was interrupted by a signal handler.
- */
-static inline unsigned int crec_sleep(unsigned int sec)
-{
-	crec_usleep(sec * SECOND);
-	return 0;
-}
+#endif /* CONFIG_PLATFORM_EC_FINGERPRINT */
 
 /**
  * Get the current timestamp from the system timer.
  */
 timestamp_t get_time(void);
-
-/**
- * Force the current value of the system timer.
- *
- * This function is for the power management implementation which wants to fix
- * the system time when waking up from a mode with clocks turned off.
- *
- * Note: must be called with interrupts disabled.
- */
-void force_time(timestamp_t ts);
 
 /**
  * Print the current timer information using the command output channel.

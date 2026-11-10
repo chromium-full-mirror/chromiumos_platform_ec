@@ -5,7 +5,6 @@
  * Event handling in MKBP keyboard protocol
  */
 
-#include "atomic.h"
 #include "chipset.h"
 #include "gpio.h"
 #include "host_command.h"
@@ -19,9 +18,8 @@
 #include "timer.h"
 #include "util.h"
 
-#ifdef CONFIG_ZEPHYR
 #include <zephyr/mgmt/ec_host_cmd/backend.h>
-#endif
+#include <zephyr/sys/atomic.h>
 
 #define CPUTS(outstr) cputs(CC_SYSTEM, outstr)
 #define CPRINTS(format, args...) cprints(CC_SYSTEM, format, ##args)
@@ -54,7 +52,7 @@ enum interrupt_state {
 };
 
 struct mkbp_state {
-	mutex_t lock;
+	struct k_mutex lock;
 	uint32_t events;
 	enum interrupt_state interrupt;
 	/*
@@ -85,7 +83,6 @@ static uint32_t mkbp_event_wake_mask = CONFIG_MKBP_EVENT_WAKEUP_MASK;
 static uint32_t mkbp_host_event_wake_mask = CONFIG_MKBP_HOST_EVENT_WAKEUP_MASK;
 #endif /* CONFIG_MKBP_HOST_EVENT_WAKEUP_MASK */
 
-#ifdef CONFIG_ZEPHYR
 static int init_mkbp_mutex(void)
 {
 	k_mutex_init(&state.lock);
@@ -93,7 +90,6 @@ static int init_mkbp_mutex(void)
 	return 0;
 }
 SYS_INIT(init_mkbp_mutex, POST_KERNEL, 50);
-#endif /* CONFIG_ZEPHYR */
 
 #if defined(CONFIG_MKBP_USE_GPIO) || \
 	defined(CONFIG_MKBP_USE_GPIO_AND_HOST_EVENT)
@@ -252,7 +248,7 @@ test_export_static void activate_mkbp_with_events(uint32_t events_to_add)
 				 !(events_to_add & mkbp_event_wake_mask);
 #endif /* CONFIG_MKBP_EVENT_WAKEUP_MASK */
 
-	mutex_lock(&state.lock);
+	k_mutex_lock(&state.lock, K_FOREVER);
 	state.events |= events_to_add;
 
 	/* To skip the interrupt, we cannot have the EC_MKBP_EVENT_KEY_MATRIX */
@@ -264,7 +260,7 @@ test_export_static void activate_mkbp_with_events(uint32_t events_to_add)
 		state.interrupt = INTERRUPT_INACTIVE_TO_ACTIVE;
 		interrupt_id = ++state.interrupt_id;
 	}
-	mutex_unlock(&state.lock);
+	k_mutex_unlock(&state.lock);
 
 	/* If we don't need to send an interrupt we are done */
 	if (interrupt_id < 0)
@@ -277,14 +273,14 @@ test_export_static void activate_mkbp_with_events(uint32_t events_to_add)
 	 * If this was the last interrupt to the AP, update state;
 	 * otherwise the latest interrupt should update state.
 	 */
-	mutex_lock(&state.lock);
+	k_mutex_lock(&state.lock, K_FOREVER);
 	if (state.interrupt == INTERRUPT_INACTIVE_TO_ACTIVE &&
 	    interrupt_id == state.interrupt_id) {
 		schedule_deferred = 1;
 		state.interrupt = rv == EC_SUCCESS ? INTERRUPT_ACTIVE :
 						     INTERRUPT_INACTIVE;
 	}
-	mutex_unlock(&state.lock);
+	k_mutex_unlock(&state.lock);
 
 	if (schedule_deferred) {
 		hook_call_deferred(&force_mkbp_if_events_data, SECOND);
@@ -303,7 +299,7 @@ static void force_mkbp_if_events(void)
 	int toggled = 0;
 	int send_mkbp_interrupt = 0;
 
-	mutex_lock(&state.lock);
+	k_mutex_lock(&state.lock, K_FOREVER);
 	if (state.interrupt == INTERRUPT_INACTIVE) {
 		/*
 		 * When this function is called with state of interrupt set
@@ -353,7 +349,7 @@ static void force_mkbp_if_events(void)
 			state.failed_attempts = 0;
 		}
 	}
-	mutex_unlock(&state.lock);
+	k_mutex_unlock(&state.lock);
 
 	if (toggled) {
 		/**
@@ -387,7 +383,7 @@ static int set_inactive_if_no_events(void)
 {
 	int interrupt_cleared;
 
-	mutex_lock(&state.lock);
+	k_mutex_lock(&state.lock, K_FOREVER);
 	interrupt_cleared = !state.events;
 	if (interrupt_cleared) {
 		state.interrupt = INTERRUPT_INACTIVE;
@@ -395,7 +391,7 @@ static int set_inactive_if_no_events(void)
 		/* Only simple tasks (i.e. gpio set or no-op) allowed here */
 		mkbp_set_host_active(0, NULL);
 	}
-	mutex_unlock(&state.lock);
+	k_mutex_unlock(&state.lock);
 
 	/* Cancel our safety net since the events were cleared. */
 	if (interrupt_cleared) {
@@ -423,20 +419,7 @@ static int take_event_if_set(uint8_t event_type)
 
 static const struct mkbp_event_source *find_mkbp_event_source(uint8_t type)
 {
-#ifdef CONFIG_ZEPHYR
 	return zephyr_find_mkbp_event_source(type);
-#else
-	const struct mkbp_event_source *src;
-
-	for (src = __mkbp_evt_srcs; src < __mkbp_evt_srcs_end; ++src)
-		if (src->event_type == type)
-			break;
-
-	if (src == __mkbp_evt_srcs_end)
-		return NULL;
-
-	return src;
-#endif
 }
 
 static enum ec_host_cmd_status
@@ -474,11 +457,11 @@ mkbp_get_next_event(struct ec_host_cmd_handler_args *args)
 		 * Find the next event to service.  We do this in a round-robin
 		 * way to make sure no event gets starved.
 		 */
-		mutex_lock(&state.lock);
+		k_mutex_lock(&state.lock, K_FOREVER);
 		for (i = 0; i < EC_MKBP_EVENT_COUNT; ++i)
 			if (take_event_if_set((last + i) % EC_MKBP_EVENT_COUNT))
 				break;
-		mutex_unlock(&state.lock);
+		k_mutex_unlock(&state.lock);
 
 		if (i == EC_MKBP_EVENT_COUNT) {
 			if (set_inactive_if_no_events())
@@ -506,9 +489,9 @@ mkbp_get_next_event(struct ec_host_cmd_handler_args *args)
 		 */
 		data_size = src->get_data((uint8_t *)&r->data);
 		if (data_size == -EC_ERROR_BUSY) {
-			mutex_lock(&state.lock);
+			k_mutex_lock(&state.lock, K_FOREVER);
 			state.events |= BIT(evt);
-			mutex_unlock(&state.lock);
+			k_mutex_unlock(&state.lock);
 		}
 	} while (data_size == -EC_ERROR_BUSY);
 
@@ -682,9 +665,9 @@ DECLARE_CONSOLE_COMMAND(mkbpwakemask, command_mkbp_wake_mask,
 #ifdef TEST_BUILD
 void mkbp_event_clear_all(void)
 {
-	mutex_lock(&state.lock);
+	k_mutex_lock(&state.lock, K_FOREVER);
 	state.events = 0;
-	mutex_unlock(&state.lock);
+	k_mutex_unlock(&state.lock);
 
 	/* Reset the interrupt line */
 	mkbp_set_host_active(0, NULL);

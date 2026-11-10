@@ -206,7 +206,7 @@ static void board_handle_hard_sleep_hang(void)
 	stop_hard_hang_timer();
 
 	if (shutdown_on_hard_hang) {
-		ccprints("Very hard S0ix sleep hang detected!!! "
+		ccprints("Very hard S0ix/S3 sleep hang detected!!! "
 			 "Shutting down AP now!");
 		chipset_force_shutdown(CHIPSET_SHUTDOWN_BOARD_CUSTOM);
 
@@ -234,7 +234,7 @@ static void board_handle_hard_sleep_hang(void)
 		 * Wait a bit so the AP can treat them as separate SysRq
 		 * signals.
 		 */
-		crec_msleep(SYSRQ_WAIT_MSEC);
+		k_msleep(SYSRQ_WAIT_MSEC);
 		host_send_sysrq('x');
 		ccprints("AP will be force reset in %dms if hang persists",
 			 CONFIG_HARD_SLEEP_HANG_TIMEOUT);
@@ -246,7 +246,7 @@ static void board_handle_hard_sleep_hang(void)
 
 	ccprints("Consecutive(%d) hard sleep hangs detected!",
 		 hard_sleep_hang_count);
-	ccprints("Hard S0ix sleep hang detected!! Resetting AP now!");
+	ccprints("Hard S0ix/S3 sleep hang detected!! Resetting AP now!");
 	/* If the AP continues to hang, force a shutdown */
 	shutdown_on_hard_hang = true;
 	ccprints("AP will be shutdown in %dms if hang persists",
@@ -264,9 +264,9 @@ void power_sleep_hang_recovery(enum sleep_hang_type hang_type)
 	stop_hard_hang_timer();
 
 	if (hang_type == SLEEP_HANG_S0IX_SUSPEND)
-		ccprints("S0ix suspend sleep hang detected!");
+		ccprints("S0ix/S3 suspend sleep hang detected!");
 	else if (hang_type == SLEEP_HANG_S0IX_RESUME)
-		ccprints("S0ix resume sleep hang detected!");
+		ccprints("S0ix/S3 resume sleep hang detected!");
 
 	ccprints("Consecutive sleep hang count: soft=%d hard=%d",
 		 soft_sleep_hang_count, hard_sleep_hang_count);
@@ -306,7 +306,7 @@ void power_sleep_hang_recovery(enum sleep_hang_type hang_type)
 static void reset_hang_counters(void)
 {
 	if (hard_sleep_hang_count || soft_sleep_hang_count)
-		ccprints("Successful S0ix resume after consecutive hangs: "
+		ccprints("Successful S0ix/S3 resume after consecutive hangs: "
 			 "soft=%d hard=%d",
 			 soft_sleep_hang_count, hard_sleep_hang_count);
 	hard_sleep_hang_count = 0;
@@ -327,9 +327,9 @@ K_MUTEX_DEFINE(sleep_transition_timeout_lock);
 void sleep_suspend_transition(void)
 {
 	sleep_increment_transition();
-	mutex_lock(&sleep_transition_timeout_lock);
+	k_mutex_lock(&sleep_transition_timeout_lock, K_FOREVER);
 	hook_call_deferred(&sleep_transition_timeout_data, -1);
-	mutex_unlock(&sleep_transition_timeout_lock);
+	k_mutex_unlock(&sleep_transition_timeout_lock);
 }
 
 void sleep_resume_transition(void)
@@ -343,13 +343,13 @@ void sleep_resume_transition(void)
 	 * internal periodic housekeeping code might result in a situation
 	 * like this.
 	 */
-	mutex_lock(&sleep_transition_timeout_lock);
+	k_mutex_lock(&sleep_transition_timeout_lock, K_FOREVER);
 	if (sleep_signal_timeout) {
 		timeout_hang_type = SLEEP_HANG_S0IX_RESUME;
 		hook_call_deferred(&sleep_transition_timeout_data,
 				   (uint32_t)sleep_signal_timeout * 1000);
 	}
-	mutex_unlock(&sleep_transition_timeout_lock);
+	k_mutex_unlock(&sleep_transition_timeout_lock);
 }
 
 static void sleep_transition_timeout(void)
@@ -388,12 +388,12 @@ void sleep_start_suspend(struct host_sleep_event_context *ctx)
 		return;
 	}
 
-	mutex_lock(&sleep_transition_timeout_lock);
+	k_mutex_lock(&sleep_transition_timeout_lock, K_FOREVER);
 	sleep_signal_timeout = timeout;
 	timeout_hang_type = SLEEP_HANG_S0IX_SUSPEND;
 	hook_call_deferred(&sleep_transition_timeout_data,
 			   (uint32_t)timeout * 1000);
-	mutex_unlock(&sleep_transition_timeout_lock);
+	k_mutex_unlock(&sleep_transition_timeout_lock);
 }
 
 void sleep_complete_resume(struct host_sleep_event_context *ctx)
@@ -403,11 +403,11 @@ void sleep_complete_resume(struct host_sleep_event_context *ctx)
 	 * if the the HOST_SLEEP_EVENT_S0IX_RESUME message arrives before
 	 * the CHIPSET task transitions to the POWER_S0ixS0 state.
 	 */
-	mutex_lock(&sleep_transition_timeout_lock);
+	k_mutex_lock(&sleep_transition_timeout_lock, K_FOREVER);
 	sleep_signal_timeout = 0;
 	hook_call_deferred(&sleep_transition_timeout_data, -1);
 	ctx->sleep_transitions = sleep_signal_transitions;
-	mutex_unlock(&sleep_transition_timeout_lock);
+	k_mutex_unlock(&sleep_transition_timeout_lock);
 }
 
 void sleep_reset_tracking(void)

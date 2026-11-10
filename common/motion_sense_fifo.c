@@ -123,6 +123,18 @@ static inline struct ec_response_motion_sensor_data *get_fifo_head(void)
 	       (fifo.state->head & fifo.buffer_units_mask);
 }
 
+/*
+ * Activity events are staged with MOTION_SENSE_ACTIVITY_SENSOR_ID, which is
+ * one past the end of motion_sensors[]. Return the default threshold of 1 for
+ * it.
+ */
+static inline int get_spreading_threshold(int sensor_num)
+{
+	return sensor_num < motion_sensor_count ?
+		       motion_sensors[sensor_num].spreading_threshold :
+		       1;
+}
+
 /**
  * Pop one entry from the motion sense fifo. Poping will give priority to
  * committed data (data residing between the head and tail of the queue). If no
@@ -186,7 +198,7 @@ static void fifo_pop(void)
 	 * trigger interrupts only when multiple samples are available, so we
 	 * adjust the threshold to prevent unnecessary spreading.
 	 */
-	int thresh = motion_sensors[head->sensor_num].spreading_threshold;
+	int thresh = get_spreading_threshold(head->sensor_num);
 	/*
 	 * Decrement sample count. If the count drops below or equal to the
 	 * threshold, we might not need to spread anymore. Check other sensors.
@@ -196,7 +208,7 @@ static void fifo_pop(void)
 
 		fifo_staged.requires_spreading = 0;
 		for (i = 0; i < MAX_MOTION_SENSORS; i++) {
-			int t = motion_sensors[i].spreading_threshold;
+			int t = get_spreading_threshold(i);
 			if (fifo_staged.sample_count[i] > t) {
 				fifo_staged.requires_spreading = 1;
 				break;
@@ -264,7 +276,7 @@ fifo_stage_unit(struct ec_response_motion_sensor_data *data,
 	if (valid_data > 0 && !sensor)
 		return;
 
-	mutex_lock(&g_sensor_mutex);
+	k_mutex_lock(&g_sensor_mutex, K_FOREVER);
 
 	for (i = 0; i < valid_data; i++)
 		sensor->xyz[i] = data->data[i];
@@ -280,7 +292,7 @@ fifo_stage_unit(struct ec_response_motion_sensor_data *data,
 			sensor->oversampling %= sensor->oversampling_ratio;
 		}
 		if (removed) {
-			mutex_unlock(&g_sensor_mutex);
+			k_mutex_unlock(&g_sensor_mutex);
 			return;
 		}
 	}
@@ -307,7 +319,7 @@ fifo_stage_unit(struct ec_response_motion_sensor_data *data,
 		 * address 0. Just don't add any data to the queue instead.
 		 */
 		CPRINTS("Failed to get write chunk for new fifo data!");
-		mutex_unlock(&g_sensor_mutex);
+		k_mutex_unlock(&g_sensor_mutex);
 		return;
 	}
 
@@ -329,13 +341,12 @@ fifo_stage_unit(struct ec_response_motion_sensor_data *data,
 	 * configured spreading threshold.
 	 */
 	if (IS_ENABLED(CONFIG_SENSOR_TIGHT_TIMESTAMPS) && !is_timestamp(data)) {
-		int thresh =
-			motion_sensors[data->sensor_num].spreading_threshold;
+		int thresh = get_spreading_threshold(data->sensor_num);
 		if (++fifo_staged.sample_count[data->sensor_num] > thresh)
 			fifo_staged.requires_spreading = 1;
 	}
 
-	mutex_unlock(&g_sensor_mutex);
+	k_mutex_unlock(&g_sensor_mutex);
 }
 
 /**
@@ -462,7 +473,7 @@ void motion_sense_fifo_stage_data(struct ec_response_motion_sensor_data *data,
 	 *                 <--------- time allowed for new interrupt
 	 */
 	if (sensor && sensor->config[SENSOR_CONFIG_AP].ec_rate > 0 &&
-	    BASE_ODR(sensor->config[SENSOR_CONFIG_AP].odr > 0) &&
+	    BASE_ODR(sensor->config[SENSOR_CONFIG_AP].odr) > 0 &&
 	    time_after(time, ts_last_int[id] +
 				     sensor->config[SENSOR_CONFIG_AP].ec_rate -
 				     expected_data_periods[id] / 2)) {
@@ -474,7 +485,7 @@ void motion_sense_fifo_stage_data(struct ec_response_motion_sensor_data *data,
 static void timestamp_spread(struct ec_response_motion_sensor_data *data,
 			     int sensor_num)
 {
-	int thresh = motion_sensors[sensor_num].spreading_threshold;
+	int thresh = get_spreading_threshold(sensor_num);
 	uint32_t ts_prev = next_timestamp[sensor_num].prev;
 	uint32_t ts_next = next_timestamp[sensor_num].next;
 	uint32_t ts = data->timestamp;
@@ -537,7 +548,7 @@ void motion_sense_fifo_commit_data(void)
 	if (!fifo_staged.count)
 		return;
 
-	mutex_lock(&g_sensor_mutex);
+	k_mutex_lock(&g_sensor_mutex, K_FOREVER);
 	/*
 	 * If per-sensor event counts are never more than 1, no spreading is
 	 * needed. This will also catch cases where tight timestamps aren't
@@ -609,7 +620,7 @@ commit_data_end:
 	/* Reset metadata for next staging cycle. */
 	memset(&fifo_staged, 0, sizeof(fifo_staged));
 
-	mutex_unlock(&g_sensor_mutex);
+	k_mutex_unlock(&g_sensor_mutex);
 }
 
 void motion_sense_fifo_get_info(
@@ -617,14 +628,14 @@ void motion_sense_fifo_get_info(
 {
 	int i;
 
-	mutex_lock(&g_sensor_mutex);
+	k_mutex_lock(&g_sensor_mutex, K_FOREVER);
 	fifo_info->size = fifo.buffer_units;
 	fifo_info->count = queue_count(&fifo);
 	fifo_info->total_lost = fifo_lost;
 	for (i = 0; i < MAX_MOTION_SENSORS; i++) {
 		fifo_info->lost[i] = fifo_sensor_lost[i];
 	}
-	mutex_unlock(&g_sensor_mutex);
+	k_mutex_unlock(&g_sensor_mutex);
 #ifdef CONFIG_MKBP_EVENT
 	fifo_info->timestamp = mkbp_last_event_time;
 #endif
@@ -651,9 +662,9 @@ inline int motion_sense_fifo_over_thres(void)
 {
 	int result;
 
-	mutex_lock(&g_sensor_mutex);
+	k_mutex_lock(&g_sensor_mutex, K_FOREVER);
 	result = queue_space(&fifo) < CONFIG_ACCEL_FIFO_THRES;
-	mutex_unlock(&g_sensor_mutex);
+	k_mutex_unlock(&g_sensor_mutex);
 
 	return result;
 }
@@ -663,11 +674,11 @@ int motion_sense_fifo_read(int capacity_bytes, int max_count, void *out,
 {
 	int count;
 
-	mutex_lock(&g_sensor_mutex);
+	k_mutex_lock(&g_sensor_mutex, K_FOREVER);
 	count = min(capacity_bytes / fifo.unit_bytes,
 		    min(queue_count(&fifo), max_count));
 	count = queue_remove_units(&fifo, out, count);
-	mutex_unlock(&g_sensor_mutex);
+	k_mutex_unlock(&g_sensor_mutex);
 	*out_size = count * fifo.unit_bytes;
 
 	return count;
