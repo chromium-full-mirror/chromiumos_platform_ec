@@ -26,9 +26,52 @@ def setup_logging(verbose: bool) -> None:
     )
 
 
+def _add_bool_arg(
+    parser: argparse.ArgumentParser,
+    name: str,
+    *,
+    default: bool,
+    help_text: str,
+    short: Optional[str] = None,
+) -> None:
+    """Register a shflags-compatible boolean flag and its negated aliases."""
+    hyphen = name.replace("_", "-")
+    pos_flags = list(dict.fromkeys([f"--{name}", f"--{hyphen}"]))
+    if short:
+        pos_flags.append(short)
+    parser.add_argument(
+        *pos_flags,
+        action="store_true",
+        dest=name,
+        default=default,
+        help=help_text,
+    )
+
+    compact = name.replace("_", "")
+    neg_flags = list(
+        dict.fromkeys(
+            [
+                f"--no_{name}",
+                f"--no{name}",
+                f"--no-{hyphen}",
+                f"--no{compact}",
+            ]
+        )
+    )
+    parser.add_argument(
+        *neg_flags,
+        action="store_false",
+        dest=name,
+        help=argparse.SUPPRESS,
+    )
+
+
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(description="Flash EC firmware via Servo.")
+    parser = argparse.ArgumentParser(
+        description="Flash EC firmware via Servo.",
+        allow_abbrev=False,
+    )
 
     parser.add_argument(
         "--board",
@@ -84,24 +127,29 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Path to the EC source tree root for dynamic board lookups",
     )
 
-    parser.add_argument(
-        "--verify",
-        action="store_true",
+    _add_bool_arg(
+        parser,
+        "verify",
         default=True,
-        help="Verify firmware after writing (default: True)",
-    )
-    parser.add_argument(
-        "--no_verify",
-        "--noverify",
-        action="store_false",
-        dest="verify",
-        help="Skip verification after writing",
+        help_text="Verify firmware after writing (default: True)",
     )
     parser.add_argument(
         "--no_preserve",
+        "--nopreserve",
+        "--no-preserve",
         action="store_true",
+        dest="no_preserve",
         default=False,
         help="Do not preserve FMAP sections across flashes",
+    )
+    parser.add_argument(
+        "--preserve",
+        "--nono_preserve",
+        "--nonopreserve",
+        "--nono-preserve",
+        action="store_false",
+        dest="no_preserve",
+        help=argparse.SUPPRESS,
     )
     region = parser.add_mutually_exclusive_group()
     region.add_argument(
@@ -117,18 +165,34 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Flash only the RW firmware region",
     )
     parser.add_argument(
-        "--dry_run",
-        "-n",
-        action="store_true",
-        default=False,
-        help="Print commands without mutating hardware states",
+        "--no_ro",
+        "--noro",
+        "--no-ro",
+        action="store_false",
+        dest="ro",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
-        "--verbose",
-        "-v",
-        action="store_true",
+        "--no_rw",
+        "--norw",
+        "--no-rw",
+        action="store_false",
+        dest="rw",
+        help=argparse.SUPPRESS,
+    )
+    _add_bool_arg(
+        parser,
+        "dry_run",
         default=False,
-        help="Enable verbose debug logging",
+        short="-n",
+        help_text="Print commands without mutating hardware states",
+    )
+    _add_bool_arg(
+        parser,
+        "verbose",
+        default=False,
+        short="-v",
+        help_text="Enable verbose debug logging",
     )
     parser.add_argument(
         "--timeout",
@@ -137,11 +201,11 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Timeout in seconds for individual flash tool invocations",
     )
 
-    parser.add_argument(
-        "--raiden",
-        action="store_true",
+    _add_bool_arg(
+        parser,
+        "raiden",
         default=False,
-        help="Use Raiden USB SPI interface directly instead of FTDI",
+        help_text="Use Raiden USB SPI interface directly instead of FTDI",
     )
     parser.add_argument(
         "--baud",
@@ -154,23 +218,23 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         default=0,
         help="Byte offset for flashing",
     )
-    parser.add_argument(
-        "--unprotect",
-        action="store_true",
+    _add_bool_arg(
+        parser,
+        "unprotect",
         default=False,
-        help="Remove flash read/write protection before programming",
+        help_text="Remove flash read/write protection before programming",
     )
-    parser.add_argument(
-        "--bitbang",
-        action="store_true",
+    _add_bool_arg(
+        parser,
+        "bitbang",
         default=False,
-        help="Enable UART bitbang mode",
+        help_text="Enable UART bitbang mode",
     )
-    parser.add_argument(
-        "--try_apshutdown",
-        action="store_true",
+    _add_bool_arg(
+        parser,
+        "try_apshutdown",
         default=False,
-        help=(
+        help_text=(
             "Attempt to run 'apshutdown' on the EC console before and after "
             "flashing"
         ),

@@ -257,6 +257,51 @@ class TestFlashEcCli(unittest.TestCase):
         with patch("sys.stderr"), self.assertRaises(SystemExit):
             parse_args(["--board=veluza", "--ro", "--rw"])
 
+    def test_parse_args_negated_boolean_aliases(self) -> None:
+        """Verify shflags-compatible negated boolean aliases on CLI flags."""
+        args = parse_args(
+            [
+                "--board=veluza",
+                "--no-verify",
+                "--unprotect",
+                "--no-unprotect",
+                "--dry-run",
+                "--nodryrun",
+                "--verbose",
+                "--noverbose",
+                "--raiden",
+                "--noraiden",
+                "--bitbang",
+                "--nobitbang",
+                "--ro",
+                "--noro",
+                "--norw",
+                "--try-apshutdown",
+                "--notry_apshutdown",
+                "--nopreserve",
+            ]
+        )
+        self.assertFalse(args.verify)
+        self.assertFalse(args.unprotect)
+        self.assertFalse(args.dry_run)
+        self.assertFalse(args.verbose)
+        self.assertFalse(args.raiden)
+        self.assertFalse(args.bitbang)
+        self.assertFalse(args.ro)
+        self.assertFalse(args.rw)
+        self.assertFalse(args.try_apshutdown)
+        self.assertTrue(args.no_preserve)
+
+        args_preserve = parse_args(
+            ["--board=veluza", "--no-preserve", "--preserve"]
+        )
+        self.assertFalse(args_preserve.no_preserve)
+
+        for bad_flag in ("--verify_ec_type", "--noverify_ec_type", "--no_pres"):
+            with patch("sys.stderr"), self.assertRaises(SystemExit) as ctx:
+                parse_args(["--board=veluza", bad_flag])
+            self.assertEqual(ctx.exception.code, 2)
+
     @patch("flash.flash_ec.FlasherFactory.create")
     @patch("flash.flash_ec.ServoDriver")
     def test_main_success(
