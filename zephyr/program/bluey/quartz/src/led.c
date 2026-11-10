@@ -5,7 +5,7 @@
 
 /* Quartz lightbar LED control used to trigger a custom diagnostic sequence. */
 
-#include "common/lightbar_policy_alt.h"
+#include "drivers/lightbar_policy_alt.h"
 #include "lb_policy.h"
 #include "led_lb_host_program.h"
 #include "led_lightbar.h"

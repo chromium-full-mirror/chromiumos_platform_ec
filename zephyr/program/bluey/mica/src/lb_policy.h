@@ -6,7 +6,7 @@
 #ifndef PLATFORM_EC_ZEPHYR_PROGRAM_BLUEY_MICA_SRC_LB_POLICY_H_
 #define PLATFORM_EC_ZEPHYR_PROGRAM_BLUEY_MICA_SRC_LB_POLICY_H_
 
-#include "common/lightbar_policy_alt.h"
+#include "drivers/lightbar_policy_alt.h"
 
 #define LED_ALT_POLICY_DIAG_RAMDUMP (LED_ALT_POLICY_DIAG_BASE + 0)
 #define LED_ALT_POLICY_DIAG_LCD (LED_ALT_POLICY_DIAG_BASE + 1)

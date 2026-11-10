@@ -1,0 +1,99 @@
+/* Copyright 2026 The ChromiumOS Authors
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file.
+ */
+
+#ifndef __CROS_EC_LIGHTBAR_COLORS_DTSI
+#define __CROS_EC_LIGHTBAR_COLORS_DTSI
+
+#include <drivers/led_colors_util.h>
+
+/* Helper to generate a single segment node */
+#define LB_SEG_DEF(n, name, base_rgb, base_prefix, pct) \
+	lightbar_seg##n##_##name: s##n##_##name { \
+		color = <SCALE_COLOR(base_rgb, LED_GAMMA(pct))>; \
+		srgb = <SCALE_COLOR(SRGB_##base_prefix##_BASE, pct)>; \
+		segment-id = <(n)>; \
+	};
+
+#ifndef LB_SEG_DEF_EXTRA
+#define LB_SEG_DEF_EXTRA(name, base_rgb, base_prefix, pct)
+#endif
+
+/* Generates the Global node and optional segment nodes */
+#define LB_DEFINE_COLOR(with_segs, base_rgb, base_prefix, name, pct, ...) \
+	COND_CODE_1(with_segs, (lightbar_##name:), ()) name { \
+		color = <SCALE_COLOR(base_rgb, LED_GAMMA(pct))>; \
+		srgb = <SCALE_COLOR(SRGB_##base_prefix##_BASE, pct)>; \
+		COND_CODE_1(IS_EMPTY(__VA_ARGS__), (), (led-color = __VA_ARGS__;)) \
+	}; \
+	COND_CODE_1(with_segs, \
+		    (LB_SEG_DEF(0, name, base_rgb, base_prefix, pct) \
+		     LB_SEG_DEF(1, name, base_rgb, base_prefix, pct) \
+		     LB_SEG_DEF(2, name, base_rgb, base_prefix, pct) \
+		     LB_SEG_DEF(3, name, base_rgb, base_prefix, pct) \
+		     LB_SEG_DEF_EXTRA(name, base_rgb, base_prefix, pct)), \
+		    ())
+
+/* Similar helpers for the capped colors */
+#define LB_SEG_DEF_CAPPED(n, name, base_rgb, base_prefix, pct, cap_val) \
+	lightbar_seg##n##_##name: s##n##_##name { \
+		color = <SCALE_COLOR(base_rgb, LED_GAMMA(pct))>; \
+		srgb = <SCALE_COLOR(SRGB_##base_prefix##_BASE, pct)>; \
+		segment-id = <(n)>; \
+		brightness-cap = cap_val; \
+	};
+
+#ifndef LB_SEG_DEF_CAPPED_EXTRA
+#define LB_SEG_DEF_CAPPED_EXTRA(name, base_rgb, base_prefix, pct, cap_val)
+#endif
+
+#define LB_DEFINE_CAPPED_COLOR(with_segs, base_rgb, base_prefix, name, pct, cap_val, ...) \
+	COND_CODE_1(with_segs, (lightbar_##name:), ()) name { \
+		color = <SCALE_COLOR(base_rgb, LED_GAMMA(pct))>; \
+		srgb = <SCALE_COLOR(SRGB_##base_prefix##_BASE, pct)>; \
+		brightness-cap = cap_val; \
+		COND_CODE_1(IS_EMPTY(__VA_ARGS__), (), (led-color = __VA_ARGS__;)) \
+	}; \
+	COND_CODE_1(with_segs, \
+		    (LB_SEG_DEF_CAPPED(0, name, base_rgb, base_prefix, pct, cap_val) \
+		     LB_SEG_DEF_CAPPED(1, name, base_rgb, base_prefix, pct, cap_val) \
+		     LB_SEG_DEF_CAPPED(2, name, base_rgb, base_prefix, pct, cap_val) \
+		     LB_SEG_DEF_CAPPED(3, name, base_rgb, base_prefix, pct, cap_val) \
+		     LB_SEG_DEF_CAPPED_EXTRA(name, base_rgb, base_prefix, pct, cap_val)), \
+		    ())
+
+/*
+ * Generate the set of color nodes.
+ * Shared by both the primary lightbar0 node (with_segs = 1) and alternative
+ * golden sets (with_segs = 0) so base color order and count are guaranteed to
+ * match.
+ */
+#define LB_DEFINE_COLOR_SET(with_segs, base_fn, set) \
+	LB_DEFINE_COLOR(with_segs, base_fn(set, RED),    RED,    red,       100, "LED_RED") \
+	LB_DEFINE_COLOR(with_segs, base_fn(set, RED),    RED,    red_65,    65) \
+	LB_DEFINE_COLOR(with_segs, base_fn(set, GREEN),  GREEN,  green,     100, "LED_GREEN") \
+	LB_DEFINE_COLOR(with_segs, base_fn(set, GREEN),  GREEN,  green_65,  65) \
+	LB_DEFINE_COLOR(with_segs, base_fn(set, BLUE),   BLUE,   blue,      100, "LED_BLUE") \
+	LB_DEFINE_COLOR(with_segs, base_fn(set, BLUE),   BLUE,   blue_65,   65) \
+	LB_DEFINE_COLOR(with_segs, base_fn(set, YELLOW), YELLOW, yellow,    100, "LED_YELLOW") \
+	LB_DEFINE_COLOR(with_segs, base_fn(set, YELLOW), YELLOW, yellow_65, 65) \
+	LB_DEFINE_COLOR(with_segs, base_fn(set, PURPLE), PURPLE, purple,    100, "LED_MAGENTA") \
+	LB_DEFINE_COLOR(with_segs, LIGHTBAR_OFF_BASE,    OFF,    off,       100, "LED_OFF") \
+	LB_DEFINE_CAPPED_COLOR(with_segs, base_fn(set, WHITE), WHITE, white, 100, "CAP_WHITE_AC", "LED_WHITE") \
+	LB_DEFINE_CAPPED_COLOR(with_segs, base_fn(set, WHITE), WHITE, white_dim, LIGHTBAR_WHITE_DIM_PCT, "CAP_WHITE_DIM")
+
+#define LB_PRIMARY_BASE(unused, color) LIGHTBAR_##color##_BASE
+
+#define LB_DEFINE_GOLDEN_COLOR_SET(set) \
+	LB_DEFINE_COLOR_SET(0, LB_ALT_BASE_RESCALE, set)
+
+/ {
+	led_pins2: lightbar {
+		lightbar0 {
+			LB_DEFINE_COLOR_SET(1, LB_PRIMARY_BASE, 0)
+		};
+	};
+};
+
+#endif /* __CROS_EC_LIGHTBAR_COLORS_DTSI */

@@ -3,7 +3,7 @@
  * found in the LICENSE file.
  */
 
-#include "common/lightbar_policy_alt.h"
+#include "drivers/lightbar_policy_alt.h"
 #include "lb_policy.h"
 #include "led_lb_host_program.h"
 #include "led_lightbar.h"

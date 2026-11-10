@@ -1,0 +1,748 @@
+/* Copyright 2025 The ChromiumOS Authors
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file.
+ */
+
+#include <cros/lightbar_colors.dtsi>
+#include <drivers/lightbar_policy_alt.h>
+
+/* Macros for the critical battery animation. */
+#define LB_SEG_CRITICAL_0 \
+	pattern-0 { \
+		transition = "LED_TRANSITION_LINEAR"; \
+		led-id = "EC_LED_ID_LIGHTBAR_LED"; \
+		cycle-count = <1>; \
+		color-0  { led-color = <&lightbar_seg0_off>;    period-ms = <0>; }; \
+		color-1  { led-color = <&lightbar_seg0_off>;    period-ms = <133>; }; \
+		color-2  { led-color = <&lightbar_seg0_red>;    period-ms = <333>; }; \
+		color-3  { led-color = <&lightbar_seg0_red>;    period-ms = <300>; }; \
+		color-4  { led-color = <&lightbar_seg0_red_65>; period-ms = <433>; }; \
+		color-5  { led-color = <&lightbar_seg0_red_65>; period-ms = <700>; }; \
+		color-6  { led-color = <&lightbar_seg0_red>;    period-ms = <200>; }; \
+		color-7  { led-color = <&lightbar_seg0_red>;    period-ms = <13152>; }; \
+		color-8  { led-color = <&lightbar_seg0_off>;    period-ms = <333>; }; \
+	};
+
+#define LB_SEG_CRITICAL_1 \
+	pattern-1 { \
+		transition = "LED_TRANSITION_LINEAR"; \
+		led-id = "EC_LED_ID_LIGHTBAR_LED"; \
+		cycle-count = <1>; \
+		color-0  { led-color = <&lightbar_seg1_off>;    period-ms = <0>; }; \
+		color-1  { led-color = <&lightbar_seg1_red>;    period-ms = <333>; }; \
+		color-2  { led-color = <&lightbar_seg1_red>;    period-ms = <267>; }; \
+		color-3  { led-color = <&lightbar_seg1_red_65>; period-ms = <467>; }; \
+		color-4  { led-color = <&lightbar_seg1_red_65>; period-ms = <833>; }; \
+		color-5  { led-color = <&lightbar_seg1_off>;    period-ms = <267>; }; \
+		color-6  { led-color = <&lightbar_seg1_off>;    period-ms = <13417>; }; \
+	};
+
+#define LB_SEG_CRITICAL_2 \
+	pattern-2 { \
+		transition = "LED_TRANSITION_LINEAR"; \
+		led-id = "EC_LED_ID_LIGHTBAR_LED"; \
+		cycle-count = <1>; \
+		color-0  { led-color = <&lightbar_seg2_off>;    period-ms = <0>; }; \
+		color-1  { led-color = <&lightbar_seg2_red>;    period-ms = <333>; }; \
+		color-2  { led-color = <&lightbar_seg2_red>;    period-ms = <267>; }; \
+		color-3  { led-color = <&lightbar_seg2_red_65>; period-ms = <467>; }; \
+		color-4  { led-color = <&lightbar_seg2_red_65>; period-ms = <833>; }; \
+		color-5  { led-color = <&lightbar_seg2_off>;    period-ms = <333>; }; \
+		color-6  { led-color = <&lightbar_seg2_off>;    period-ms = <13351>; }; \
+	};
+
+#define LB_SEG_CRITICAL_3 \
+	pattern-3 { \
+		transition = "LED_TRANSITION_LINEAR"; \
+		led-id = "EC_LED_ID_LIGHTBAR_LED"; \
+		cycle-count = <1>; \
+		color-0  { led-color = <&lightbar_seg3_off>;    period-ms = <0>; }; \
+		color-1  { led-color = <&lightbar_seg3_off>;    period-ms = <133>; }; \
+		color-2  { led-color = <&lightbar_seg3_red>;    period-ms = <333>; }; \
+		color-3  { led-color = <&lightbar_seg3_red>;    period-ms = <300>; }; \
+		color-4  { led-color = <&lightbar_seg3_red_65>; period-ms = <433>; }; \
+		color-5  { led-color = <&lightbar_seg3_red_65>; period-ms = <700>; }; \
+		color-6  { led-color = <&lightbar_seg3_off>;    period-ms = <417>; }; \
+		color-7  { led-color = <&lightbar_seg3_off>;    period-ms = <13268>; }; \
+	};
+
+#define LB_PATTERNS_CRITICAL \
+	LB_SEG_CRITICAL_0 \
+	LB_SEG_CRITICAL_1 \
+	LB_SEG_CRITICAL_2 \
+	LB_SEG_CRITICAL_3
+
+/* Logo macros */
+#define LB_LOGO_SEG1(after) \
+	pattern-0 { \
+		transition = "LED_TRANSITION_LINEAR"; \
+		led-id = "EC_LED_ID_LIGHTBAR_LED"; \
+		cycle-count = <1>; \
+		color-0  { led-color = <&lightbar_seg0_off>;       period-ms = <0>; }; \
+		color-1  { led-color = <&lightbar_seg0_white_dim>; period-ms = <650>; }; \
+		color-2  { led-color = <&lightbar_seg0_white_dim>; period-ms = <517>; }; \
+		color-3  { led-color = <&lightbar_seg0_blue>;      period-ms = <317>; }; \
+		color-4  { led-color = <&lightbar_seg0_red>;       period-ms = <283>; }; \
+		color-5  { led-color = <&lightbar_seg0_yellow>;    period-ms = <350>; }; \
+		color-6  { led-color = <&lightbar_seg0_green>;     period-ms = <333>; }; \
+		color-7  { led-color = <&lightbar_seg0_blue>;      period-ms = <350>; }; \
+		color-8  { led-color = <&lightbar_seg0_red>;       period-ms = <350>; }; \
+		color-9  { led-color = <&lightbar_seg0_yellow>;    period-ms = <333>; }; \
+		color-10  { led-color = <&lightbar_seg0_green>;    period-ms = <350>; }; \
+		color-11  { led-color = <&lightbar_seg0_blue>;     period-ms = <333>; }; \
+		color-12  { led-color = <&lightbar_seg0_red>;      period-ms = <350>; }; \
+		color-13  { led-color = <&lightbar_seg0_##after>;  period-ms = <317>; }; \
+		color-14  { led-color = <&lightbar_seg0_##after>;  period-ms = <483>; }; \
+	};
+
+#define LB_LOGO_SEG2(after) \
+	pattern-1 { \
+		transition = "LED_TRANSITION_LINEAR"; \
+		led-id = "EC_LED_ID_LIGHTBAR_LED"; \
+		cycle-count = <1>; \
+		color-0  { led-color = <&lightbar_seg1_off>;       period-ms = <0>; }; \
+		color-1  { led-color = <&lightbar_seg1_white_dim>; period-ms = <400>; }; \
+		color-2  { led-color = <&lightbar_seg1_white_dim>; period-ms = <833>; }; \
+		color-3  { led-color = <&lightbar_seg1_blue>;      period-ms = <350>; }; \
+		color-4  { led-color = <&lightbar_seg1_red>;       period-ms = <350>; }; \
+		color-5  { led-color = <&lightbar_seg1_yellow>;    period-ms = <333>; }; \
+		color-6  { led-color = <&lightbar_seg1_green>;     period-ms = <350>; }; \
+		color-7  { led-color = <&lightbar_seg1_blue>;      period-ms = <333>; }; \
+		color-8  { led-color = <&lightbar_seg1_red>;       period-ms = <350>; }; \
+		color-9  { led-color = <&lightbar_seg1_yellow>;    period-ms = <333>; }; \
+		color-10  { led-color = <&lightbar_seg1_green>;    period-ms = <350>; }; \
+		color-11  { led-color = <&lightbar_seg1_blue>;     period-ms = <350>; }; \
+		color-12  { led-color = <&lightbar_seg1_red>;      period-ms = <333>; }; \
+		color-13  { led-color = <&lightbar_seg1_##after>;  period-ms = <333>; }; \
+		color-14  { led-color = <&lightbar_seg1_##after>;  period-ms = <318>; }; \
+	};
+
+#define LB_LOGO_SEG3(after) \
+	pattern-2 { \
+		transition = "LED_TRANSITION_LINEAR"; \
+		led-id = "EC_LED_ID_LIGHTBAR_LED"; \
+		cycle-count = <1>; \
+		color-0  { led-color = <&lightbar_seg2_off>;       period-ms = <0>; }; \
+		color-1  { led-color = <&lightbar_seg2_white_dim>; period-ms = <400>; }; \
+		color-2  { led-color = <&lightbar_seg2_white_dim>; period-ms = <917>; }; \
+		color-3  { led-color = <&lightbar_seg2_blue>;      period-ms = <400>; }; \
+		color-4  { led-color = <&lightbar_seg2_red>;       period-ms = <350>; }; \
+		color-5  { led-color = <&lightbar_seg2_yellow>;    period-ms = <333>; }; \
+		color-6  { led-color = <&lightbar_seg2_green>;     period-ms = <350>; }; \
+		color-7  { led-color = <&lightbar_seg2_blue>;      period-ms = <350>; }; \
+		color-8  { led-color = <&lightbar_seg2_red>;       period-ms = <333>; }; \
+		color-9  { led-color = <&lightbar_seg2_yellow>;    period-ms = <350>; }; \
+		color-10  { led-color = <&lightbar_seg2_green>;    period-ms = <333>; }; \
+		color-11  { led-color = <&lightbar_seg2_blue>;     period-ms = <350>; }; \
+		color-12  { led-color = <&lightbar_seg2_red>;      period-ms = <333>; }; \
+		color-13  { led-color = <&lightbar_seg2_##after>;  period-ms = <350>; }; \
+		color-14  { led-color = <&lightbar_seg2_##after>;  period-ms = <167>; }; \
+	};
+
+
+#define LB_LOGO_SEG4(after) \
+	pattern-3 { \
+		transition = "LED_TRANSITION_LINEAR"; \
+		led-id = "EC_LED_ID_LIGHTBAR_LED"; \
+		cycle-count = <1>; \
+		color-0  { led-color = <&lightbar_seg3_off>;       period-ms = <0>; }; \
+		color-1  { led-color = <&lightbar_seg3_white_dim>; period-ms = <650>; }; \
+		color-2  { led-color = <&lightbar_seg3_white_dim>; period-ms = <833>; }; \
+		color-3  { led-color = <&lightbar_seg3_blue>;      period-ms = <400>; }; \
+		color-4  { led-color = <&lightbar_seg3_red>;       period-ms = <333>; }; \
+		color-5  { led-color = <&lightbar_seg3_yellow>;    period-ms = <350>; }; \
+		color-6  { led-color = <&lightbar_seg3_green>;     period-ms = <333>; }; \
+		color-7  { led-color = <&lightbar_seg3_blue>;      period-ms = <350>; }; \
+		color-8  { led-color = <&lightbar_seg3_red>;       period-ms = <333>; }; \
+		color-9  { led-color = <&lightbar_seg3_yellow>;    period-ms = <350>; }; \
+		color-10  { led-color = <&lightbar_seg3_green>;    period-ms = <350>; }; \
+		color-11  { led-color = <&lightbar_seg3_blue>;     period-ms = <333>; }; \
+		color-12  { led-color = <&lightbar_seg3_red>;      period-ms = <350>; }; \
+		color-13  { led-color = <&lightbar_seg3_##after>;  period-ms = <351>; }; \
+	};
+
+#define LB_LOGO_STARTUP_AC \
+	LB_LOGO_SEG1(white) \
+	LB_LOGO_SEG2(white) \
+	LB_LOGO_SEG3(white) \
+	LB_LOGO_SEG4(white) \
+
+#define LB_LOGO_STARTUP_BATTERY \
+	LB_LOGO_SEG1(white_dim) \
+	LB_LOGO_SEG2(white_dim) \
+	LB_LOGO_SEG3(white_dim) \
+	LB_LOGO_SEG4(white_dim) \
+
+#define LB_LOGO_OFF(n, base, dim) \
+	pattern-##n { \
+		transition = "LED_TRANSITION_LINEAR"; \
+		led-id = "EC_LED_ID_LIGHTBAR_LED"; \
+		cycle-count = <1>; \
+		color-0  { led-color = <&lightbar_seg##n##_##dim>;  period-ms = <0>; }; \
+		color-1  { led-color = <&lightbar_seg##n##_##base>; period-ms = <200>; }; \
+		color-2  { led-color = <&lightbar_seg##n##_##base>; period-ms = <2600>; }; \
+		color-3  { led-color = <&lightbar_seg##n##_off>;    period-ms = <500>; }; \
+	};
+
+#define LB_LOGO_SHUTDOWN \
+	LB_LOGO_OFF(0, blue, blue_65) \
+	LB_LOGO_OFF(1, green, green_65) \
+	LB_LOGO_OFF(2, yellow, yellow_65) \
+	LB_LOGO_OFF(3, red, red_65)
+
+/* AC unplug macros */
+#define LB_SEG_UNPLUG_0(before, base, after) \
+	pattern-0 { \
+		transition = "LED_TRANSITION_LINEAR"; \
+		led-id = "EC_LED_ID_LIGHTBAR_LED"; \
+		cycle-count = <1>; \
+		color-0  { led-color = <&lightbar_seg0_##before>; period-ms = <0>; }; \
+		color-1  { led-color = <&lightbar_seg0_##base>;   period-ms = <200>; }; \
+		color-2  { led-color = <&lightbar_seg0_##base>;   period-ms = <3484>; }; \
+		color-3  { led-color = <&lightbar_seg0_##after>;  period-ms = <300>; }; \
+	};
+
+#define LB_SEG_UNPLUG_1(before, base, after) \
+	pattern-1 { \
+		transition = "LED_TRANSITION_LINEAR"; \
+		led-id = "EC_LED_ID_LIGHTBAR_LED"; \
+		cycle-count = <1>; \
+		color-0  { led-color = <&lightbar_seg1_##before>; period-ms = <0>; }; \
+		color-1  { led-color = <&lightbar_seg1_##base>;   period-ms = <267>; }; \
+		color-2  { led-color = <&lightbar_seg1_##base>;   period-ms = <3417>; }; \
+		color-3  { led-color = <&lightbar_seg1_##after>;  period-ms = <250>; }; \
+		color-4  { led-color = <&lightbar_seg1_##after>;  period-ms = <50>; }; \
+	};
+
+#define LB_SEG_UNPLUG_2(before, base, after) \
+	pattern-2 { \
+		transition = "LED_TRANSITION_LINEAR"; \
+		led-id = "EC_LED_ID_LIGHTBAR_LED"; \
+		cycle-count = <1>; \
+		color-0  { led-color = <&lightbar_seg2_##before>; period-ms = <0>; }; \
+		color-1  { led-color = <&lightbar_seg2_##base>;   period-ms = <333>; }; \
+		color-2  { led-color = <&lightbar_seg2_##base>;   period-ms = <3350>; }; \
+		color-3  { led-color = <&lightbar_seg2_##after>;  period-ms = <183>; }; \
+		color-4  { led-color = <&lightbar_seg2_##after>;  period-ms = <118>; }; \
+	};
+
+#define LB_SEG_UNPLUG_3(before, base, after) \
+	pattern-3 { \
+		transition = "LED_TRANSITION_LINEAR"; \
+		led-id = "EC_LED_ID_LIGHTBAR_LED"; \
+		cycle-count = <1>; \
+		color-0  { led-color = <&lightbar_seg3_##before>; period-ms = <0>; }; \
+		color-1  { led-color = <&lightbar_seg3_##base>;   period-ms = <417>; }; \
+		color-2  { led-color = <&lightbar_seg3_##base>;   period-ms = <3267>; }; \
+		color-3  { led-color = <&lightbar_seg3_##after>;  period-ms = <100>; }; \
+		color-4  { led-color = <&lightbar_seg3_##after>;  period-ms = <200>; }; \
+	};
+
+#define LB_SEG_UNPLUG_OFF(n) \
+	pattern-##n { \
+		transition = "LED_TRANSITION_STEP"; \
+		led-id = "EC_LED_ID_LIGHTBAR_LED"; \
+		cycle-count = <1>; \
+		color-0  { led-color = <&lightbar_seg##n##_off>; period-ms = <3984>; }; \
+	};
+
+#define LB_BAT_FULL(before, after) \
+	LB_SEG_UNPLUG_0(before, green, after) \
+	LB_SEG_UNPLUG_1(before, green, after) \
+	LB_SEG_UNPLUG_2(before, green, after) \
+	LB_SEG_UNPLUG_3(before, green, after)
+
+/* AC plugin macros */
+#define LB_SEG_PLUG_0(before, base, dim, after) \
+	pattern-0 { \
+		transition = "LED_TRANSITION_LINEAR"; \
+		led-id = "EC_LED_ID_LIGHTBAR_LED"; \
+		cycle-count = <1>; \
+		color-0  { led-color = <&lightbar_seg0_##before>; period-ms = <0>; }; \
+		color-1  { led-color = <&lightbar_seg0_##dim>;    period-ms = <200>; }; \
+		color-2  { led-color = <&lightbar_seg0_##dim>;    period-ms = <567>; }; \
+		color-3  { led-color = <&lightbar_seg0_##base>;   period-ms = <250>; }; \
+		color-4  { led-color = <&lightbar_seg0_##base>;   period-ms = <267>; }; \
+		color-5  { led-color = <&lightbar_seg0_##dim>;    period-ms = <467>; }; \
+		color-6  { led-color = <&lightbar_seg0_##dim>;    period-ms = <683>; }; \
+		color-7  { led-color = <&lightbar_seg0_##base>;   period-ms = <250>; }; \
+		color-8  { led-color = <&lightbar_seg0_##base>;   period-ms = <250>; }; \
+		color-9  { led-color = <&lightbar_seg0_##dim>;    period-ms = <483>; }; \
+		color-10 { led-color = <&lightbar_seg0_##dim>;    period-ms = <650>; }; \
+		color-11 { led-color = <&lightbar_seg0_##base>;   period-ms = <250>; }; \
+		color-12 { led-color = <&lightbar_seg0_##base>;   period-ms = <250>; }; \
+		color-13 { led-color = <&lightbar_seg0_##dim>;    period-ms = <483>; }; \
+		color-14 { led-color = <&lightbar_seg0_##dim>;    period-ms = <2850>; }; \
+		color-15 { led-color = <&lightbar_seg0_##after>;  period-ms = <300>; }; \
+	};
+
+#define LB_SEG_PLUG_1(before, base, dim, after) \
+	pattern-1 { \
+		transition = "LED_TRANSITION_LINEAR"; \
+		led-id = "EC_LED_ID_LIGHTBAR_LED"; \
+		cycle-count = <1>; \
+		color-0  { led-color = <&lightbar_seg1_##before>; period-ms = <0>; }; \
+		color-1  { led-color = <&lightbar_seg1_##dim>;    period-ms = <267>; }; \
+		color-2  { led-color = <&lightbar_seg1_##dim>;    period-ms = <567>; }; \
+		color-3  { led-color = <&lightbar_seg1_##base>;   period-ms = <250>; }; \
+		color-4  { led-color = <&lightbar_seg1_##base>;   period-ms = <267>; }; \
+		color-5  { led-color = <&lightbar_seg1_##dim>;    period-ms = <467>; }; \
+		color-6  { led-color = <&lightbar_seg1_##dim>;    period-ms = <667>; }; \
+		color-7  { led-color = <&lightbar_seg1_##base>;   period-ms = <250>; }; \
+		color-8  { led-color = <&lightbar_seg1_##base>;   period-ms = <267>; }; \
+		color-9  { led-color = <&lightbar_seg1_##dim>;    period-ms = <467>; }; \
+		color-10 { led-color = <&lightbar_seg1_##dim>;    period-ms = <650>; }; \
+		color-11 { led-color = <&lightbar_seg1_##base>;   period-ms = <250>; }; \
+		color-12 { led-color = <&lightbar_seg1_##base>;   period-ms = <267>; }; \
+		color-13 { led-color = <&lightbar_seg1_##dim>;    period-ms = <383>; }; \
+		color-14 { led-color = <&lightbar_seg1_##dim>;    period-ms = <2683>; }; \
+		color-15 { led-color = <&lightbar_seg1_##after>;  period-ms = <250>; }; \
+		color-16 { led-color = <&lightbar_seg1_##after>;  period-ms = <248>; }; \
+	};
+
+#define LB_SEG_PLUG_2(before, base, dim, after) \
+	pattern-2 { \
+		transition = "LED_TRANSITION_LINEAR"; \
+		led-id = "EC_LED_ID_LIGHTBAR_LED"; \
+		cycle-count = <1>; \
+		color-0  { led-color = <&lightbar_seg2_##before>; period-ms = <0>; }; \
+		color-1  { led-color = <&lightbar_seg2_##dim>;    period-ms = <333>; }; \
+		color-2  { led-color = <&lightbar_seg2_##dim>;    period-ms = <767>; }; \
+		color-3  { led-color = <&lightbar_seg2_##base>;   period-ms = <250>; }; \
+		color-4  { led-color = <&lightbar_seg2_##base>;   period-ms = <267>; }; \
+		color-5  { led-color = <&lightbar_seg2_##dim>;    period-ms = <467>; }; \
+		color-6  { led-color = <&lightbar_seg2_##dim>;    period-ms = <650>; }; \
+		color-7  { led-color = <&lightbar_seg2_##base>;   period-ms = <250>; }; \
+		color-8  { led-color = <&lightbar_seg2_##base>;   period-ms = <267>; }; \
+		color-9  { led-color = <&lightbar_seg2_##dim>;    period-ms = <467>; }; \
+		color-10 { led-color = <&lightbar_seg2_##dim>;    period-ms = <650>; }; \
+		color-11 { led-color = <&lightbar_seg2_##base>;   period-ms = <250>; }; \
+		color-12 { led-color = <&lightbar_seg2_##base>;   period-ms = <267>; }; \
+		color-13 { led-color = <&lightbar_seg2_##dim>;    period-ms = <317>; }; \
+		color-14 { led-color = <&lightbar_seg2_##dim>;    period-ms = <2500>; }; \
+		color-15 { led-color = <&lightbar_seg2_##after>;  period-ms = <183>; }; \
+		color-16 { led-color = <&lightbar_seg2_##after>;  period-ms = <315>; }; \
+	};
+
+#define LB_SEG_PLUG_1_OFF(before, base, after) \
+	pattern-3 { \
+		transition = "LED_TRANSITION_LINEAR"; \
+		led-id = "EC_LED_ID_LIGHTBAR_LED"; \
+		cycle-count = <1>; \
+		color-0  { led-color = <&lightbar_seg1_##before>; period-ms = <0>; }; \
+		color-1  { led-color = <&lightbar_seg1_##base>;   period-ms = <7950>; }; \
+		color-2  { led-color = <&lightbar_seg1_##after>;  period-ms = <50>; }; \
+		color-3  { led-color = <&lightbar_seg1_##after>;  period-ms = <200>; }; \
+	};
+
+#define LB_SEG_PLUG_2_OFF(before, base, after) \
+	pattern-4 { \
+		transition = "LED_TRANSITION_LINEAR"; \
+		led-id = "EC_LED_ID_LIGHTBAR_LED"; \
+		cycle-count = <1>; \
+		color-0  { led-color = <&lightbar_seg2_##before>; period-ms = <0>; }; \
+		color-1  { led-color = <&lightbar_seg2_##base>;   period-ms = <7883>; }; \
+		color-2  { led-color = <&lightbar_seg2_##after>;  period-ms = <117>; }; \
+		color-3  { led-color = <&lightbar_seg2_##after>;  period-ms = <200>; }; \
+	};
+
+#define LB_SEG_PLUG_3_OFF(before, base, after) \
+	pattern-5 { \
+		transition = "LED_TRANSITION_LINEAR"; \
+		led-id = "EC_LED_ID_LIGHTBAR_LED"; \
+		cycle-count = <1>; \
+		color-0  { led-color = <&lightbar_seg3_##before>; period-ms = <0>; }; \
+		color-1  { led-color = <&lightbar_seg3_##base>;   period-ms = <7700>; }; \
+		color-2  { led-color = <&lightbar_seg3_##after>;  period-ms = <300>; }; \
+		color-3  { led-color = <&lightbar_seg3_##after>;  period-ms = <200>; }; \
+	};
+
+#define LB_SEG_PLUG_OFF(n) \
+	pattern-##n { \
+		transition = "LED_TRANSITION_STEP"; \
+		led-id = "EC_LED_ID_LIGHTBAR_LED"; \
+		cycle-count = <1>; \
+		color-0  { led-color = <&lightbar_seg##n##_off>; period-ms = <8200>; }; \
+	};
+
+#define LB_CHARGE_ERROR \
+	pattern-0 { \
+		led-id = "EC_LED_ID_LIGHTBAR_LED"; \
+		transition = "LED_TRANSITION_LINEAR"; \
+		cycle-count = <8>; \
+		color-0 { \
+			led-color = <&lightbar_red>; \
+			period-ms = <200>; \
+		}; \
+		color-1 { \
+			led-color = <&lightbar_red>; \
+			period-ms = <600>; \
+		}; \
+		color-2 { \
+			led-color = <&lightbar_off>; \
+			period-ms = <200>; \
+		}; \
+		color-3 { \
+			led-color = <&lightbar_off>; \
+			period-ms = <1000>; \
+		}; \
+	};
+
+/ {
+	lb-led-colors {
+		compatible = "cros-ec,led-policy";
+		led-pins = <&led_pins2>;
+
+		/* Startup when the battery is completely drained */
+		lb_state_startup_critical: lb-state-startup-critical {
+			board-led-alt-policy-label = <LED_ALT_POLICY_STARTUP_CRITICAL>;
+			LB_PATTERNS_CRITICAL
+		};
+
+		/* Shutdown animation - Cycle once then hold off */
+		lb_state_shutdown: lb-state-shutdown {
+			board-led-alt-policy-label = <LED_ALT_POLICY_SHUTDOWN>;
+			batt-lvl = <1 100>;
+			LB_LOGO_SHUTDOWN
+		};
+
+		lb_state_shutdown_critical: lb-state-shutdown-critical {
+			board-led-alt-policy-label = <LED_ALT_POLICY_SHUTDOWN>;
+			batt-lvl = <0 0>;
+			pattern-0 {
+				transition = "LED_TRANSITION_STEP";
+				led-id = "EC_LED_ID_LIGHTBAR_LED";
+				cycle-count = <1>;
+				color-0 {
+					led-color = <&lightbar_off>;
+				};
+			};
+		};
+
+		/* Suspend - same as shutdown */
+		lb_state_suspend: lb-state-suspend {
+			board-led-alt-policy-label = <LED_ALT_POLICY_SUSPEND>;
+			LB_LOGO_SHUTDOWN
+		};
+
+		/* Startup and Resume from sleep */
+		lb_state_logo_ac: lb-state-logo-ac {
+			board-led-alt-policy-label = <LED_ALT_POLICY_LOGO_AC>;
+			LB_LOGO_STARTUP_AC
+		};
+
+		lb_state_logo_battery: lb-state-logo-battery {
+			board-led-alt-policy-label = <LED_ALT_POLICY_LOGO_BATTERY>;
+			LB_LOGO_STARTUP_BATTERY
+		};
+
+		/* Default S0, various AC sub-states - 100% white */
+		lb_state_default_s0_charge: lb-state-default-s0-charge {
+			board-led-alt-policy-label = <LED_ALT_POLICY_NORMAL>;
+			chipset-state = "POWER_S0";
+			charge-state = "LED_PWRS_CHARGE",
+				       "LED_PWRS_CHARGE_NEAR_FULL",
+				       "LED_PWRS_IDLE",
+				       "LED_PWRS_FORCED_IDLE";
+			pattern-0 {
+				transition = "LED_TRANSITION_STEP";
+				led-id = "EC_LED_ID_LIGHTBAR_LED";
+				cycle-count = <1>;
+				color-0 {
+					led-color = <&lightbar_white>;
+				};
+			};
+		};
+
+		/* Default S0, various battery sub-states, battery not low - Dim white */
+		lb_state_default_s0_discharge_not_low: lb-state-default-s0-discharge-not-low {
+			board-led-alt-policy-label = <LED_ALT_POLICY_NORMAL>;
+			chipset-state = "POWER_S0";
+			charge-state = "LED_PWRS_DISCHARGE";
+			batt-lvl = <20 100>;
+			pattern-0 {
+				transition = "LED_TRANSITION_STEP";
+				led-id = "EC_LED_ID_LIGHTBAR_LED";
+				cycle-count = <1>;
+				color-0 {
+					led-color = <&lightbar_white_dim>;
+				};
+			};
+		};
+
+		/* Default S0, various battery sub-states, battery low - Off */
+		lb_state_default_s0_discharge_low: lb-state-default-s0-discharge-low {
+			board-led-alt-policy-label = <LED_ALT_POLICY_NORMAL>;
+			chipset-state = "POWER_S0";
+			charge-state = "LED_PWRS_DISCHARGE";
+			batt-lvl = <0 19>;
+			pattern-0 {
+				transition = "LED_TRANSITION_STEP";
+				led-id = "EC_LED_ID_LIGHTBAR_LED";
+				cycle-count = <1>;
+				color-0 {
+					led-color = <&lightbar_off>;
+				};
+			};
+		};
+
+		lb_state_default_s0_charge_error: lb-state-default-s0-charge-error {
+			board-led-alt-policy-label = <LED_ALT_POLICY_NORMAL>;
+			chipset-state = "POWER_S0";
+			charge-state = "LED_PWRS_ERROR";
+			LB_CHARGE_ERROR
+		};
+
+		/* Default S3/S5 state - Off */
+		lb-state-default-s3-s5 {
+			board-led-alt-policy-label = <LED_ALT_POLICY_NORMAL>;
+			chipset-state = "POWER_S3", "POWER_S5";
+			pattern-0 {
+				led-id = "EC_LED_ID_LIGHTBAR_LED";
+				color-0 {
+					led-color = <&lightbar_off>;
+				};
+			};
+		};
+
+		/* Idle glow disabled */
+		lb-state-default-disabled {
+			board-led-alt-policy-label = <LED_ALT_POLICY_IDLE_DISABLED>;
+			pattern-0 {
+				led-id = "EC_LED_ID_LIGHTBAR_LED";
+				color-0 {
+					led-color = <&lightbar_off>;
+				};
+			};
+		};
+
+		/* Dark resume debounce - Off */
+		lb_state_resume_debounce: lb-state-resume-debounce {
+			board-led-alt-policy-label = <LED_ALT_POLICY_RESUME_DEBOUNCE>;
+			pattern-0 {
+				led-id = "EC_LED_ID_LIGHTBAR_LED";
+				color-0 {
+					led-color = <&lightbar_off>;
+					period-ms = <1500>;
+				};
+			};
+		};
+
+		lb_state_unplug_debounce_s0: lb-state-unplug-debounce-s0 {
+			board-led-alt-policy-label = <LED_ALT_POLICY_UNPLUG_DEBOUNCE>;
+			chipset-state = "POWER_S0";
+			pattern-0 {
+				led-id = "EC_LED_ID_LIGHTBAR_LED";
+				color-0 {
+					led-color = <&lightbar_white>;
+					period-ms = <1100>;
+				};
+			};
+		};
+
+		lb_state_unplug_debounce_s3_s5: lb-state-unplug-debounce-s3-s5 {
+			board-led-alt-policy-label = <LED_ALT_POLICY_UNPLUG_DEBOUNCE>;
+			chipset-state = "POWER_S3", "POWER_S5";
+			pattern-0 {
+				led-id = "EC_LED_ID_LIGHTBAR_LED";
+				color-0 {
+					led-color = <&lightbar_off>;
+					period-ms = <1100>;
+				};
+			};
+		};
+
+		/* Unplugging - Battery low (below 20%) */
+		lb_state_unplug_low_s0: lb-state-unplug-low-s0 {
+			board-led-alt-policy-label = <LED_ALT_POLICY_AC_UNPLUG_S0>;
+			batt-lvl = <0 19>;
+			LB_SEG_UNPLUG_0(white, red, white_dim)
+			LB_SEG_UNPLUG_1(white, white_dim, white_dim)
+			LB_SEG_UNPLUG_2(white, white_dim, white_dim)
+			LB_SEG_UNPLUG_3(white, white_dim, white_dim)
+		};
+
+		lb_state_unplug_low: lb-state-unplug-low {
+			board-led-alt-policy-label = <LED_ALT_POLICY_AC_UNPLUG_S3S5>;
+			batt-lvl = <0 19>;
+			LB_SEG_UNPLUG_0(off, red, off)
+			LB_SEG_UNPLUG_OFF(1)
+			LB_SEG_UNPLUG_OFF(2)
+			LB_SEG_UNPLUG_OFF(3)
+		};
+
+		/* Unplugging - Battery medium (between 20% and 59%) */
+		lb_state_unplug_med_s0: lb-state-unplug-med-s0 {
+			board-led-alt-policy-label = <LED_ALT_POLICY_AC_UNPLUG_S0>;
+			batt-lvl = <20 59>;
+			LB_SEG_UNPLUG_0(white, yellow, white_dim)
+			LB_SEG_UNPLUG_1(white, yellow, white_dim)
+			LB_SEG_UNPLUG_2(white, white_dim, white_dim)
+			LB_SEG_UNPLUG_3(white, white_dim, white_dim)
+		};
+
+		lb_state_unplug_med: lb-state-unplug-med {
+			board-led-alt-policy-label = <LED_ALT_POLICY_AC_UNPLUG_S3S5>;
+			batt-lvl = <20 59>;
+			LB_SEG_UNPLUG_0(off, yellow, off)
+			LB_SEG_UNPLUG_1(off, yellow, off)
+			LB_SEG_UNPLUG_OFF(2)
+			LB_SEG_UNPLUG_OFF(3)
+		};
+
+		/* Unplugging - Battery high (between 60% and 94%) */
+		lb_state_unplug_high_s0: lb-state-unplug-high-s0 {
+			board-led-alt-policy-label = <LED_ALT_POLICY_AC_UNPLUG_S0>;
+			batt-lvl = <60 94>;
+			LB_SEG_UNPLUG_0(white, green, white_dim)
+			LB_SEG_UNPLUG_1(white, green, white_dim)
+			LB_SEG_UNPLUG_2(white, green, white_dim)
+			LB_SEG_UNPLUG_3(white, white_dim, white_dim)
+		};
+
+		lb_state_unplug_high: lb-state-unplug-high {
+			board-led-alt-policy-label = <LED_ALT_POLICY_AC_UNPLUG_S3S5>;
+			batt-lvl = <60 94>;
+			LB_SEG_UNPLUG_0(off, green, off)
+			LB_SEG_UNPLUG_1(off, green, off)
+			LB_SEG_UNPLUG_2(off, green, off)
+			LB_SEG_UNPLUG_OFF(3)
+		};
+
+		/* Unplugging - Battery full (over 94%) */
+		lb_state_unplug_full_s0: lb-state-unplug-full-s0 {
+			board-led-alt-policy-label = <LED_ALT_POLICY_AC_UNPLUG_S0>;
+			batt-lvl = <95 100>;
+			LB_BAT_FULL(white, white_dim)
+		};
+
+		lb_state_unplug_full: lb-state-unplug-full {
+			board-led-alt-policy-label = <LED_ALT_POLICY_AC_UNPLUG_S3S5>;
+			batt-lvl = <95 100>;
+			LB_BAT_FULL(off, off)
+		};
+
+		/* Plugging - Battery low (below 20%) */
+		lb_state_plug_low_s0: lb-state-plug-low-s0 {
+			board-led-alt-policy-label = <LED_ALT_POLICY_AC_PLUG_S0>;
+			charge-state = "LED_PWRS_CHARGE",
+				       "LED_PWRS_DISCHARGE",
+				       "LED_PWRS_IDLE",
+				       "LED_PWRS_FORCED_IDLE",
+				       "LED_PWRS_CHARGE_NEAR_FULL";
+			batt-lvl = <0 19>;
+			LB_SEG_PLUG_0(white_dim, red, red_65, white)
+			LB_SEG_PLUG_1_OFF(white_dim, white_dim, white)
+			LB_SEG_PLUG_2_OFF(white_dim, white_dim, white)
+			LB_SEG_PLUG_3_OFF(white_dim, white_dim, white)
+		};
+
+		lb_state_plug_low: lb-state-plug-low {
+			board-led-alt-policy-label = <LED_ALT_POLICY_AC_PLUG_S3S5>;
+			charge-state = "LED_PWRS_CHARGE",
+				       "LED_PWRS_DISCHARGE",
+				       "LED_PWRS_IDLE",
+				       "LED_PWRS_FORCED_IDLE",
+				       "LED_PWRS_CHARGE_NEAR_FULL";
+			batt-lvl = <0 19>;
+			LB_SEG_PLUG_0(off, red, red_65, off)
+			LB_SEG_PLUG_OFF(1)
+			LB_SEG_PLUG_OFF(2)
+			LB_SEG_PLUG_OFF(3)
+		};
+
+		/* Plugging - Battery medium (between 20% and 59%) */
+		lb_state_plug_med_s0: lb-state-plug-med-s0 {
+			board-led-alt-policy-label = <LED_ALT_POLICY_AC_PLUG_S0>;
+			charge-state = "LED_PWRS_CHARGE",
+				       "LED_PWRS_DISCHARGE",
+				       "LED_PWRS_IDLE",
+				       "LED_PWRS_FORCED_IDLE",
+				       "LED_PWRS_CHARGE_NEAR_FULL";
+			batt-lvl = <20 59>;
+			LB_SEG_PLUG_0(white_dim, yellow, yellow_65, white)
+			LB_SEG_PLUG_1(white_dim, yellow, yellow_65, white)
+			LB_SEG_PLUG_2_OFF(white_dim, white_dim, white)
+			LB_SEG_PLUG_3_OFF(white_dim, white_dim, white)
+		};
+
+		lb_state_plug_med: lb-state-plug-med {
+			board-led-alt-policy-label = <LED_ALT_POLICY_AC_PLUG_S3S5>;
+			charge-state = "LED_PWRS_CHARGE",
+				       "LED_PWRS_DISCHARGE",
+				       "LED_PWRS_IDLE",
+				       "LED_PWRS_FORCED_IDLE",
+				       "LED_PWRS_CHARGE_NEAR_FULL";
+			batt-lvl = <20 59>;
+			LB_SEG_PLUG_0(off, yellow, yellow_65, off)
+			LB_SEG_PLUG_1(off, yellow, yellow_65, off)
+			LB_SEG_PLUG_OFF(2)
+			LB_SEG_PLUG_OFF(3)
+		};
+
+		/* Plugging - Battery high (between 60% and 94%) */
+		lb_state_plug_high_s0: lb-state-plug-high-s0 {
+			board-led-alt-policy-label = <LED_ALT_POLICY_AC_PLUG_S0>;
+			charge-state = "LED_PWRS_CHARGE",
+				       "LED_PWRS_DISCHARGE",
+				       "LED_PWRS_IDLE",
+				       "LED_PWRS_FORCED_IDLE",
+				       "LED_PWRS_CHARGE_NEAR_FULL";
+			batt-lvl = <60 94>;
+			LB_SEG_PLUG_0(white_dim, green, green_65, white)
+			LB_SEG_PLUG_1(white_dim, green, green_65, white)
+			LB_SEG_PLUG_2(white_dim, green, green_65, white)
+			LB_SEG_PLUG_3_OFF(white_dim, white_dim, white)
+		};
+
+		lb_state_plug_high: lb-state-plug-high {
+			board-led-alt-policy-label = <LED_ALT_POLICY_AC_PLUG_S3S5>;
+			charge-state = "LED_PWRS_CHARGE",
+				       "LED_PWRS_DISCHARGE",
+				       "LED_PWRS_IDLE",
+				       "LED_PWRS_FORCED_IDLE",
+				       "LED_PWRS_CHARGE_NEAR_FULL";
+			batt-lvl = <60 94>;
+			LB_SEG_PLUG_0(off, green, green_65, off)
+			LB_SEG_PLUG_1(off, green, green_65, off)
+			LB_SEG_PLUG_2(off, green, green_65, off)
+			LB_SEG_PLUG_OFF(3)
+		};
+
+		/* Plugging - Battery full (over 94%) */
+		lb_state_plug_full_s0: lb-state-plug-full-s0 {
+			board-led-alt-policy-label = <LED_ALT_POLICY_AC_PLUG_S0>;
+			charge-state = "LED_PWRS_CHARGE",
+				       "LED_PWRS_DISCHARGE",
+				       "LED_PWRS_IDLE",
+				       "LED_PWRS_FORCED_IDLE",
+				       "LED_PWRS_CHARGE_NEAR_FULL";
+			batt-lvl = <95 100>;
+			LB_BAT_FULL(white_dim, white)
+		};
+
+		lb_state_plug_full: lb-state-plug-full {
+			board-led-alt-policy-label = <LED_ALT_POLICY_AC_PLUG_S3S5>;
+			charge-state = "LED_PWRS_CHARGE",
+				       "LED_PWRS_DISCHARGE",
+				       "LED_PWRS_IDLE",
+				       "LED_PWRS_FORCED_IDLE",
+				       "LED_PWRS_CHARGE_NEAR_FULL";
+			batt-lvl = <95 100>;
+			LB_BAT_FULL(off, off)
+		};
+
+		/* Plugging - Charge error */
+		lb_state_plug_error_s0: lb-state-plug-error-s0 {
+			board-led-alt-policy-label = <LED_ALT_POLICY_AC_PLUG_S0>;
+			charge-state = "LED_PWRS_ERROR";
+			LB_CHARGE_ERROR
+		};
+
+		lb_state_plug_error: lb-state-plug-error {
+			board-led-alt-policy-label = <LED_ALT_POLICY_AC_PLUG_S3S5>;
+			charge-state = "LED_PWRS_ERROR";
+			LB_CHARGE_ERROR
+		};
+	};
+};
