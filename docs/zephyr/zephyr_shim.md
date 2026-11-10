@@ -75,9 +75,9 @@ We adopt upstream Zephyr or skip the shimming process (non-exhaustive).
 *   Keyboard and keycode scanning support
     *   We may shim the newer Vivaldi feature.
 *   Console support
-    *   We allow individual console commands via DECLARE\_CONSOLE\_COMMAND to be
-        shimmed to Zephyr. These convert commands to work with Zephyr's shell
-        subsystem.
+    *   Console commands use Zephyr's shell subsystem
+        (`SHELL_CMD_REGISTER` / `SHELL_CMD_ARG_REGISTER` and `shell_print` /
+        `shell_fprintf`).
 *   I2C
 
 ### New content in platform/ec

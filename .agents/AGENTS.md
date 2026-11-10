@@ -195,6 +195,29 @@ Additional output files:
 Zephyr EC unit tests are based on ztest and run using the `twister` tool. See
 `docs/zephyr/ztest.md` for more information.
 
+# Console Commands (Zephyr Shell)
+
+EC console commands use Zephyr's shell API (`<zephyr/shell/shell.h>`).
+The legacy `DECLARE_CONSOLE_COMMAND` / `DECLARE_SAFE_CONSOLE_COMMAND` shim has
+been removed. Follow these conventions when adding or updating console commands:
+
+*   **Registration**: Register commands with `SHELL_CMD_ARG_REGISTER`,
+    `SHELL_CMD_REGISTER`, or `SHELL_STATIC_SUBCMD_SET_CREATE`, gated by the
+    appropriate `CONFIG_PLATFORM_EC_CONSOLE_CMD_*` or `CONFIG_CMD_*` option.
+*   **Return Values**: Command handlers must return `0` on success or a
+    negative POSIX `errno` value (e.g., `-EINVAL`, `-EACCES`). When calling EC
+    functions that return `enum ec_error_list` (`EC_RES_*` / `EC_ERROR_*`),
+    convert the result with `ec_error_to_errno()` from `include/common.h`.
+*   **Output**: Write full-line command output using `shell_print(sh, ...)` (or
+    `shell_error` / `shell_warn`) and partial-line output using
+    `shell_fprintf(sh, SHELL_NORMAL, ...)` rather than `cprintf` or `CPRINTS`,
+    so output is routed to the active shell backend and captured in unit tests.
+*   **Restricted Commands**: Commands that must be blocked when the system is
+    locked (`CONFIG_CONSOLE_CMD_RESTRICTED`) should explicitly check
+    `if (system_is_locked()) return -EACCES;`.
+*   **Unit Testing**: Invoke commands in Ztest via
+    `shell_execute_cmd(get_ec_shell(), "<cmd>")`.
+
 ## Running twister
 
 ### Run all tests under a specific directory
