@@ -72,6 +72,11 @@ config BOARD_HEKLA
 	  Build Google Hekla reference board.
 	  This board uses an Intel WCL SoC and RTK EC.
 
+config BOARD_ONCILLA
+	bool "Google Ocelot with ITE (it82002) EC"
+	help
+	  Build Google Oncilla reference board.
+
 config BOARD_COOLUM
 	bool "Google Ocelot with ITE (it82002) EC"
 	help

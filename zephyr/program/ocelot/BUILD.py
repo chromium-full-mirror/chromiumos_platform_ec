@@ -310,6 +310,15 @@ register_it8xxx2_project(
 )
 
 register_it8xxx2_project(
+    project_name="oncilla",
+    chip="it8xxx2/it82002bw",
+    extra_kconfig_base_files=[
+        here / "rvp_program.conf",
+        here / "dsp_comms.conf",
+    ],
+)
+
+register_it8xxx2_project(
     project_name="coolum",
     chip="it8xxx2/it82002bw",
     extra_kconfig_base_files=[
@@ -345,5 +354,6 @@ assert_rw_fwid_DO_NOT_EDIT(project_name="ocelotrvp-mchp", addr=0x40318)
 assert_rw_fwid_DO_NOT_EDIT(project_name="ojal", addr=0x80404)
 assert_rw_fwid_DO_NOT_EDIT(project_name="ocicat", addr=0x60098)
 assert_rw_fwid_DO_NOT_EDIT(project_name="ocelotrvp-rtk", addr=0x80404)
+assert_rw_fwid_DO_NOT_EDIT(project_name="oncilla", addr=0x60098)
 assert_rw_fwid_DO_NOT_EDIT(project_name="pelion", addr=0x60098)
 assert_rw_fwid_DO_NOT_EDIT(project_name="coolum", addr=0x60098)
