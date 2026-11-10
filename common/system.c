@@ -943,24 +943,30 @@ static void handle_watchdog_reset(void)
 		uint32_t info;
 		uint8_t exception;
 		struct panic_data *pdata;
+		bool is_panic_new;
 
 		panic_get_reason(&reason, &info, &exception);
 		pdata = panic_get_data();
+		is_panic_new = pdata &&
+			       !(pdata->flags & PANIC_DATA_FLAG_OLD_HOSTCMD);
 
-		/* If the panic reason is a watchdog warning, then change
-		 * the reason to a regular watchdog reason while preserving
-		 * the info and exception from the watchdog warning.
+		/*
+		 * If the panic reason is an unread watchdog warning, then
+		 * change the reason to a regular watchdog reason while
+		 * preserving the info and exception from the watchdog warning.
 		 */
-		if (reason == PANIC_SW_WATCHDOG_WARN)
+		if (is_panic_new && reason == PANIC_SW_WATCHDOG_WARN) {
 			panic_set_reason(PANIC_SW_WATCHDOG, info, exception);
-		/* The watchdog panic info may have already been initialized by
-		 * the watchdog handler, so only set it here if the panic reason
-		 * is not a watchdog or the panic info has already been read,
-		 * i.e. an old watchdog panic.
-		 */
-		else if ((reason != PANIC_SW_WATCHDOG &&
-			  reason != PANIC_SW_WATCHDOG_HARD) ||
-			 !pdata || pdata->flags & PANIC_DATA_FLAG_OLD_HOSTCMD) {
+		} else if ((reason != PANIC_SW_WATCHDOG &&
+			    reason != PANIC_SW_WATCHDOG_HARD) ||
+			   !is_panic_new) {
+			/*
+			 * The watchdog panic info may have already been
+			 * initialized by the watchdog handler, so only set it
+			 * here if the panic reason is not a watchdog or the
+			 * panic info has already been read, i.e. an old
+			 * watchdog panic.
+			 */
 			panic_set_reason(PANIC_SW_WATCHDOG_HARD, 0, 0);
 		}
 	}
