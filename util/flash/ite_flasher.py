@@ -8,8 +8,10 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
+from typing import Sequence
 
 from flash.flasher_base import BaseEcFlasher
 from flash.helpers import get_preserve_ranges
@@ -47,6 +49,9 @@ class _IteBaseFlasher(BaseEcFlasher):
 
 class IteI2cFlasher(_IteBaseFlasher):
     """Flasher implementation for ITE ECs over I2C using iteflash."""
+
+    MAX_DFU_ATTEMPTS = 5
+    _CHIP_ID_ERR = "Failed to get ITE chip ID"
 
     def _get_serial(self) -> str:
         """Return the servo serial number for USB I2C transport."""
@@ -147,6 +152,44 @@ class IteI2cFlasher(_IteBaseFlasher):
             except ServoError:
                 pass
 
+    def _run_iteflash(self, cmd: Sequence[str]) -> None:
+        """Runs iteflash, retrying DFU entry if the chip ID probe fails.
+
+        Args:
+            cmd: Command and arguments to execute iteflash.
+
+        Raises:
+            subprocess.CalledProcessError: If iteflash fails with a non-chip-ID
+                error or still fails after `MAX_DFU_ATTEMPTS` attempts.
+        """
+        for attempt in range(1, self.MAX_DFU_ATTEMPTS + 1):
+            try:
+                res = subprocess.run(
+                    cmd, check=True, stderr=subprocess.PIPE, text=True
+                )
+                if isinstance(res.stderr, str) and res.stderr:
+                    sys.stderr.write(res.stderr)
+                return
+            except subprocess.CalledProcessError as err:
+                err_text = err.stderr if isinstance(err.stderr, str) else ""
+                if err_text:
+                    sys.stderr.write(err_text)
+                if (
+                    not self.servo
+                    or self._CHIP_ID_ERR not in err_text
+                    or attempt >= self.MAX_DFU_ATTEMPTS
+                ):
+                    raise
+                logger.warning(
+                    "ITE chip ID check failed (attempt %d/%d); "
+                    "re-entering DFU mode...",
+                    attempt,
+                    self.MAX_DFU_ATTEMPTS,
+                )
+                if self._get_controller() == "c2d2":
+                    self.servo.set("gsc_ec_reset", "on")
+                self._enter_dfu_mode()
+
     def execute_flash(self) -> None:
         """Read or write the ITE EC flash using iteflash."""
         iteflash_bin = locate_tool("iteflash", self.args.board)
@@ -178,7 +221,7 @@ class IteI2cFlasher(_IteBaseFlasher):
             cmd.append(f"--read={self.args.read}")
             logger.info("Reading EC firmware using iteflash: %s", " ".join(cmd))
             if not self.args.dry_run:
-                subprocess.run(cmd, check=True)
+                self._run_iteflash(cmd)
             return
 
         if not self.args.image or not os.path.exists(self.args.image):
@@ -208,7 +251,7 @@ class IteI2cFlasher(_IteBaseFlasher):
                         "FMAP sections..."
                     )
                     if not self.args.dry_run:
-                        subprocess.run(read_cmd, check=True)
+                        self._run_iteflash(read_cmd)
                         temp_new = os.path.join(temp_dir, "ec.new.cpy.bin")
                         shutil.copyfile(target_img, temp_new)
                         if preserve_sections_with_cur_image(
@@ -228,7 +271,7 @@ class IteI2cFlasher(_IteBaseFlasher):
                 " ".join(write_cmd),
             )
             if not self.args.dry_run:
-                subprocess.run(write_cmd, check=True)
+                self._run_iteflash(write_cmd)
 
 
 class IteUartFlasher(_IteBaseFlasher):

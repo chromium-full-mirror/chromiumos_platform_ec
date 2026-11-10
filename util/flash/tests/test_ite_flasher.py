@@ -5,6 +5,7 @@
 
 """Unit tests for IteI2cFlasher and IteUartFlasher."""
 
+import subprocess
 from typing import Callable, Optional
 import unittest
 from unittest.mock import call
@@ -155,6 +156,8 @@ class TestIteI2cFlasher(unittest.TestCase):
                 "--write=/tmp/image.bin",
             ],
             check=True,
+            stderr=subprocess.PIPE,
+            text=True,
         )
 
     @patch("os.path.exists", return_value=True)
@@ -338,7 +341,144 @@ class TestIteI2cFlasher(unittest.TestCase):
                 "--write=/tmp/image.bin",
             ],
             check=True,
+            stderr=subprocess.PIPE,
+            text=True,
         )
+
+    @patch("time.sleep")
+    @patch("os.path.exists", return_value=True)
+    @patch("flash.ite_flasher.locate_tool", return_value="/mock/iteflash")
+    @patch("subprocess.run")
+    def test_execute_flash_retries_on_chip_id_failure(
+        self,
+        mock_run: MagicMock,
+        _mock_locate: MagicMock,
+        _mock_exists: MagicMock,
+        _mock_sleep: MagicMock,
+    ) -> None:
+        """Verifies DFU re-entry when iteflash fails the chip ID probe."""
+        chip_id_err = subprocess.CalledProcessError(
+            1,
+            ["/mock/iteflash"],
+            stderr="Failed to get ITE chip ID.  DFU mode not enabled.\n",
+        )
+
+        with self.subTest(controller="ccd"):
+            self.servo.reset_mock()
+            self.servo.get.side_effect = lambda k, default="": {
+                "servo_type": "servo_v4p1_with_ccd_ti50",
+                "ccd_serialname": "CCD123",
+            }.get(k, default)
+            self.servo.has_control.return_value = True
+            mock_run.reset_mock()
+            mock_run.side_effect = [
+                chip_id_err,
+                subprocess.CompletedProcess([], 0, stderr="warning\n"),
+            ]
+
+            self.flasher.execute_flash()
+
+            self.assertEqual(mock_run.call_count, 2)
+            self.servo.set_many.assert_called_once_with(
+                [("cold_reset", "on"), ("cold_reset", "off")]
+            )
+            self.servo.set.assert_has_calls(
+                [
+                    call("gsc_i2c_ctrl", "ite_debugger_mode"),
+                    call("gsc_uart_cmd", "sysrst assert"),
+                ]
+            )
+
+        with self.subTest(controller="c2d2"):
+            self.servo.reset_mock()
+            self.servo.get.side_effect = lambda k, default="": {
+                "servo_type": "c2d2",
+                "c2d2_serialname": "C2D2123",
+            }.get(k, default)
+            self.servo.has_control.return_value = True
+            mock_run.reset_mock()
+            mock_run.side_effect = [
+                chip_id_err,
+                subprocess.CompletedProcess([], 0, stderr="warning\n"),
+            ]
+
+            self.flasher.execute_flash()
+
+            self.assertEqual(mock_run.call_count, 2)
+            self.servo.set.assert_has_calls(
+                [
+                    call("gsc_ec_reset", "on"),
+                    call("gsc_ec_reset", "off"),
+                    call("gsc_idle_level", "active"),
+                ]
+            )
+            self.servo.get.assert_any_call("enable_ite_dfu")
+
+    @patch("time.sleep")
+    @patch("os.path.exists", return_value=True)
+    @patch("flash.ite_flasher.locate_tool", return_value="/mock/iteflash")
+    @patch("subprocess.run")
+    def test_execute_flash_does_not_retry_non_chip_id_error(
+        self,
+        mock_run: MagicMock,
+        _mock_locate: MagicMock,
+        _mock_exists: MagicMock,
+        _mock_sleep: MagicMock,
+    ) -> None:
+        """Verifies mid-flash errors raise immediately without DFU retry."""
+        self.servo.get.return_value = "servo_v4p1_with_ccd_ti50"
+        mock_run.side_effect = subprocess.CalledProcessError(
+            1, ["/mock/iteflash"], stderr="Flash page write failed\n"
+        )
+
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.flasher.execute_flash()
+
+        self.assertEqual(mock_run.call_count, 1)
+        self.assertNotIn(
+            call("gsc_i2c_ctrl", "ite_debugger_mode"),
+            self.servo.set.call_args_list,
+        )
+
+    @patch("time.sleep")
+    @patch("os.path.exists", return_value=True)
+    @patch("flash.ite_flasher.locate_tool", return_value="/mock/iteflash")
+    @patch("subprocess.run")
+    def test_execute_flash_raises_after_max_dfu_attempts(
+        self,
+        mock_run: MagicMock,
+        _mock_locate: MagicMock,
+        _mock_exists: MagicMock,
+        _mock_sleep: MagicMock,
+    ) -> None:
+        """Verifies persistent chip ID errors stop after MAX_DFU_ATTEMPTS."""
+        self.servo.get.return_value = "servo_v4p1_with_ccd_ti50"
+        self.servo.has_control.return_value = True
+        mock_run.side_effect = subprocess.CalledProcessError(
+            1, ["/mock/iteflash"], stderr="Failed to get ITE chip ID.\n"
+        )
+
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.flasher.execute_flash()
+
+        self.assertEqual(mock_run.call_count, IteI2cFlasher.MAX_DFU_ATTEMPTS)
+
+    @patch("flash.ite_flasher.locate_tool", return_value="/mock/iteflash")
+    @patch("subprocess.run")
+    def test_execute_flash_read(
+        self,
+        mock_run: MagicMock,
+        _mock_locate: MagicMock,
+    ) -> None:
+        """Verifies --read invokes _run_iteflash with the output path."""
+        self.args.read = "/tmp/read.bin"
+        self.servo.get.return_value = "servo_v4p1_with_ccd_ti50"
+        self.servo.has_control.return_value = False
+
+        self.flasher.execute_flash()
+
+        mock_run.assert_called_once()
+        self.assertIn("--read=/tmp/read.bin", mock_run.call_args.args[0])
 
 
 class TestIteUartFlasher(unittest.TestCase):

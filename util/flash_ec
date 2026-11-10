@@ -1684,7 +1684,9 @@ function ite_dfu_mode() {
 		fi
 
 		if dut_has_control gsc_uart_cmd; then
-			servo_save_add "gsc_uart_cmd" "sysrst deassert"
+			if ! in_array "${save[@]}" "gsc_uart_cmd:sysrst deassert"; then
+				servo_save_add "gsc_uart_cmd" "sysrst deassert"
+			fi
 			dut_control "gsc_uart_cmd:sysrst assert"
 		fi
 
@@ -1701,6 +1703,47 @@ function ite_dfu_mode() {
 	else
 		die "This servo type is not yet supported: ${SERVO_TYPE}"
 	fi
+}
+
+ITE_DFU_MAX_ATTEMPTS=5
+
+# Run an iteflash command, retrying DFU entry if the EC missed the debugger
+# waveform and failed the initial non-destructive chip ID probe.
+function run_iteflash() {
+	if [[ "${FLAGS_dry_run}" == "${FLAGS_TRUE}" || \
+	      "${SERVO_TYPE}" == "servo_v2" ]]; then
+		print_or_run "$@"
+		return $?
+	fi
+
+	local ATTEMPT ERR_LOG RC
+	ERR_LOG="$(mktemp --suffix="${TEMP_SUFFIX}")"
+	for (( ATTEMPT = 1; ATTEMPT <= ITE_DFU_MAX_ATTEMPTS; ATTEMPT++ )); do
+		RC=0
+		{
+			print_or_run "$@" 2>&1 1>&3 | tee "${ERR_LOG}" >&2
+			RC=${PIPESTATUS[0]}
+		} 3>&1
+		if [[ ${RC} -eq 0 ]]; then
+			rm -f "${ERR_LOG}"
+			return 0
+		fi
+		if ! grep -q "Failed to get ITE chip ID" "${ERR_LOG}" || \
+		   [[ ${ATTEMPT} -ge ${ITE_DFU_MAX_ATTEMPTS} ]]; then
+			rm -f "${ERR_LOG}"
+			return "${RC}"
+		fi
+		warn "ITE chip ID check failed" \
+			"(attempt ${ATTEMPT}/${ITE_DFU_MAX_ATTEMPTS});" \
+			"re-entering DFU mode..."
+		servo_ec_hard_reset_or_die
+		ite_dfu_mode
+		if [[ "${SERVO_TYPE}" =~ "c2d2" ]]; then
+			dut_control cr50_idle_level:active
+		fi
+	done
+	rm -f "${ERR_LOG}"
+	return 1
 }
 
 #
@@ -1894,7 +1937,7 @@ function flash_it83xx() {
 		dut_control cr50_idle_level:active
 	fi
 
-	print_or_run "${ITEFLASH_ARGS[@]}" || die "${ERROR_MSG}"
+	run_iteflash "${ITEFLASH_ARGS[@]}" || die "${ERROR_MSG}"
 
 	if [[ "${SERVO_TYPE}" =~ "servo_v4" && \
 	      "${FLAGS_usbc_charging}" == "${FLAGS_TRUE}" ]]; then
@@ -2830,7 +2873,7 @@ function read_chip_partially() {
 
 		UUT_CUR_FMAP_RD=( "${CHIP_CMD_PREFIX[@]}" \
 			"--read=${ALIGNED_FILE}" "--range=${RANGE}")
-		print_or_run timeout -k 10 -s 9 "${FLAGS_timeout}" \
+		run_iteflash timeout -k 10 -s 9 "${FLAGS_timeout}" \
 					"${UUT_CUR_FMAP_RD[@]}" || die "${MSG_READ_FAIL}"
 
 		if [[ "${ALIGNED_START}" != "${OFFSET}" ]]; then
@@ -2912,7 +2955,7 @@ function read_chip() {
 					"${UUT_CUR_RD[@]}" || die "${MSG_READ_FAIL}"
 	elif [ "${CHIP_TYPE}" == "ite_i2c" ]; then
 		UUT_CUR_RD=( "${CHIP_CMD_PREFIX[@]}" "--read=${FILE_PATH}" )
-		print_or_run timeout -k 10 -s 9 "${FLAGS_timeout}" \
+		run_iteflash timeout -k 10 -s 9 "${FLAGS_timeout}" \
 					"${UUT_CUR_RD[@]}" || die "${MSG_READ_FAIL}"
 
 		# Reset EC before setting DFU mode
