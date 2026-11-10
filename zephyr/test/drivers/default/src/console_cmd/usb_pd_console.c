@@ -378,6 +378,10 @@ ZTEST_USER(console_cmd_usb_pd, test_pe)
 	rv = shell_execute_cmd(get_ec_shell(), "pe x dump");
 	zassert_equal(rv, EC_ERROR_PARAM2, "Expected %d, but got %d",
 		      EC_ERROR_PARAM2, rv);
+
+	rv = shell_execute_cmd(get_ec_shell(), "pe \" -1\" dump");
+	zassert_equal(rv, EC_ERROR_PARAM2, "Expected %d, but got %d",
+		      EC_ERROR_PARAM2, rv);
 }
 
 ZTEST_USER(console_cmd_usb_pd, test_pdcable)
@@ -405,6 +409,10 @@ ZTEST_USER(console_cmd_usb_pd, test_pdcable)
 		      EC_ERROR_PARAM_COUNT, rv);
 
 	rv = shell_execute_cmd(get_ec_shell(), "pdcable t");
+	zassert_equal(rv, EC_ERROR_PARAM2, "Expected %d, but got %d",
+		      EC_ERROR_PARAM2, rv);
+
+	rv = shell_execute_cmd(get_ec_shell(), "pdcable \" -1\"");
 	zassert_equal(rv, EC_ERROR_PARAM2, "Expected %d, but got %d",
 		      EC_ERROR_PARAM2, rv);
 }
