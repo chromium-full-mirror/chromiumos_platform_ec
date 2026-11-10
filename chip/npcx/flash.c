@@ -41,7 +41,7 @@ static uint8_t saved_sr2;
 #endif
 
 /* Ensure only one task is accessing flash at a time. */
-static mutex_t flash_lock;
+static K_MUTEX_DEFINE(flash_lock);
 
 /* The previous write protect state before sys jump */
 struct flash_wp_state {

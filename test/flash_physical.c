@@ -6,6 +6,7 @@
 #include "chip/stm32/flash-regs.h"
 #include "flash.h"
 #include "panic.h"
+#include "task.h"
 #include "test_util.h"
 
 struct flash_info {
@@ -132,10 +133,41 @@ test_static int test_flash_config(void)
 	return EC_SUCCESS;
 }
 
+#if defined(CONFIG_COMMON_RECURSIVE_MUTEX) && defined(CONFIG_EXTERNAL_STORAGE)
+test_static int test_recursive_flash_lock_preserves_irq_mask(void)
+{
+	char buf[4] __aligned(4);
+
+	crec_flash_lock_mapped_storage(1);
+	uint32_t key = irq_lock();
+
+	/*
+	 * crec_flash_unprotected_read() re-acquires and releases flash_lock
+	 * (via crec_flash_lock_mapped_storage()) on the same task while
+	 * interrupts are masked.
+	 */
+	int rv = crec_flash_unprotected_read(0, sizeof(buf), buf);
+	/* Nested mutex_unlock() must not re-enable interrupts. */
+	bool irq_enabled = is_interrupt_enabled();
+
+	irq_unlock(key);
+	crec_flash_lock_mapped_storage(0);
+
+	TEST_EQ(rv, EC_SUCCESS, "%d");
+	TEST_EQ(irq_enabled, false, "%d");
+
+	return EC_SUCCESS;
+}
+#endif
+
 void run_test(int argc, const char **argv)
 {
 	ccprintf("Running flash physical test\n");
 	RUN_TEST(test_flash_config);
+
+#if defined(CONFIG_COMMON_RECURSIVE_MUTEX) && defined(CONFIG_EXTERNAL_STORAGE)
+	RUN_TEST(test_recursive_flash_lock_preserves_irq_mask);
+#endif
 
 /* The Helipilot NPCX board does not support option bytes from STM32 chips */
 #ifndef BASEBOARD_HELIPILOT
