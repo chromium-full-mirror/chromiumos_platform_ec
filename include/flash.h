@@ -18,10 +18,7 @@ extern "C" {
 #endif
 
 #ifdef CONFIG_FLASH_MULTIPLE_REGION
-#ifndef CONFIG_ZEPHYR
-extern struct ec_flash_bank const
-	flash_bank_array[CONFIG_FLASH_REGION_TYPE_COUNT];
-#endif
+int crec_flash_bank_total_count(void);
 
 /*
  * Return the bank the offset is in.
@@ -69,6 +66,11 @@ void crec_flash_print_region_info(void);
 	(crec_flash_bank_count(CONFIG_WP_STORAGE_OFF, CONFIG_WP_STORAGE_SIZE))
 
 #else /* CONFIG_FLASH_MULTIPLE_REGION */
+static inline int crec_flash_bank_total_count(void)
+{
+	return 0;
+}
+
 /* Number of physical flash banks */
 #ifndef PHYSICAL_BANKS
 #define PHYSICAL_BANKS (CONFIG_FLASH_SIZE_BYTES / CONFIG_FLASH_BANK_SIZE)

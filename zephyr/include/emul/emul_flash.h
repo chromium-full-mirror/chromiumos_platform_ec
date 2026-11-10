@@ -14,6 +14,10 @@
 
 #include <ec_commands.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * @brief Reset the protection.
  */
@@ -23,5 +27,9 @@ void cros_flash_emul_protect_reset(void);
  * @brief Enable the protection.
  */
 void cros_flash_emul_enable_protect(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* PLATFORM_EC_ZEPHYR_INCLUDE_EMUL_EMUL_FLASH_H_ */

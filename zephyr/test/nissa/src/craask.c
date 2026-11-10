@@ -67,6 +67,7 @@ FAKE_VALUE_FUNC(enum battery_present, battery_is_present);
 FAKE_VOID_FUNC(lpc_keyboard_resume_irq);
 
 FAKE_VALUE_FUNC(enum ec_error_list, charger_set_frequency, int);
+FAKE_VALUE_FUNC(uint8_t, board_get_usb_pd_port_count);
 
 static int board_version;
 
@@ -83,16 +84,10 @@ static bool clamshell_mode;
 static bool fan_present;
 static bool kb_backlight_sku;
 static int thermal_solution;
-static bool cbi_touch_en;
-static bool cbi_read_fail;
 
 static int cbi_get_fw_config_mock(enum cbi_fw_config_field_id field,
 				  uint32_t *value)
 {
-	if (cbi_read_fail) {
-		return -1;
-	}
-
 	switch (field) {
 	case FW_KB_NUMERIC_PAD:
 		*value = has_keypad ? FW_KB_NUMERIC_PAD_PRESENT :
@@ -117,10 +112,6 @@ static int cbi_get_fw_config_mock(enum cbi_fw_config_field_id field,
 	case FW_THERMAL:
 		*value = thermal_solution;
 		return 0;
-	case FW_TOUCH_EN:
-		*value = cbi_touch_en ? FW_TOUCH_EN_ENABLE :
-					FW_TOUCH_EN_DISABLE;
-		return 0;
 	default:
 		return -EINVAL;
 	};
@@ -139,6 +130,8 @@ static void test_before(void *fixture)
 	RESET_FAKE(raa489000_is_acok);
 	RESET_FAKE(raa489000_hibernate);
 	RESET_FAKE(raa489000_enable_asgate);
+	RESET_FAKE(board_get_usb_pd_port_count);
+	board_get_usb_pd_port_count_fake.return_val = 2;
 	RESET_FAKE(raa489000_set_output_current);
 	RESET_FAKE(chipset_in_state);
 	RESET_FAKE(charger_discharge_on_ac);
@@ -168,8 +161,6 @@ static void test_before(void *fixture)
 	fan_present = false;
 	kb_backlight_sku = false;
 	thermal_solution = 0;
-	cbi_touch_en = false;
-	cbi_read_fail = false;
 
 	cros_cbi_get_fw_config_fake.custom_fake = cbi_get_fw_config_mock;
 }
@@ -711,6 +702,36 @@ ZTEST(craask, test_set_active_charge_port_none)
 	zassert_equal(reg, TCPC_REG_COMMAND_SNK_CTRL_LOW);
 }
 
+ZTEST(craask, test_set_active_charge_port_none_one_port)
+{
+	/*
+	 * HDMI sub-board SKUs have a single USB-C port and park the port 1
+	 * I2C pins. Port 1 must not be touched, otherwise each access times
+	 * out on k_sys_work_q and starves the watchdog.
+	 */
+	board_get_usb_pd_port_count_fake.return_val = 1;
+
+	zassert_ok(board_set_active_charge_port(CHARGE_PORT_NONE));
+	zassert_equal(raa489000_enable_asgate_fake.call_count, 1);
+	zassert_equal(raa489000_enable_asgate_fake.arg0_history[0], 0);
+	zassert_equal(raa489000_enable_asgate_fake.arg1_history[0], false);
+}
+
+ZTEST(craask, test_set_active_charge_port_one_port)
+{
+	board_get_usb_pd_port_count_fake.return_val = 1;
+
+	/* Port 1 does not exist on a 1-port SKU */
+	zassert_equal(board_set_active_charge_port(1), EC_ERROR_INVAL);
+	zassert_equal(raa489000_enable_asgate_fake.call_count, 0);
+
+	/* Enabling port 0 must not try to disable sinking on port 1 */
+	zassert_ok(board_set_active_charge_port(0));
+	zassert_equal(raa489000_enable_asgate_fake.call_count, 1);
+	zassert_equal(raa489000_enable_asgate_fake.arg0_history[0], 0);
+	zassert_equal(raa489000_enable_asgate_fake.arg1_history[0], true);
+}
+
 ZTEST(craask, test_set_active_charge_port_invalid_port)
 {
 	zassert_equal(board_set_active_charge_port(4), EC_ERROR_INVAL,
@@ -829,6 +850,11 @@ ZTEST(craask, test_set_source_current_limit)
 	/* A port that doesn't exist does nothing */
 	typec_set_source_current_limit(3, TYPEC_RP_USB);
 	zassert_equal(raa489000_set_output_current_fake.call_count, 1);
+
+	/* Port 1 does not exist on a 1-port SKU */
+	board_get_usb_pd_port_count_fake.return_val = 1;
+	typec_set_source_current_limit(1, TYPEC_RP_USB);
+	zassert_equal(raa489000_set_output_current_fake.call_count, 1);
 }
 
 static int chipset_in_state_break_tcpc_command(int state_mask)
@@ -878,6 +904,10 @@ ZTEST(craask, test_pd_set_power_supply_ready)
 
 	/* Invalid port number requested */
 	zassert_equal(pd_set_power_supply_ready(2), EC_ERROR_INVAL);
+
+	/* Port 1 is invalid on a 1-port SKU */
+	board_get_usb_pd_port_count_fake.return_val = 1;
+	zassert_equal(pd_set_power_supply_ready(1), EC_ERROR_INVAL);
 }
 
 ZTEST(craask, test_reset_pd_mcu)
@@ -1124,60 +1154,6 @@ ZTEST(craask, test_15w_thermal_solution)
 	board_override_fan_control(0, &temp);
 	zassert_equal(fan_get_rpm_mode(0), 1);
 	zassert_equal(fan_get_rpm_target(0), 0);
-}
-
-#define TEST_DELAY_MS 1
-#define TOUCH_ENABLE_DELAY_MS (500 + TEST_DELAY_MS)
-#define TOUCH_DISABLE_DELAY_MS (0 + TEST_DELAY_MS)
-
-ZTEST(craask, test_touch_enable)
-{
-	const struct gpio_dt_spec *bl_en =
-		GPIO_DT_FROM_NODELABEL(gpio_soc_edp_bl_en);
-	const struct gpio_dt_spec *touch_en =
-		GPIO_DT_FROM_NODELABEL(gpio_ec_touch_en);
-
-	cbi_touch_en = true;
-	cbi_read_fail = false;
-
-	hook_notify(HOOK_INIT);
-
-	/* touch_en become high after TOUCH_ENABLE_DELAY_MS delay */
-	zassert_ok(gpio_emul_input_set(bl_en->port, bl_en->pin, 1), NULL);
-	zassert_equal(gpio_emul_output_get(touch_en->port, touch_en->pin), 0);
-
-	k_sleep(K_MSEC(TOUCH_ENABLE_DELAY_MS));
-	zassert_equal(gpio_emul_output_get(touch_en->port, touch_en->pin), 1);
-
-	/* touch_en become low after TOUCH_DISABLE_DELAY_MS delay */
-	zassert_ok(gpio_emul_input_set(bl_en->port, bl_en->pin, 0), NULL);
-	k_sleep(K_MSEC(TOUCH_DISABLE_DELAY_MS));
-	zassert_equal(gpio_emul_output_get(touch_en->port, touch_en->pin), 0);
-
-	/* touch_en keep low if fw_config is not enabled */
-	cbi_touch_en = false;
-	gpio_disable_dt_interrupt(GPIO_INT_FROM_NODELABEL(int_soc_edp_bl_en));
-	hook_notify(HOOK_INIT);
-
-	zassert_ok(gpio_emul_input_set(bl_en->port, bl_en->pin, 1), NULL);
-	zassert_equal(gpio_emul_output_get(touch_en->port, touch_en->pin), 0);
-
-	k_sleep(K_MSEC(TOUCH_ENABLE_DELAY_MS));
-	zassert_equal(gpio_emul_output_get(touch_en->port, touch_en->pin), 0);
-
-	/* touch_en keep low if fw_config read fail */
-	cbi_read_fail = true;
-	gpio_disable_dt_interrupt(GPIO_INT_FROM_NODELABEL(int_soc_edp_bl_en));
-	hook_notify(HOOK_INIT);
-
-	zassert_ok(gpio_emul_input_set(bl_en->port, bl_en->pin, 0), NULL);
-	zassert_equal(gpio_emul_output_get(touch_en->port, touch_en->pin), 0);
-
-	zassert_ok(gpio_emul_input_set(bl_en->port, bl_en->pin, 1), NULL);
-	zassert_equal(gpio_emul_output_get(touch_en->port, touch_en->pin), 0);
-
-	k_sleep(K_MSEC(TOUCH_ENABLE_DELAY_MS));
-	zassert_equal(gpio_emul_output_get(touch_en->port, touch_en->pin), 0);
 }
 
 ZTEST(craask, test_update_charger_config_enable)

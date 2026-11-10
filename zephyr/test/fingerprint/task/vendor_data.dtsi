@@ -1,0 +1,16 @@
+/* Copyright 2026 The ChromiumOS Authors
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file.
+ */
+
+#include "boards/native_sim.overlay"
+
+&flash0 {
+	partitions {
+		/* 2 erase sectors are enough to exercise the write back. */
+		fingerprint_sensor_vendor_data: partition@102000 {
+			label = "fingerprint_sensor_vendor_data";
+			reg = <0x102000 DT_SIZE_K(8)>;
+		};
+	};
+};

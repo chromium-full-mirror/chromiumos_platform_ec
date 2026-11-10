@@ -169,11 +169,6 @@ void pd_build_request(int32_t vpd_vdo, uint32_t *rdo, uint32_t *ma,
 		      uint32_t *mv, int port);
 
 /**
- * Notifies a task that is waiting on a system jump, that it's complete.
- */
-void notify_sysjump_ready(void);
-
-/**
  * Set USB MUX with current data role
  *
  * @param port USB-C port number
@@ -231,19 +226,11 @@ int pd_get_saved_port_flags(int port, uint8_t *flags);
 void pd_update_saved_port_flags(int port, uint8_t flag, uint8_t do_set);
 
 /**
- * Sets up and sends PD alert message with given ADO on all ports.
- *
- * @param ado - Alert Data Object defining alert sent to the PD partner
- * @return EC_SUCCESS on success else EC_ERROR_INVAL
- */
-int pd_broadcast_alert_msg(uint32_t ado);
-
-/**
  * Sets up and sends PD alert message with given ADO on one port.
  *
  * @param port - the port to send the alert message on
  * @param ado - Alert Data Object defining alert sent to the PD partner
- * @return EC_SUCCESS on success else EC_ERROR_INVAL
+ * @return EC_SUCCESS on success else enum ec_error_list
  */
 int pd_send_alert_msg(int port, uint32_t ado);
 

@@ -6,12 +6,12 @@
 /* Keyboard scanner module for Chrome EC */
 
 #include "adc.h"
-#include "atomic_bit.h"
 #include "battery.h"
 #include "chipset.h"
 #include "clock.h"
 #include "common.h"
 #include "console.h"
+#include "drivers/one_wire_uart.h"
 #include "ec_commands.h"
 #include "hooks.h"
 #include "host_command.h"
@@ -33,9 +33,7 @@
 
 #include <string.h>
 
-#ifdef CONFIG_ZEPHYR
-#include "drivers/one_wire_uart.h"
-#endif
+#include <zephyr/sys/atomic.h>
 
 /* Console output macros */
 #define CPUTS(outstr) cputs(CC_KEYSCAN, outstr)
@@ -166,8 +164,7 @@ void keyboard_scan_enable(int enable, enum kb_scan_disable_masks mask)
 	atomic_val_t old;
 	/* Access atomically */
 	if (enable) {
-		old = atomic_clear_bits((atomic_t *)&disable_scanning_mask,
-					mask);
+		old = atomic_and((atomic_t *)&disable_scanning_mask, ~mask);
 	} else {
 		old = atomic_or((atomic_t *)&disable_scanning_mask, mask);
 		clear_typematic_key();
@@ -223,7 +220,7 @@ static void ensure_keyboard_scanned(int old_polls)
 	 */
 	while ((kbd_polls == old_polls) &&
 	       (get_time().val - start_time < SCAN_TASK_TIMEOUT_US))
-		crec_usleep(keyscan_config.stable_scan_period_us);
+		k_usleep(keyscan_config.stable_scan_period_us);
 }
 
 #ifdef CONFIG_KEYBOARD_SCAN_ADC
@@ -303,8 +300,8 @@ static void simulate_key(int row, int col, int pressed)
 	 * That means it needs to have run and for enough time.
 	 */
 	ensure_keyboard_scanned(old_polls);
-	crec_usleep(pressed ? keyscan_config.debounce_down_us :
-			      keyscan_config.debounce_up_us);
+	k_usleep(pressed ? keyscan_config.debounce_down_us :
+			   keyscan_config.debounce_up_us);
 	ensure_keyboard_scanned(kbd_polls);
 }
 
@@ -319,8 +316,8 @@ static bool power_button_raw_pressed(void)
 /**
  * Read the raw keyboard matrix state.
  *
- * Used in pre-init, so must not make task-switching-dependent calls; udelay()
- * is ok because it's a spin-loop.
+ * Used in pre-init, so must not make task-switching-dependent calls;
+ * k_busy_wait() is ok because it's a spin-loop.
  *
  * @param state		Destination for new state (must be KEYBOARD_COLS_MAX
  *			long).
@@ -352,12 +349,12 @@ static int read_matrix(uint8_t *state, bool at_boot)
 
 		/* Select column, then wait a bit for it to settle */
 		keyboard_raw_drive_column(c);
-		udelay(keyscan_config.output_settle_us);
+		k_busy_wait(keyscan_config.output_settle_us);
 
 		/* Only add the extre delay when selecting or deselecting COL2
 		 */
 		if (c == COL2 || c == (COL2 + 1)) {
-			udelay(COL2_DELAY_US);
+			k_busy_wait(COL2_DELAY_US);
 		}
 
 		/* Read the row state */
@@ -807,7 +804,7 @@ static uint8_t keyboard_scan_column(int column)
 	uint8_t state;
 
 	keyboard_raw_drive_column(column);
-	udelay(keyscan_config.output_settle_us + COL2_DELAY_US);
+	k_busy_wait(keyscan_config.output_settle_us + COL2_DELAY_US);
 #ifdef CONFIG_KEYBOARD_SCAN_ADC
 	state = keyboard_read_adc_rows();
 #else
@@ -924,7 +921,7 @@ static void read_adc_boot_keys(uint8_t *state)
 
 		/* Select column, then wait a bit for it to settle */
 		keyboard_raw_drive_column(c);
-		udelay(keyscan_config.output_settle_us + COL2_DELAY_US);
+		k_busy_wait(keyscan_config.output_settle_us + COL2_DELAY_US);
 
 		if (adc_read_channel(ADC_KSI_00 + r) >
 		    keyscan_config.ksi_threshold_mv)
@@ -1123,8 +1120,8 @@ void keyboard_scan_task(void *u)
 				 * results.
 				 */
 				keyboard_raw_drive_column(KEYBOARD_COLUMN_ALL);
-				udelay(keyscan_config.output_settle_us +
-				       COL2_DELAY_US);
+				k_busy_wait(keyscan_config.output_settle_us +
+					    COL2_DELAY_US);
 				force_poll |= local_disable_scanning;
 			} else if (!local_disable_scanning) {
 				/*
@@ -1215,7 +1212,7 @@ void keyboard_scan_task(void *u)
 			if (wait_time < post_scan_clock_us)
 				wait_time = post_scan_clock_us;
 
-			crec_usleep(wait_time);
+			k_usleep(wait_time);
 		}
 
 		/*
@@ -1277,9 +1274,8 @@ int keyboard_factory_test_scan(void)
 	keyboard_scan_enable(0, KB_SCAN_DISABLE_LID_CLOSED);
 	flags = gpio_get_default_flags(GPIO_KBD_KSO2);
 
-	if (IS_ENABLED(CONFIG_ZEPHYR))
-		/* set all KSI/KSO pins to GPIO_ALT_FUNC_NONE */
-		keybaord_raw_config_alt(0);
+	/* set all KSI/KSO pins to GPIO_ALT_FUNC_NONE */
+	keybaord_raw_config_alt(0);
 
 	/* Set all of KSO/KSI pins to internal pull-up and input */
 	for (i = 0; i < keyboard_factory_scan_pins_used; i++) {
@@ -1289,9 +1285,6 @@ int keyboard_factory_test_scan(void)
 		port = keyboard_factory_scan_pins[i][0];
 		id = keyboard_factory_scan_pins[i][1];
 
-		if (!IS_ENABLED(CONFIG_ZEPHYR))
-			gpio_set_alternate_function(port, 1 << id,
-						    GPIO_ALT_FUNC_NONE);
 		gpio_set_flags_by_mask(port, 1 << id,
 				       GPIO_INPUT | GPIO_PULL_UP);
 	}
@@ -1324,10 +1317,7 @@ int keyboard_factory_test_scan(void)
 				       GPIO_INPUT | GPIO_PULL_UP);
 	}
 done:
-	if (IS_ENABLED(CONFIG_ZEPHYR))
-		keybaord_raw_config_alt(1);
-	else
-		gpio_config_module(MODULE_KEYBOARD_SCAN, 1);
+	keybaord_raw_config_alt(1);
 	gpio_set_flags(GPIO_KBD_KSO2, flags);
 	keyboard_scan_enable(1, KB_SCAN_DISABLE_LID_CLOSED);
 

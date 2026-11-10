@@ -24,12 +24,65 @@
 
 #include <stdint.h>
 
+#include <zephyr/sys/byteorder.h>
+#include <zephyr/sys/util.h>
 #include <zephyr/ztest.h>
 
 #define TEST_USB_PORT 0
 BUILD_ASSERT(TEST_USB_PORT == USBC_PORT_C0);
 
 #define TEST_ADDED_PDO PDO_FIXED(5000, 3000, PDO_FIXED_UNCONSTRAINED)
+
+/**
+ * @brief Partner extension that provokes a Soft Reset during an active
+ * Get_Sink_Cap DPM request and collides with the first outgoing Soft_Reset.
+ */
+static enum tcpci_partner_handler_res
+soft_reset_collision_handler(struct tcpci_partner_extension *ext,
+			     struct tcpci_partner_data *partner,
+			     const struct tcpci_emul_msg *msg)
+{
+	uint16_t hdr = sys_get_le16(msg->buf);
+
+	if (PD_HEADER_CNT(hdr) == 0 && !PD_HEADER_EXT(hdr)) {
+		if (partner->send_goodcrc &&
+		    PD_HEADER_TYPE(hdr) == PD_CTRL_GET_SINK_CAP) {
+			partner->send_goodcrc = false;
+			tcpci_partner_common_handler_mask_msg(
+				partner, PD_CTRL_SOFT_RESET, true);
+			tcpci_partner_send_control_msg(partner, PD_CTRL_WAIT,
+						       0);
+			return TCPCI_PARTNER_COMMON_MSG_HANDLED;
+		}
+
+		if (!partner->send_goodcrc &&
+		    PD_HEADER_TYPE(hdr) == PD_CTRL_SOFT_RESET) {
+			partner->extensions = ext->next;
+			partner->send_goodcrc = true;
+			tcpci_partner_common_handler_mask_msg(
+				partner, PD_CTRL_SOFT_RESET, false);
+			tcpci_partner_received_msg_status(
+				partner, TCPCI_EMUL_TX_DISCARDED);
+			tcpci_partner_send_control_msg(partner, PD_CTRL_WAIT,
+						       0);
+			return TCPCI_PARTNER_COMMON_MSG_HANDLED;
+		}
+	}
+
+	if (!partner->send_goodcrc) {
+		tcpci_partner_received_msg_status(partner,
+						  TCPCI_EMUL_TX_SUCCESS);
+	}
+	return TCPCI_PARTNER_COMMON_MSG_NOT_HANDLED;
+}
+
+static struct tcpci_partner_extension_ops soft_reset_collision_ops = {
+	.sop_msg_handler = soft_reset_collision_handler,
+};
+
+static struct tcpci_partner_extension soft_reset_collision_ext = {
+	.ops = &soft_reset_collision_ops,
+};
 
 struct usb_pe_test_fixture {
 	struct tcpci_partner_data partner_emul;
@@ -98,6 +151,10 @@ static void usb_pe_test_before(void *data)
 				       &fixture->src_ext, 0,
 				       fixture->tcpci_emul,
 				       fixture->charger_emul);
+		zassert_equal(PD_ROLE_SINK, pd_get_power_role(TEST_USB_PORT),
+			      "Expected EC to be SINK");
+		zassert_true(tc_is_attached_snk(TEST_USB_PORT),
+			     "Expected EC to be attached as SINK");
 	} else {
 		/* EC is SOURCE, partner is SINK */
 		fixture->partner_emul.extensions = tcpci_snk_emul_init(
@@ -107,12 +164,19 @@ static void usb_pe_test_before(void *data)
 		connect_sink_to_port(&fixture->partner_emul,
 				     fixture->tcpci_emul,
 				     fixture->charger_emul);
+		zassert_equal(PD_ROLE_SOURCE, pd_get_power_role(TEST_USB_PORT),
+			      "Expected EC to be SOURCE");
+		zassert_true(tc_is_attached_src(TEST_USB_PORT),
+			     "Expected EC to be attached as SOURCE");
 	}
 }
 
 static void usb_pe_test_after(void *data)
 {
 	struct usb_pe_test_fixture *fixture = data;
+
+	tcpci_partner_common_enable_pd_logging(&fixture->partner_emul, false);
+	tcpci_partner_common_clear_logged_msgs(&fixture->partner_emul);
 
 	if (fixture->partner_pd_role == PD_ROLE_SOURCE) {
 		disconnect_source_from_port(fixture->tcpci_emul,
@@ -325,6 +389,119 @@ ZTEST_F(usb_pe_test_source, test_pe_soft_reset_flow)
 }
 
 /**
+ * @brief Test Soft Reset recovery when an active DPM request is interrupted by
+ * invalid partner traffic and the initial Soft_Reset transmit is discarded
+ * (b/573715362).
+ */
+ZTEST_F(usb_pe_test_source, test_pe_soft_reset_discard_with_dpm_request)
+{
+	const uint32_t updated_pdo = PDO_FIXED(5000, 1500, 0);
+	struct tcpci_partner_data *partner = &fixture->fixture.partner_emul;
+	struct tcpci_partner_log_msg *msg;
+	int port = TEST_USB_PORT;
+	const struct {
+		enum tcpci_partner_msg_sender sender;
+		bool is_data;
+		uint8_t type;
+		enum tcpci_emul_tx_status status;
+	} expected[] = {
+		/* 1. Initial DPM request interrupted by invalid Wait */
+		{ TCPCI_PARTNER_SENDER_TCPM, false, PD_CTRL_GET_SINK_CAP,
+		  TCPCI_EMUL_TX_SUCCESS },
+		{ TCPCI_PARTNER_SENDER_PARTNER, false, PD_CTRL_WAIT,
+		  TCPCI_EMUL_TX_SUCCESS },
+		/* 2. First Soft_Reset discarded on collision, then retried */
+		{ TCPCI_PARTNER_SENDER_TCPM, false, PD_CTRL_SOFT_RESET,
+		  TCPCI_EMUL_TX_DISCARDED },
+		{ TCPCI_PARTNER_SENDER_PARTNER, false, PD_CTRL_WAIT,
+		  TCPCI_EMUL_TX_SUCCESS },
+		{ TCPCI_PARTNER_SENDER_TCPM, false, PD_CTRL_SOFT_RESET,
+		  TCPCI_EMUL_TX_SUCCESS },
+		{ TCPCI_PARTNER_SENDER_PARTNER, false, PD_CTRL_ACCEPT,
+		  TCPCI_EMUL_TX_SUCCESS },
+		{ TCPCI_PARTNER_SENDER_TCPM, true, PD_DATA_SOURCE_CAP,
+		  TCPCI_EMUL_TX_SUCCESS },
+		{ TCPCI_PARTNER_SENDER_PARTNER, true, PD_DATA_REQUEST,
+		  TCPCI_EMUL_TX_SUCCESS },
+		{ TCPCI_PARTNER_SENDER_TCPM, false, PD_CTRL_ACCEPT,
+		  TCPCI_EMUL_TX_SUCCESS },
+		{ TCPCI_PARTNER_SENDER_TCPM, false, PD_CTRL_PS_RDY,
+		  TCPCI_EMUL_TX_SUCCESS },
+		/* 3. Interrupted Get_Sink_Cap DPM request resumes */
+		{ TCPCI_PARTNER_SENDER_TCPM, false, PD_CTRL_GET_SINK_CAP,
+		  TCPCI_EMUL_TX_SUCCESS },
+		{ TCPCI_PARTNER_SENDER_PARTNER, true, PD_DATA_SINK_CAP,
+		  TCPCI_EMUL_TX_SUCCESS },
+		/*
+		 * 4. Verify PE returned to PE_SRC_Ready and continues to
+		 * service new partner requests rather than remaining wedged
+		 * after the PE_MSG_DPM_DISCARDED collision and DPM recovery.
+		 */
+		{ TCPCI_PARTNER_SENDER_PARTNER, false, PD_CTRL_GET_SOURCE_CAP,
+		  TCPCI_EMUL_TX_SUCCESS },
+		{ TCPCI_PARTNER_SENDER_TCPM, true, PD_DATA_SOURCE_CAP,
+		  TCPCI_EMUL_TX_SUCCESS },
+		{ TCPCI_PARTNER_SENDER_PARTNER, true, PD_DATA_REQUEST,
+		  TCPCI_EMUL_TX_SUCCESS },
+		{ TCPCI_PARTNER_SENDER_TCPM, false, PD_CTRL_ACCEPT,
+		  TCPCI_EMUL_TX_SUCCESS },
+		{ TCPCI_PARTNER_SENDER_TCPM, false, PD_CTRL_PS_RDY,
+		  TCPCI_EMUL_TX_SUCCESS },
+	};
+	size_t step = 0;
+
+	fixture->fixture.snk_ext.pdo[1] = updated_pdo;
+	tcpci_partner_common_enable_pd_logging(partner, true);
+
+	soft_reset_collision_ext.next = partner->extensions;
+	partner->extensions = &soft_reset_collision_ext;
+
+	pd_dpm_request(port, DPM_REQUEST_GET_SNK_CAPS);
+	zassert_true(WAIT_FOR(pd_get_snk_caps(port)[1] == updated_pdo,
+			      USEC_PER_SEC, k_sleep(K_MSEC(5))));
+
+	fixture->fixture.snk_ext.pd_completed = false;
+	zassert_ok(tcpci_partner_send_control_msg(partner,
+						  PD_CTRL_GET_SOURCE_CAP, 0));
+	zassert_true(WAIT_FOR(fixture->fixture.snk_ext.pd_completed,
+			      USEC_PER_SEC, k_sleep(K_MSEC(5))));
+	tcpci_partner_common_enable_pd_logging(partner, false);
+
+	SYS_SLIST_FOR_EACH_CONTAINER(&partner->msg_log, msg, node)
+	{
+		uint16_t hdr;
+
+		zassert_not_equal(msg->sop, TCPCI_MSG_TX_HARD_RESET,
+				  "Soft Reset escalated to Hard Reset");
+		if (msg->sop != TCPCI_MSG_SOP) {
+			continue;
+		}
+
+		zassert_true(step < ARRAY_SIZE(expected),
+			     "Unexpected extra SOP message at step %zu", step);
+
+		hdr = sys_get_le16(msg->buf);
+		zassert_equal(PD_HEADER_EXT(hdr), 0, "Step %zu: unexpected ext",
+			      step);
+		zassert_equal(msg->sender, expected[step].sender,
+			      "Step %zu: sender mismatch", step);
+		zassert_equal(PD_HEADER_CNT(hdr) > 0, expected[step].is_data,
+			      "Step %zu: data/ctrl mismatch", step);
+		zassert_equal(PD_HEADER_TYPE(hdr), expected[step].type,
+			      "Step %zu: type %u != %u", step,
+			      PD_HEADER_TYPE(hdr), expected[step].type);
+		zassert_equal(msg->status, expected[step].status,
+			      "Step %zu: status %d != %d", step, msg->status,
+			      expected[step].status);
+		step++;
+	}
+
+	zassert_equal(step, ARRAY_SIZE(expected),
+		      "Expected %zu SOP messages, got %zu",
+		      ARRAY_SIZE(expected), step);
+}
+
+/**
  * @brief Test PE Get Source Cap Extended and Get Status handling.
  */
 ZTEST_F(usb_pe_test_source, test_pe_extended_queries)
@@ -408,6 +585,32 @@ ZTEST_F(usb_pe_test_source, test_pe_sink_cap_query_as_source)
 	k_sleep(K_SECONDS(1));
 
 	zassert_true(pe_is_running(port), "PE should remain running");
+}
+
+/**
+ * @brief Test that pe_set_snk_caps() never stores more than PDO_MAX_OBJECTS
+ * PDOs.
+ */
+ZTEST_F(usb_pe_test_source, test_pe_set_snk_caps_clamps_count)
+{
+	int port = TEST_USB_PORT;
+	uint32_t pdos[PDO_MAX_OBJECTS + 3];
+
+	for (int i = 0; i < ARRAY_SIZE(pdos); i++) {
+		pdos[i] = 0xA5000000 | i;
+	}
+
+	/* More PDOs than fit: the count is clamped, the leading PDOs kept. */
+	pe_set_snk_caps(port, ARRAY_SIZE(pdos), pdos);
+	zassert_equal(pd_get_snk_cap_cnt(port), PDO_MAX_OBJECTS);
+	zassert_mem_equal(pd_get_snk_caps(port), pdos,
+			  PDO_MAX_OBJECTS * sizeof(pdos[0]));
+
+	/* Exactly full: every PDO and the full count are stored. */
+	pe_set_snk_caps(port, PDO_MAX_OBJECTS, pdos + 1);
+	zassert_equal(pd_get_snk_cap_cnt(port), PDO_MAX_OBJECTS);
+	zassert_mem_equal(pd_get_snk_caps(port), pdos + 1,
+			  PDO_MAX_OBJECTS * sizeof(pdos[0]));
 }
 
 /**

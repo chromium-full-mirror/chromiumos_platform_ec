@@ -431,12 +431,13 @@ static int set_range(struct motion_sensor_t *s, int range, int rnd)
 
 	switch (s->type) {
 	case MOTIONSENSE_TYPE_ACCEL:
-		/* Adjust and check rounded value for acc. */
-		if (rnd && (newrange < LSM6DSM_ACCEL_NORMALIZE_FS(newrange)))
-			newrange *= 2;
+		range = clamp(range, LSM6DSM_ACCEL_FS_MIN_VAL,
+			      LSM6DSM_ACCEL_FS_MAX_VAL);
+		newrange = LSM6DSM_ACCEL_NORMALIZE_FS(range);
 
-		if (newrange > LSM6DSM_ACCEL_FS_MAX_VAL)
-			newrange = LSM6DSM_ACCEL_FS_MAX_VAL;
+		/* Adjust and check rounded value for acc. */
+		if (rnd && (range > newrange))
+			newrange *= 2;
 
 		reg_val = LSM6DSM_ACCEL_FS_REG(newrange);
 		break;
@@ -455,12 +456,12 @@ static int set_range(struct motion_sensor_t *s, int range, int rnd)
 	}
 
 	ctrl_reg = LSM6DSM_RANGE_REG(s->type);
-	mutex_lock(s->mutex);
+	k_mutex_lock(s->mutex, K_FOREVER);
 	err = st_write_data_with_mask(s, ctrl_reg, LSM6DSM_RANGE_MASK, reg_val);
 	if (err == EC_SUCCESS)
 		/* Save internally gain for speed optimization. */
 		s->current_range = newrange;
-	mutex_unlock(s->mutex);
+	k_mutex_unlock(s->mutex);
 	return err;
 }
 
@@ -521,9 +522,9 @@ int lsm6dsm_set_data_rate(const struct motion_sensor_t *s, int rate, int rnd)
 		else
 			cal->batch_size = 0;
 		CPRINTS("Batch size: %d", cal->batch_size);
-		mutex_lock(s->mutex);
+		k_mutex_lock(s->mutex, K_FOREVER);
 	} else {
-		mutex_lock(s->mutex);
+		k_mutex_lock(s->mutex, K_FOREVER);
 		ctrl_reg = LSM6DSM_ODR_REG(s->type);
 		ret = st_write_data_with_mask(s, ctrl_reg, LSM6DSM_ODR_MASK,
 					      reg_val);
@@ -540,7 +541,7 @@ int lsm6dsm_set_data_rate(const struct motion_sensor_t *s, int rate, int rnd)
 			CPRINTS("Failed to enable FIFO. Error: %d", ret);
 	}
 
-	mutex_unlock(s->mutex);
+	k_mutex_unlock(s->mutex);
 	return ret;
 }
 
@@ -645,7 +646,7 @@ static int init(struct motion_sensor_t *s)
 	 * Requirement: Accel need be init before gyro and mag
 	 */
 	if (s->type == MOTIONSENSE_TYPE_ACCEL) {
-		mutex_lock(s->mutex);
+		k_mutex_lock(s->mutex, K_FOREVER);
 
 		/* Software reset procedure. */
 		reg_val = LSM6DSM_ODR_TO_REG(LSM6DSM_ODR_MIN_VAL);
@@ -692,7 +693,7 @@ static int init(struct motion_sensor_t *s)
 			 * Refer to AN4987, wait 15ms for accelerometer to doing
 			 * full reboot.
 			 */
-			crec_msleep(15);
+			k_msleep(15);
 
 			/* Power OFF Accel. */
 			ret = st_raw_write8(s->port, s->i2c_spi_addr_flags,
@@ -720,7 +721,7 @@ static int init(struct motion_sensor_t *s)
 		if (ret != EC_SUCCESS)
 			goto err_unlock;
 
-		mutex_unlock(s->mutex);
+		k_mutex_unlock(s->mutex);
 	}
 
 	/* Set default resolution common to acc and gyro. */
@@ -728,7 +729,7 @@ static int init(struct motion_sensor_t *s)
 	return sensor_init_done(s);
 
 err_unlock:
-	mutex_unlock(s->mutex);
+	k_mutex_unlock(s->mutex);
 	CPRINTS("%s: MS Init type:0x%X Error", s->name, s->type);
 	return ret;
 }
@@ -739,7 +740,7 @@ static int read_temp(const struct motion_sensor_t *s, int *temp)
 
 	RETURN_ERROR(st_raw_read_n_noinc(s->port, s->i2c_spi_addr_flags,
 					 LSM6DSM_OUT_TEMP_L_ADDR, raw, 2));
-	*temp = C_TO_K(25 + (int)raw[1]);
+	*temp = C_TO_K(25 + (int8_t)raw[1]);
 
 	return EC_SUCCESS;
 }

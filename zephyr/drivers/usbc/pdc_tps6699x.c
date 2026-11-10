@@ -21,6 +21,7 @@
 #include <zephyr/sys/minmax.h>
 LOG_MODULE_REGISTER(tps6699x, CONFIG_USBC_LOG_LEVEL);
 #include "builtin/endian.h"
+#include "task_id.h"
 #include "tps6699x_cmd.h"
 #include "tps6699x_reg.h"
 #include "usbc/pdc_utils.h"
@@ -213,6 +214,8 @@ enum state_t {
 	ST_TASK_WAIT,
 	/** ST_SUSPENDED */
 	ST_SUSPENDED,
+	/** ST_DISABLE - permanent disable on init failure */
+	ST_DISABLE,
 };
 
 /**
@@ -259,6 +262,8 @@ struct pdc_data_t {
 	bool init_done;
 	/* Init attempt counter */
 	int init_attempt;
+	/** Cached error status */
+	union error_status_t error_status;
 	/** Callback data */
 	void *cb_data;
 	/** CCI Event */
@@ -370,6 +375,7 @@ static const char *const state_names[] = {
 	[ST_ERROR_RECOVERY] = "ERROR RECOVERY",
 	[ST_TASK_WAIT] = "TASK_WAIT",
 	[ST_SUSPENDED] = "SUSPENDED",
+	[ST_DISABLE] = "PDC_DISABLED",
 };
 
 static const struct smf_state states[];
@@ -763,10 +769,9 @@ static enum smf_state_result st_init_run(void *o)
 		return SMF_EVENT_HANDLED;
 	}
 
-	/* If we've attempted init too many times, suspend instead. */
+	/* If we've attempted init too many times, disable instead. */
 	if (data->init_attempt > PDC_INIT_RETRY_MAX) {
-		suspend_comms();
-		set_state(data, ST_SUSPENDED);
+		set_state(data, ST_DISABLE);
 		return SMF_EVENT_HANDLED;
 	}
 
@@ -1093,6 +1098,42 @@ static enum smf_state_result st_suspended_run(void *o)
 	k_event_clear(&data->pdc_event, PDC_CHIP_INFO_AVAIL_EVENT);
 
 	set_state(data, ST_INIT);
+	return SMF_EVENT_HANDLED;
+}
+
+static void st_disable_entry(void *o)
+{
+	struct pdc_data_t *data = (struct pdc_data_t *)o;
+
+	print_current_state(data);
+	/* Mark the port as permanently disabled. The upper-layer state
+	 * machine will observe PDC_DRIVER_INIT_STATE_FAILED from
+	 * tps_is_init_done() in its INIT_WAIT_FOR_READY substate and
+	 * transition the port to the inert PDC_DISABLED state so the
+	 * upper layer stops polling GET_CONNECTOR_STATUS on this dead port.
+	 *
+	 * Do NOT set init_done=true here. Doing so would make
+	 * tps_is_init_done() report PDC_DRIVER_INIT_STATE_SUCCESS, causing
+	 * the upper layer to continue past INIT_WAIT_FOR_READY and issue
+	 * subsequent init subcommands (SET_SINK_PDOS, SET_SRC_PDOS, ...,
+	 * GET_CONNECTOR_STATUS) against a dead PDC.
+	 */
+	data->error_status.port_disabled = 1;
+}
+
+static enum smf_state_result st_disable_run(void *o)
+{
+	struct pdc_data_t *data = (struct pdc_data_t *)o;
+
+	/* Clear all events that might keep the thread busy, since the driver
+	 * will not be able to process them while disabled (mirrors
+	 * st_suspended_run). A stale event (e.g. a command posted just
+	 * before entering this state) would otherwise make the thread spin
+	 * forever.
+	 */
+	k_event_clear(&data->pdc_event, PDC_ALL_THREAD_WAKE_EVENTS);
+
+	/* Stay here until reset. */
 	return SMF_EVENT_HANDLED;
 }
 
@@ -2643,6 +2684,8 @@ static const struct smf_state states[] = {
 					  NULL, NULL, NULL),
 	[ST_SUSPENDED] = SMF_CREATE_STATE(st_suspended_entry, st_suspended_run,
 					  NULL, NULL, NULL),
+	[ST_DISABLE] = SMF_CREATE_STATE(st_disable_entry, st_disable_run, NULL,
+					NULL, NULL),
 };
 
 static int tps_post_command_with_callback(const struct device *dev,
@@ -2652,6 +2695,15 @@ static int tps_post_command_with_callback(const struct device *dev,
 					  struct pdc_callback *callback)
 {
 	struct pdc_data_t *data = dev->data;
+
+	/* Port is permanently disabled (PDC init failed). Return -ENOSYS so
+	 * the upper-layer state machine fast-fails instead of entering
+	 * PDC_SEND_CMD_WAIT (which would block for PDC_CMD_TIMEOUT_MS=2000ms
+	 * and exceed the watchdog's 1600ms limit).
+	 */
+	if (get_state(data) == ST_DISABLE) {
+		return -ENOSYS;
+	}
 
 	/* TODO(b/345783692): Double check this logic. */
 	if (get_state(data) != ST_IDLE) {
@@ -2851,15 +2903,47 @@ static int tps_get_connector_capability(const struct device *dev,
 static int tps_get_connector_status(const struct device *dev,
 				    union connector_status_t *cs)
 {
+	struct pdc_data_t *data = dev->data;
+
+	if (cs == NULL) {
+		return -EINVAL;
+	}
+
+	/* Port is permanently disabled (init failed). Synthesize a
+	 * "not-connected" connector status and notify the upper layer via
+	 * the CCI callback so the upper-layer state machine can transition
+	 * out of PDC_INIT (INIT_GET_CONNECTOR_STATUS) into PDC_UNATTACHED
+	 * instead of looping forever waiting for a dead PDC. This isolates
+	 * the port while letting the rest of the system proceed.
+	 */
+	if (get_state(data) == ST_DISABLE) {
+		memset(cs, 0, sizeof(*cs));
+		data->cci_event.raw_value = 0;
+		data->cci_event.command_completed = 1;
+		call_cci_event_cb(data);
+		return 0;
+	}
+
 	return tps_post_command(dev, CMD_GET_CONNECTOR_STATUS, cs);
 }
 
 static int tps_get_error_status(const struct device *dev,
 				union error_status_t *es)
 {
+	struct pdc_data_t *data = dev->data;
+
 	if (es == NULL) {
 		return -EINVAL;
 	}
+
+	/* Port is permanently disabled. Return the cached error_status so
+	 * the upper layer can react.
+	 */
+	if (get_state(data) == ST_DISABLE) {
+		es->raw_value = data->error_status.raw_value;
+		return 0;
+	}
+
 	return tps_post_command(dev, CMD_GET_ERROR_STATUS, es);
 }
 
@@ -3153,11 +3237,16 @@ static void tps_start_thread(const struct device *dev)
 	k_thread_start(data->thread);
 }
 
-static bool tps_is_init_done(const struct device *dev)
+static enum pdc_driver_init_state_t tps_is_init_done(const struct device *dev)
 {
 	struct pdc_data_t *data = dev->data;
 
-	return data->init_done;
+	if (get_state(data) == ST_DISABLE) {
+		return PDC_DRIVER_INIT_STATE_FAILED;
+	}
+
+	return data->init_done ? PDC_DRIVER_INIT_STATE_SUCCESS :
+				 PDC_DRIVER_INIT_STATE_WAIT;
 }
 
 static int tps_get_pch_data_status(const struct device *dev, uint8_t port_num,
@@ -3252,13 +3341,17 @@ static int tps_execute_ucsi_cmd(const struct device *dev, uint8_t ucsi_command,
 	/* The OS will send SET_UOR to request a data role swap. Sending SET_UOR
 	 * to the PDC will not clear the "initiate swap to DFP" bit, causing the
 	 * data role swap to immediately reverse. Intercept SET_UOR here and
-	 * call tps_set_uor() to issue a data role swap based on CMD_SET_DRS.
+	 * issue a data role swap based on CMD_SET_DRS.
 	 */
 	if (ucsi_command == UCSI_SET_UOR) {
-		union uor_t uor;
+		struct pdc_data_t *data = dev->data;
 
-		memcpy(&uor, command_specific, sizeof(union uor_t));
-		return tps_set_uor(dev, uor);
+		if (command_specific == NULL)
+			return -EINVAL;
+
+		memcpy(&data->uor, command_specific, sizeof(union uor_t));
+		return tps_post_command_with_callback(dev, CMD_SET_DRS, NULL,
+						      lpm_data_out, callback);
 	}
 
 	/* The linux UCSI driver sends GET_PD_MESSAGE to request partner (SOP)

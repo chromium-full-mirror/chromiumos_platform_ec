@@ -52,11 +52,6 @@
 #define CONFIG_CHARGER_BQ25720_IDCHG_TH2 1
 #endif
 
-#if !defined(CONFIG_ZEPHYR) && \
-	!defined(CONFIG_CHARGER_BQ25710_PKPWR_TOVLD_DEG_CUSTOM)
-#define CONFIG_CHARGER_BQ25710_PKPWR_TOVLD_DEG 0
-#endif
-
 #ifndef CONFIG_CHARGER_BQ257X0_ILIM2_VTH_CUSTOM
 /* Reduce ILIM from default of 150% to 110% */
 #define CONFIG_CHARGER_BQ257X0_ILIM2_VTH \
@@ -137,7 +132,7 @@
  * power is connected or when the EN_LWPWR bit in ChargeOption0 is clear.
  */
 static uint32_t bq25710_perf_mode_req;
-static mutex_t bq25710_perf_mode_mutex;
+static K_MUTEX_DEFINE(bq25710_perf_mode_mutex);
 #endif
 
 /*
@@ -244,7 +239,7 @@ static int bq25710_set_low_power_mode(int chgnum, int enable)
 		return rv;
 
 #ifdef CONFIG_CHARGER_BQ25710_IDCHG_LIMIT_MA
-	mutex_lock(&bq25710_perf_mode_mutex);
+	k_mutex_lock(&bq25710_perf_mode_mutex, K_FOREVER);
 	/*
 	 * Performance mode means not in low power mode. The bit that controls
 	 * this is EN_LWPWR in ChargeOption0. The 'enable' param in this
@@ -267,7 +262,7 @@ static int bq25710_set_low_power_mode(int chgnum, int enable)
 
 	rv = raw_write16(chgnum, BQ25710_REG_CHARGE_OPTION_0, reg);
 #ifdef CONFIG_CHARGER_BQ25710_IDCHG_LIMIT_MA
-	mutex_unlock(&bq25710_perf_mode_mutex);
+	k_mutex_unlock(&bq25710_perf_mode_mutex);
 #endif
 	if (rv)
 		return rv;
@@ -334,7 +329,7 @@ static int bq25710_adc_start(int chgnum, int adc_en_mask)
 	 */
 	do {
 		/* sleep 2 ms so we time out after 2x the expected time */
-		crec_msleep(2);
+		k_msleep(2);
 		raw_read16(chgnum, BQ25710_REG_ADC_OPTION, &reg);
 	} while (--tries_left &&
 		 (reg & BQ_FIELD_MASK(BQ257X0, ADC_OPTION, ADC_START)));
@@ -632,7 +627,7 @@ static void bq25710_init(int chgnum)
 	if (!system_jumped_late()) {
 		rv = bq25710_set_low_power_mode(chgnum, 0);
 		/* Allow enough time for VDDA to be powered */
-		crec_msleep(BQ25710_VDDA_STARTUP_DELAY_MSEC);
+		k_msleep(BQ25710_VDDA_STARTUP_DELAY_MSEC);
 
 		if (IS_ENABLED(
 			    CONFIG_CHARGER_BQ25710_VSYS_MIN_VOLTAGE_CUSTOM)) {

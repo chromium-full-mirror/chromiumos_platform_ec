@@ -42,8 +42,8 @@
  * @param chip Name of chip phandle property
  */
 #define EMUL_GET_USBC_BINDING_IF_PORT_MATCH(usbc_id, port, chip) \
-	COND_CODE_1(IS_EQ(USBC_PORT_NEW(usbc_id), port),         \
-		    (EMUL_GET_CHIP_BINDING(DT_PHANDLE(usbc_id, chip))), ())
+	IF_ENABLED(IS_EQ(USBC_PORT_NEW(usbc_id), port),          \
+		   (EMUL_GET_CHIP_BINDING(DT_PHANDLE(usbc_id, chip))))
 
 /**
  * @brief Get struct emul from phandle @p chip property of USBC @p port
@@ -689,6 +689,17 @@ void connect_source_to_port(struct tcpci_partner_data *partner,
 			    struct tcpci_src_emul_data *src, int pdo_index,
 			    const struct emul *tcpci_emul,
 			    const struct emul *charger_emul);
+
+/**
+ * @brief Disconnect a power source from a given port without sleeping.
+ *
+ * Note: this function currently only supports an ISL923X charger chip.
+ *
+ * @param tcpci_emul The TCPCI emulator that will be disconnected
+ * @param charger_emul The charger chip emulator
+ */
+void disconnect_source_from_port_no_wait(const struct emul *tcpci_emul,
+					 const struct emul *charger_emul);
 
 /**
  * @brief Disconnect a power source from a given port.

@@ -374,6 +374,23 @@ ZTEST(motion_sense, test_fifo_ap_interval)
 	zassert_equal(motion_sense_fifo_interrupt_needed(), 1);
 	motion_sense_fifo_reset_needed_flags();
 	zassert_equal(motion_sense_fifo_interrupt_needed(), 0);
+
+	/* Base ODR of 0, with or without ROUND_UP_FLAG, must not interrupt */
+	motion_sensors[0].config[SENSOR_CONFIG_AP].odr = 0;
+	motion_sense_fifo_stage_data(&data, &motion_sensors[0], 1, now + 20000);
+	motion_sense_fifo_commit_data();
+	zassert_equal(motion_sense_fifo_interrupt_needed(), 0);
+
+	motion_sensors[0].config[SENSOR_CONFIG_AP].odr = ROUND_UP_FLAG;
+	motion_sense_fifo_stage_data(&data, &motion_sensors[0], 1, now + 30000);
+	motion_sense_fifo_commit_data();
+	zassert_equal(motion_sense_fifo_interrupt_needed(), 0);
+
+	/* Non-zero base ODR with ROUND_UP_FLAG set must interrupt */
+	motion_sensors[0].config[SENSOR_CONFIG_AP].odr = 1 | ROUND_UP_FLAG;
+	motion_sense_fifo_stage_data(&data, &motion_sensors[0], 1, now + 40000);
+	motion_sense_fifo_commit_data();
+	zassert_equal(motion_sense_fifo_interrupt_needed(), 1);
 }
 
 ZTEST(motion_sense, test_fifo_ap_interval_multiple_samples)
@@ -526,6 +543,11 @@ ZTEST(motion_sense, test_motion_sense_power_and_init)
 	motion_sensors[0].current_range = 2;
 	zassert_ok(sensor_init_done(&motion_sensors[0]));
 	zassert_equal(sensor_board_is_lid_angle_available(), 1);
+
+	motion_sensors[0].current_range = 0;
+	zassert_ok(sensor_init_done(&motion_sensors[0]));
+	zassert_equal(motion_sensors[0].current_range,
+		      motion_sensors[0].default_range);
 }
 
 ZTEST(motion_sense, test_motion_sense_push_raw_and_spoof)

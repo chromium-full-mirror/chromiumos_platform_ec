@@ -126,11 +126,22 @@ void board_override_fan_control(int fan, int *temp)
 					CHIPSET_SHUTDOWN_THERMAL);
 				LOG_INF("Sensor detects fail for 10s, turn to force shutdown");
 			}
+		} else {
+			sensor_detect_fail_count = 0;
 		}
-
 		fan_set_rpm_mode(fan, true);
 		fan_set_rpm_target(fan, fan_table_to_rpm(fan, temp));
-	} else {
-		sensor_detect_fail_count = 0;
 	}
 }
+
+/*
+ * Clear all fan related parameters during suspend/shutdown as the fan
+ * is turned off during suspend or shutdown by pwm_fan_stop()
+ */
+static void reset_fan_params(void)
+{
+	current_level = 0;
+}
+
+DECLARE_HOOK(HOOK_CHIPSET_SUSPEND, reset_fan_params, HOOK_PRIO_DEFAULT);
+DECLARE_HOOK(HOOK_CHIPSET_SHUTDOWN, reset_fan_params, HOOK_PRIO_DEFAULT);

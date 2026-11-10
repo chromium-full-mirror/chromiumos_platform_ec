@@ -608,7 +608,7 @@ ZTEST_USER(console_cmd_pdc, test_prs)
 		      pdc_power_mgmt_request_power_swap_fake.arg0_history[0]);
 }
 
-static char get_info_project_name[12];
+static char get_info_project_name[USB_PD_CHIP_INFO_PROJECT_NAME_LEN + 1];
 static bool get_info_usb_comm_capable_as_device;
 
 /**

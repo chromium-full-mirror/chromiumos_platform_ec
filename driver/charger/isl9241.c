@@ -5,10 +5,6 @@
  * Renesas (Intersil) ISL-9241 (and RAA489110) battery charger driver.
  */
 
-/* TODO(b/175881324) */
-#ifndef CONFIG_ZEPHYR
-#include "adc.h"
-#endif
 #include "battery.h"
 #include "battery_smart.h"
 #include "charge_manager.h"
@@ -140,7 +136,7 @@ static enum ec_error_list isl9241_set_frequency(int chgnum, int freq_khz)
 	int reg;
 	int freq;
 
-	mutex_lock(&control1_mutex_isl9241);
+	k_mutex_lock(&control1_mutex_isl9241, K_FOREVER);
 	rv = isl9241_read(chgnum, ISL9241_REG_CONTROL1, &reg);
 	if (rv) {
 		CPRINTS("Could not read CONTROL1. (rv=%d)", rv);
@@ -180,7 +176,7 @@ static enum ec_error_list isl9241_set_frequency(int chgnum, int freq_khz)
 	}
 
 error:
-	mutex_unlock(&control1_mutex_isl9241);
+	k_mutex_unlock(&control1_mutex_isl9241);
 
 	return rv;
 }
@@ -294,10 +290,10 @@ static enum ec_error_list isl9241_set_mode(int chgnum, int mode)
 
 	/* POR reset */
 	if (mode & CHARGE_FLAG_POR_RESET) {
-		mutex_lock(&control3_mutex_isl9241);
+		k_mutex_lock(&control3_mutex_isl9241, K_FOREVER);
 		rv = isl9241_write(chgnum, ISL9241_REG_CONTROL3,
 				   ISL9241_CONTROL3_DIGITAL_RESET);
-		mutex_unlock(&control3_mutex_isl9241);
+		k_mutex_unlock(&control3_mutex_isl9241);
 	}
 
 	return rv;
@@ -339,7 +335,7 @@ static enum ec_error_list isl9241_get_vbus_voltage(int chgnum, int port,
 	int rv;
 
 	/* Get current Control3 value */
-	mutex_lock(&control3_mutex_isl9241);
+	k_mutex_lock(&control3_mutex_isl9241, K_FOREVER);
 	rv = isl9241_read(chgnum, ISL9241_REG_CONTROL3, &ctl3_val);
 	if (rv)
 		goto error;
@@ -374,7 +370,7 @@ error_restore_ctl3:
 		(void)isl9241_write(chgnum, ISL9241_REG_CONTROL3, ctl3_val);
 
 error:
-	mutex_unlock(&control3_mutex_isl9241);
+	k_mutex_unlock(&control3_mutex_isl9241);
 	if (rv)
 		CPRINTS("Could not read VBUS ADC! Error: %d", rv);
 
@@ -397,7 +393,7 @@ static enum ec_error_list _get_vsys_voltage(int chgnum, int port, int *voltage)
 		return rv;
 	}
 
-	crec_usleep(ISL9241_ADC_POLLING_TIME_US);
+	k_usleep(ISL9241_ADC_POLLING_TIME_US);
 
 	/* Read voltage ADC value */
 	rv = isl9241_read(chgnum, ISL9241_REG_VSYS_ADC_RESULTS, &val);
@@ -421,9 +417,9 @@ static enum ec_error_list isl9241_get_vsys_voltage(int chgnum, int port,
 {
 	int rv;
 
-	mutex_lock(&control3_mutex_isl9241);
+	k_mutex_lock(&control3_mutex_isl9241, K_FOREVER);
 	rv = _get_vsys_voltage(chgnum, port, voltage);
-	mutex_unlock(&control3_mutex_isl9241);
+	k_mutex_unlock(&control3_mutex_isl9241);
 
 	return rv;
 }
@@ -453,12 +449,12 @@ static enum ec_error_list isl9241_discharge_on_ac_weak_disable(int chgnum)
 {
 	int rv = 0;
 
-	mutex_lock(&control1_mutex_isl9241);
+	k_mutex_lock(&control1_mutex_isl9241, K_FOREVER);
 	if (!learn_mode) {
 		rv = isl9241_discharge_on_ac_unsafe(chgnum, 0);
 	}
 
-	mutex_unlock(&control1_mutex_isl9241);
+	k_mutex_unlock(&control1_mutex_isl9241);
 	return rv;
 }
 
@@ -466,9 +462,9 @@ static enum ec_error_list isl9241_discharge_on_ac(int chgnum, int enable)
 {
 	int rv = 0;
 
-	mutex_lock(&control1_mutex_isl9241);
+	k_mutex_lock(&control1_mutex_isl9241, K_FOREVER);
 	rv = isl9241_discharge_on_ac_unsafe(chgnum, enable);
-	mutex_unlock(&control1_mutex_isl9241);
+	k_mutex_unlock(&control1_mutex_isl9241);
 	return rv;
 }
 
@@ -551,7 +547,7 @@ static int isl9241_get_prochot_status(int chgnum, bool *out_low_vsys,
 	*out_acprochot = val & ISL9241_REG_INFORMATION1_AC_PROCHOT;
 
 	/* Get current Control3 value */
-	mutex_lock(&control3_mutex_isl9241);
+	k_mutex_lock(&control3_mutex_isl9241, K_FOREVER);
 	rv = isl9241_read(chgnum, ISL9241_REG_CONTROL3, &val);
 	if (rv) {
 		CPRINTS("%s: failed to read control3 (%d)", __func__, rv);
@@ -570,7 +566,7 @@ static int isl9241_get_prochot_status(int chgnum, bool *out_low_vsys,
 		restore_adc = true;
 	}
 
-	crec_usleep(ISL9241_ADC_POLLING_TIME_US);
+	k_usleep(ISL9241_ADC_POLLING_TIME_US);
 
 	/* Get input current */
 	rv = isl9241_read(chgnum, ISL9241_REG_IADP_ADC_RESULTS,
@@ -640,7 +636,7 @@ restore_control3:
 		if (rv)
 			CPRINTS("%s: failed to disable ADC (%d)", __func__, rv);
 	}
-	mutex_unlock(&control3_mutex_isl9241);
+	k_mutex_unlock(&control3_mutex_isl9241);
 
 	return rv;
 }
@@ -751,7 +747,7 @@ static enum ec_error_list isl9241_bypass_to_bat(int chgnum)
 
 	CPRINTS("bypass -> bat");
 
-	mutex_lock(&control3_mutex_isl9241);
+	k_mutex_lock(&control3_mutex_isl9241, K_FOREVER);
 	/* 1: Disable force forward buck/reverse boost. */
 	isl9241_update_force_buck_mode(chgnum, MASK_CLR);
 
@@ -777,7 +773,7 @@ static enum ec_error_list isl9241_bypass_to_bat(int chgnum)
 		      ISL9241_MV_TO_ACOK_REFERENCE(
 			      ISL9241_ACOK_REF_LOW_VOLTAGE_ADAPTER_MV));
 
-	mutex_unlock(&control3_mutex_isl9241);
+	k_mutex_unlock(&control3_mutex_isl9241);
 	return EC_SUCCESS;
 }
 
@@ -788,7 +784,7 @@ static enum ec_error_list isl9241_bypass_chrg_to_bat(int chgnum)
 {
 	CPRINTS("bypass_chrg -> bat");
 
-	mutex_lock(&control3_mutex_isl9241);
+	k_mutex_lock(&control3_mutex_isl9241, K_FOREVER);
 	/* 1: Disable force forward buck/reverse boost. */
 	isl9241_update_force_buck_mode(chgnum, MASK_CLR);
 	/* 2: Disable fast charge. */
@@ -810,7 +806,7 @@ static enum ec_error_list isl9241_bypass_chrg_to_bat(int chgnum)
 	isl9241_write(chgnum, ISL9241_REG_ACOK_REFERENCE,
 		      ISL9241_MV_TO_ACOK_REFERENCE(3600));
 
-	mutex_unlock(&control3_mutex_isl9241);
+	k_mutex_unlock(&control3_mutex_isl9241);
 	return EC_SUCCESS;
 }
 
@@ -853,7 +849,7 @@ static enum ec_error_list isl9241_nvdc_to_bypass(int chgnum)
 
 	CPRINTS("nvdc -> bypass");
 
-	mutex_lock(&control3_mutex_isl9241);
+	k_mutex_lock(&control3_mutex_isl9241, K_FOREVER);
 	/* 1: Set adapter current limit. */
 	isl9241_set_input_current_limit(chgnum, charge_current);
 
@@ -885,7 +881,7 @@ static enum ec_error_list isl9241_nvdc_to_bypass(int chgnum)
 	/* 9*: Wait until VSYS == MaxSysVoltage. */
 	deadline.val = get_time().val + ISL9241_BYPASS_VSYS_TIMEOUT_MS * MSEC;
 	do {
-		crec_msleep(ISL9241_BYPASS_VSYS_TIMEOUT_MS / 10);
+		k_msleep(ISL9241_BYPASS_VSYS_TIMEOUT_MS / 10);
 		if (_get_vsys_voltage(chgnum, 0, &vsys)) {
 			CPRINTS("Aborting bypass mode. Vsys is unknown.");
 			rv = EC_ERROR_UNKNOWN;
@@ -904,7 +900,7 @@ static enum ec_error_list isl9241_nvdc_to_bypass(int chgnum)
 		       ISL9241_CONTROL0_EN_BYPASS_GATE, MASK_SET);
 
 	/* 11: Wait 1 ms. */
-	crec_msleep(1);
+	k_msleep(1);
 
 	/* 12*: Turn off NGATE. */
 	isl9241_update(chgnum, ISL9241_REG_CONTROL0, ISL9241_CONTROL0_NGATE_OFF,
@@ -941,7 +937,7 @@ static enum ec_error_list isl9241_nvdc_to_bypass(int chgnum)
 	}
 
 unlock_control3:
-	mutex_unlock(&control3_mutex_isl9241);
+	k_mutex_unlock(&control3_mutex_isl9241);
 
 	return rv;
 }
@@ -1000,7 +996,7 @@ static enum ec_error_list isl9241_bypass_to_nvdc(int chgnum)
 		return rv;
 
 	/* 7*: Wait until VSYS == MaxSysVoltage. */
-	crec_msleep(1);
+	k_msleep(1);
 
 	/* 8*: Turn on NGATE. */
 	rv = isl9241_update(chgnum, ISL9241_REG_CONTROL0,
@@ -1098,7 +1094,7 @@ enum ec_error_list isl9241_set_acokref(int chgnum, int mv)
 	enum ec_error_list rv;
 	int acokref_mv = pdo_mv_to_acokref_mv(mv);
 
-	mutex_lock(&control3_mutex_isl9241);
+	k_mutex_lock(&control3_mutex_isl9241, K_FOREVER);
 
 	/* 1: Enable ADC for all modes.
 	 *    This prevents ACOK from a 1ms glitch.
@@ -1116,7 +1112,7 @@ enum ec_error_list isl9241_set_acokref(int chgnum, int mv)
 	isl9241_update(chgnum, ISL9241_REG_CONTROL3,
 		       ISL9241_CONTROL3_ENABLE_ADC, MASK_CLR);
 
-	mutex_unlock(&control3_mutex_isl9241);
+	k_mutex_unlock(&control3_mutex_isl9241);
 
 	return rv;
 }
@@ -1132,7 +1128,7 @@ static void isl9241_init(int chgnum)
 
 	const struct battery_info *bi = battery_get_info();
 
-	mutex_lock(&control3_mutex_isl9241);
+	k_mutex_lock(&control3_mutex_isl9241, K_FOREVER);
 	/*
 	 * Set the MaxSystemVoltage to battery maximum,
 	 * 0x00=disables switching charger states
@@ -1201,7 +1197,7 @@ static void isl9241_init(int chgnum)
 		goto init_fail;
 #endif
 
-	mutex_unlock(&control3_mutex_isl9241);
+	k_mutex_unlock(&control3_mutex_isl9241);
 
 	/*
 	 * No need to proceed with the rest of init if we sysjump'd to this
@@ -1218,7 +1214,7 @@ static void isl9241_init(int chgnum)
 	return;
 
 init_fail:
-	mutex_unlock(&control3_mutex_isl9241);
+	k_mutex_unlock(&control3_mutex_isl9241);
 	CPRINTS("Init failed!");
 }
 
@@ -1261,6 +1257,12 @@ static int isl9241_ramp_get_current_limit(int chgnum)
 }
 #endif /* CONFIG_CHARGE_RAMP_HW */
 
+static void isl9241_disable_discharge_on_ac(void)
+{
+	charger_discharge_on_ac(0);
+}
+DECLARE_DEFERRED(isl9241_disable_discharge_on_ac);
+
 /*
  * When fully charged in a low-power state, the ISL9241 may get stuck
  * in CCM. Toggle learning mode for 50 ms to enter DCM and save power.
@@ -1275,8 +1277,8 @@ static void isl9241_restart_charge_voltage_when_full(void)
 	    led_pwr_get_state() == LED_PWRS_CHARGE_NEAR_FULL &&
 	    battery_get_disconnect_state() == BATTERY_NOT_DISCONNECTED) {
 		charger_discharge_on_ac(1);
-		crec_msleep(50);
-		charger_discharge_on_ac(0);
+		hook_call_deferred(&isl9241_disable_discharge_on_ac_data,
+				   50 * MSEC);
 	}
 }
 DECLARE_HOOK(HOOK_BATTERY_SOC_CHANGE, isl9241_restart_charge_voltage_when_full,

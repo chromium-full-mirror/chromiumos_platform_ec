@@ -3,7 +3,6 @@
  * found in the LICENSE file.
  */
 
-#include "atomic.h"
 #include "cec.h"
 #include "chipset.h"
 #include "console.h"
@@ -14,6 +13,8 @@
 #include "printf.h"
 #include "task.h"
 #include "util.h"
+
+#include <zephyr/sys/atomic.h>
 
 #ifdef CONFIG_SOC_IT8XXX2
 #include <ilm.h>
@@ -38,7 +39,7 @@
  * Mutex for the read-offset of the rx queue. Needed since the
  * queue is read and flushed from different contexts
  */
-static mutex_t rx_queue_readoffset_mutex;
+static K_MUTEX_DEFINE(rx_queue_readoffset_mutex);
 
 /* Queue of completed incoming CEC messages */
 static struct cec_rx_queue cec_rx_queue[CEC_PORT_COUNT];
@@ -90,9 +91,9 @@ __soc_ram_code int cec_transfer_is_eom(const struct cec_msg_transfer *transfer,
 
 void cec_rx_queue_flush(struct cec_rx_queue *queue)
 {
-	mutex_lock(&rx_queue_readoffset_mutex);
+	k_mutex_lock(&rx_queue_readoffset_mutex, K_FOREVER);
 	queue->read_offset = 0;
-	mutex_unlock(&rx_queue_readoffset_mutex);
+	k_mutex_unlock(&rx_queue_readoffset_mutex);
 	queue->write_offset = 0;
 }
 
@@ -198,10 +199,10 @@ int cec_rx_queue_pop(struct cec_rx_queue *queue, uint8_t *msg, uint8_t *msg_len)
 {
 	int i;
 
-	mutex_lock(&rx_queue_readoffset_mutex);
+	k_mutex_lock(&rx_queue_readoffset_mutex, K_FOREVER);
 	if (queue->read_offset == queue->write_offset) {
 		/* Queue empty */
-		mutex_unlock(&rx_queue_readoffset_mutex);
+		k_mutex_unlock(&rx_queue_readoffset_mutex);
 		*msg_len = 0;
 		return -1;
 	}
@@ -209,7 +210,7 @@ int cec_rx_queue_pop(struct cec_rx_queue *queue, uint8_t *msg, uint8_t *msg_len)
 	/* The first byte in the buffer is the message length */
 	*msg_len = queue->buf[queue->read_offset];
 	if (*msg_len == 0 || *msg_len > MAX_CEC_MSG_LEN) {
-		mutex_unlock(&rx_queue_readoffset_mutex);
+		k_mutex_unlock(&rx_queue_readoffset_mutex);
 		*msg_len = 0;
 		CPRINTS("CEC: Invalid msg size in queue: %u", *msg_len);
 		return -1;
@@ -222,7 +223,7 @@ int cec_rx_queue_pop(struct cec_rx_queue *queue, uint8_t *msg, uint8_t *msg_len)
 			(queue->read_offset + 1) % CEC_RX_BUFFER_SIZE;
 	}
 
-	mutex_unlock(&rx_queue_readoffset_mutex);
+	k_mutex_unlock(&rx_queue_readoffset_mutex);
 
 	return 0;
 }
@@ -244,28 +245,34 @@ test_export_static void send_mkbp_event(int port, uint32_t event)
 	if ((event & CEC_SEND_RESULTS) &&
 	    (cec_mkbp_events[port] & CEC_SEND_RESULTS)) {
 		CPRINTS("CEC%d warning: host did not clear send result", port);
-		atomic_clear_bits(&cec_mkbp_events[port], CEC_SEND_RESULTS);
+		atomic_and(&cec_mkbp_events[port], ~CEC_SEND_RESULTS);
 	}
 
 	atomic_or(&cec_mkbp_events[port], event);
 	mkbp_send_event(EC_MKBP_EVENT_CEC_EVENT);
 }
 
-static enum ec_status hc_cec_write(struct host_cmd_handler_args *args)
+static enum ec_host_cmd_status
+hc_cec_write(struct ec_host_cmd_handler_args *args)
 {
 	int port;
 	uint8_t msg_len;
 	const uint8_t *msg;
 
 	if (args->version == 0) {
-		const struct ec_params_cec_write *params = args->params;
+		const struct ec_params_cec_write *params = args->input_buf;
 
 		/* v0 only supports one port, so we assume it's port 0. */
 		port = 0;
-		msg_len = args->params_size;
+		msg_len = args->input_buf_size;
 		msg = params->msg;
 	} else {
-		const struct ec_params_cec_write_v1 *params_v1 = args->params;
+		const struct ec_params_cec_write_v1 *params_v1 =
+			args->input_buf;
+
+		if (args->input_buf_size <
+		    sizeof(struct ec_params_cec_write_v1))
+			return EC_HOST_CMD_REQUEST_TRUNCATED;
 
 		port = params_v1->port;
 		msg_len = params_v1->msg_len;
@@ -273,45 +280,47 @@ static enum ec_status hc_cec_write(struct host_cmd_handler_args *args)
 	}
 
 	if (port < 0 || port >= CEC_PORT_COUNT)
-		return EC_RES_INVALID_PARAM;
+		return EC_HOST_CMD_INVALID_PARAM;
 
 	if (msg_len == 0 || msg_len > MAX_CEC_MSG_LEN)
-		return EC_RES_INVALID_PARAM;
+		return EC_HOST_CMD_INVALID_PARAM;
 
 	if (cec_config[port].drv->send(port, msg, msg_len) != EC_SUCCESS)
-		return EC_RES_BUSY;
+		return EC_HOST_CMD_BUSY;
 
-	return EC_RES_SUCCESS;
+	return EC_HOST_CMD_SUCCESS;
 }
-DECLARE_HOST_COMMAND(EC_CMD_CEC_WRITE_MSG, hc_cec_write,
-		     EC_VER_MASK(0) | EC_VER_MASK(1));
+EC_HOST_CMD_HANDLER_UNBOUND(EC_CMD_CEC_WRITE_MSG, hc_cec_write,
+			    EC_VER_MASK(0) | EC_VER_MASK(1));
 
-static enum ec_status hc_cec_read(struct host_cmd_handler_args *args)
+static enum ec_host_cmd_status
+hc_cec_read(struct ec_host_cmd_handler_args *args)
 {
-	const struct ec_params_cec_read *params = args->params;
-	struct ec_response_cec_read *response = args->response;
+	const struct ec_params_cec_read *params = args->input_buf;
+	struct ec_response_cec_read *response = args->output_buf;
 	int port = params->port;
 
 	if (port < 0 || port >= CEC_PORT_COUNT)
-		return EC_RES_INVALID_PARAM;
+		return EC_HOST_CMD_INVALID_PARAM;
 
 	if (cec_rx_queue_pop(&cec_rx_queue[port], response->msg,
 			     &response->msg_len) != 0)
-		return EC_RES_UNAVAILABLE;
+		return EC_HOST_CMD_UNAVAILABLE;
 
-	args->response_size = sizeof(*response);
+	args->output_buf_size = sizeof(*response);
 
-	return EC_RES_SUCCESS;
+	return EC_HOST_CMD_SUCCESS;
 }
-DECLARE_HOST_COMMAND(EC_CMD_CEC_READ_MSG, hc_cec_read, EC_VER_MASK(0));
+EC_HOST_CMD_HANDLER(EC_CMD_CEC_READ_MSG, hc_cec_read, EC_VER_MASK(0),
+		    struct ec_params_cec_read, struct ec_response_cec_read);
 
-static enum ec_status cec_set_enable(int port, uint8_t enable)
+static enum ec_host_cmd_status cec_set_enable(int port, uint8_t enable)
 {
 	if (enable != 0 && enable != 1)
-		return EC_RES_INVALID_PARAM;
+		return EC_HOST_CMD_INVALID_PARAM;
 
 	if (cec_config[port].drv->set_enable(port, enable) != EC_SUCCESS)
-		return EC_RES_ERROR;
+		return EC_HOST_CMD_ERROR;
 
 	if (enable == 0) {
 		/* If disabled, clear the rx queue and events. */
@@ -319,29 +328,30 @@ static enum ec_status cec_set_enable(int port, uint8_t enable)
 		cec_mkbp_events[port] = 0;
 	}
 
-	return EC_RES_SUCCESS;
+	return EC_HOST_CMD_SUCCESS;
 }
 
-static enum ec_status cec_set_logical_addr(int port, uint8_t logical_addr)
+static enum ec_host_cmd_status cec_set_logical_addr(int port,
+						    uint8_t logical_addr)
 {
 	if (logical_addr >= CEC_BROADCAST_ADDR &&
 	    logical_addr != CEC_INVALID_ADDR)
-		return EC_RES_INVALID_PARAM;
+		return EC_HOST_CMD_INVALID_PARAM;
 
 	if (cec_config[port].drv->set_logical_addr(port, logical_addr) !=
 	    EC_SUCCESS)
-		return EC_RES_ERROR;
+		return EC_HOST_CMD_ERROR;
 
-	return EC_RES_SUCCESS;
+	return EC_HOST_CMD_SUCCESS;
 }
 
-static enum ec_status hc_cec_set(struct host_cmd_handler_args *args)
+static enum ec_host_cmd_status hc_cec_set(struct ec_host_cmd_handler_args *args)
 {
-	const struct ec_params_cec_set *params = args->params;
+	const struct ec_params_cec_set *params = args->input_buf;
 	int port = params->port;
 
 	if (port < 0 || port >= CEC_PORT_COUNT)
-		return EC_RES_INVALID_PARAM;
+		return EC_HOST_CMD_INVALID_PARAM;
 
 	switch (params->cmd) {
 	case CEC_CMD_ENABLE:
@@ -350,50 +360,55 @@ static enum ec_status hc_cec_set(struct host_cmd_handler_args *args)
 		return cec_set_logical_addr(port, params->val);
 	}
 
-	return EC_RES_INVALID_PARAM;
+	return EC_HOST_CMD_INVALID_PARAM;
 }
-DECLARE_HOST_COMMAND(EC_CMD_CEC_SET, hc_cec_set, EC_VER_MASK(0));
+EC_HOST_CMD_HANDLER_REQ_ONLY(EC_CMD_CEC_SET, hc_cec_set, EC_VER_MASK(0),
+			     struct ec_params_cec_set);
 
-static enum ec_status hc_cec_get(struct host_cmd_handler_args *args)
+static enum ec_host_cmd_status hc_cec_get(struct ec_host_cmd_handler_args *args)
 {
-	struct ec_response_cec_get *response = args->response;
-	const struct ec_params_cec_get *params = args->params;
+	struct ec_response_cec_get *response = args->output_buf;
+	const struct ec_params_cec_get *params = args->input_buf;
 	int port = params->port;
 
 	if (port < 0 || port >= CEC_PORT_COUNT)
-		return EC_RES_INVALID_PARAM;
+		return EC_HOST_CMD_INVALID_PARAM;
 
 	switch (params->cmd) {
 	case CEC_CMD_ENABLE:
 		if (cec_config[port].drv->get_enable(port, &response->val) !=
 		    EC_SUCCESS)
-			return EC_RES_ERROR;
+			return EC_HOST_CMD_ERROR;
 		break;
 	case CEC_CMD_LOGICAL_ADDRESS:
 		if (cec_config[port].drv->get_logical_addr(
 			    port, &response->val) != EC_SUCCESS)
-			return EC_RES_ERROR;
+			return EC_HOST_CMD_ERROR;
 		break;
 	default:
-		return EC_RES_INVALID_PARAM;
+		return EC_HOST_CMD_INVALID_PARAM;
 	}
 
-	args->response_size = sizeof(*response);
+	args->output_buf_size = sizeof(*response);
 
-	return EC_RES_SUCCESS;
+	return EC_HOST_CMD_SUCCESS;
 }
-DECLARE_HOST_COMMAND(EC_CMD_CEC_GET, hc_cec_get, EC_VER_MASK(0));
+EC_HOST_CMD_HANDLER(EC_CMD_CEC_GET, hc_cec_get, EC_VER_MASK(0),
+		    struct ec_params_cec_get, struct ec_response_cec_get);
 
-static enum ec_status hc_port_count(struct host_cmd_handler_args *args)
+static enum ec_host_cmd_status
+hc_port_count(struct ec_host_cmd_handler_args *args)
 {
-	struct ec_response_cec_port_count *response = args->response;
+	struct ec_response_cec_port_count *response = args->output_buf;
 
 	response->port_count = CEC_PORT_COUNT;
-	args->response_size = sizeof(*response);
+	args->output_buf_size = sizeof(*response);
 
-	return EC_RES_SUCCESS;
+	return EC_HOST_CMD_SUCCESS;
 }
-DECLARE_HOST_COMMAND(EC_CMD_CEC_PORT_COUNT, hc_port_count, EC_VER_MASK(0));
+EC_HOST_CMD_HANDLER_RESP_ONLY(EC_CMD_CEC_PORT_COUNT, hc_port_count,
+			      EC_VER_MASK(0),
+			      struct ec_response_cec_port_count);
 
 static int cec_get_next_event(uint8_t *out)
 {

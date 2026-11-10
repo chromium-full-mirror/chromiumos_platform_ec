@@ -46,6 +46,10 @@
 				EGIS660_REAL_IMAGE_PROPS
 				capture-type = "FINGERPRINT_CAPTURE_TYPE_PATTERN1";
 			};
+			config4 {
+				EGIS660_REAL_IMAGE_PROPS
+				capture-type = "FINGERPRINT_CAPTURE_TYPE_PATTERN2";
+			};
 		};
 
 		irq-gpios = <&gpio0 9 GPIO_ACTIVE_HIGH>;
@@ -56,8 +60,8 @@
 
 &p25q16 {
 	partitions {
-		egis660_apns_data: partition@100000 {
-			label = "egis660_apns_data";
+		fingerprint_sensor_vendor_data: partition@100000 {
+			label = "fingerprint_sensor_vendor_data";
 			reg = <0x100000 DT_SIZE_K(8)>;
 		};
 	};

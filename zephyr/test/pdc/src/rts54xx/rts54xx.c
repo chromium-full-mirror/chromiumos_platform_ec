@@ -630,3 +630,55 @@ ZTEST_USER(rts54xx, test_dfp_and_ufp_vdo_ack_programming)
 	dfp.raw_value = dfp_vdo_raw;
 	zassert_equal(dfp.usb4_cap, 0, "DFP VDO USB4 cap for dev2 should be 0");
 }
+
+/* Poll interval/timeout when waiting for the driver to enter ST_DISABLE. */
+#define ST_DISABLE_POLL_MS 100
+#define ST_DISABLE_POLL_TIMEOUT_US (10 * USEC_PER_SEC)
+
+ZTEST_USER(rts54xx, test_st_disable_on_i2c_failure)
+{
+	union error_status_t es;
+
+	/* Port starts initialized. */
+	zassert_equal(PDC_DRIVER_INIT_STATE_SUCCESS, pdc_is_init_done(dev));
+
+	/* Fail all I2C writes so that every init attempt fails in ST_WRITE.
+	 * The driver exhausts its error-recovery retries and enters
+	 * ST_DISABLE.
+	 */
+	i2c_common_emul_set_write_fail_reg(
+		rts5453p_emul_get_i2c_common_data(emul),
+		I2C_COMMON_EMUL_FAIL_ALL_REG);
+
+	/* Trigger a PDC reset which restarts init. With I2C failing, the
+	 * port cycles through error recovery until it enters ST_DISABLE.
+	 */
+	zassert_ok(pdc_reset(dev));
+
+	/* A port in ST_DISABLE reports its cached error status synchronously
+	 * with port_disabled set. In every other state pdc_get_error_status()
+	 * returns -EBUSY, making this a race-free indicator.
+	 */
+	zassert_true(WAIT_FOR((memset(&es, 0, sizeof(es)),
+			       pdc_get_error_status(dev, &es) == 0 &&
+				       es.port_disabled),
+			      ST_DISABLE_POLL_TIMEOUT_US,
+			      k_sleep(K_MSEC(ST_DISABLE_POLL_MS))),
+		     "PDC did not enter ST_DISABLE");
+
+	/* The port is permanently disabled. pdc_is_init_done() reports
+	 * FAILED so the upper layer stops polling GET_CONNECTOR_STATUS on
+	 * this dead port.
+	 */
+	zassert_equal(PDC_DRIVER_INIT_STATE_FAILED, pdc_is_init_done(dev));
+
+	/* Clear the I2C failure injection and recover via pdc_reset(), which
+	 * restarts init from ST_DISABLE.
+	 */
+	i2c_common_emul_set_write_fail_reg(
+		rts5453p_emul_get_i2c_common_data(emul),
+		I2C_COMMON_EMUL_NO_FAIL_REG);
+	zassert_ok(pdc_reset(dev));
+	zassert_ok(emul_pdc_idle_wait(emul));
+	zassert_equal(PDC_DRIVER_INIT_STATE_SUCCESS, pdc_is_init_done(dev));
+}

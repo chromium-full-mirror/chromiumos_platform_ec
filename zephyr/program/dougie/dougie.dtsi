@@ -1,0 +1,37 @@
+/* Copyright 2026 The ChromiumOS Authors
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file.
+ */
+
+#include <zephyr/dt-bindings/pwm/it8xxx2_pwm.h>
+
+/* Project-specific overrides */
+&sha0 {
+	status = "okay";
+};
+
+/ {
+	aliases {
+		gpio-wp = &gpio_ec_wp_od;
+	};
+
+	named-gpios {
+		/* The legacy system code requires GPIO_ENTERING_RW symbol */
+		gpio_ec_entering_rw: ec_entering_rw {
+			enum-name = "GPIO_ENTERING_RW";
+		};
+	};
+};
+
+&pwm2 {
+	prescaler-cx = <PWM_PRESCALER_C6>;
+};
+
+&pwm3 {
+	prescaler-cx = <PWM_PRESCALER_C6>;
+};
+
+&pwm4 {
+	prescaler-cx = <PWM_PRESCALER_C6>;
+};
+

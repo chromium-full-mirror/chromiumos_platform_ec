@@ -45,6 +45,18 @@
 			offset = <0x0f>;
 			size = <0x01>;
 		};
+		chg_limit_lower: chg-limit-lower {
+			offset = <0x10>;
+			size = <0x01>;
+		};
+		chg_limit_upper: chg-limit-upper {
+			offset = <0x11>;
+			size = <0x01>;
+		};
+		chg_limit_flags: chg-limit-flags {
+			offset = <0x12>;
+			size = <0x01>;
+		};
 		ramlog {
 			offset = <0x20>;
 			size = <0x01>;
@@ -97,4 +109,16 @@
 
 &mdc {
 	status = "okay";
+};
+
+&pcc {
+	clock-frequency = <DT_FREQ_M(90)>; /* OFMCLK runs at 90 MHz */
+	core-prescaler = <2>; /* CORE_CLK runs at 45 MHz */
+	apb1-prescaler = <6>; /* APB1_CLK runs at 15 MHz */
+	apb2-prescaler = <2>; /* APB2_CLK runs at 45 MHz */
+	apb3-prescaler = <2>; /* APB3_CLK runs at 45 MHz */
+};
+
+&itims {
+	clock-frequency = <45000000>;
 };

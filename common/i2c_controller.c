@@ -10,17 +10,14 @@
 #include "crc8.h"
 #include "host_command.h"
 #include "i2c.h"
+#include "i2c/i2c.h"
 #include "i2c_private.h"
 #include "printf.h"
 #include "system.h"
 #include "task.h"
 #include "util.h"
 
-#ifdef CONFIG_ZEPHYR
-#include "i2c/i2c.h"
-
 #include <zephyr/drivers/i2c.h>
-#endif /* CONFIG_ZEPHYR */
 
 #define CPUTS(outstr) cputs(CC_I2C, outstr)
 #define CPRINTS(format, args...) cprints(CC_I2C, format, ##args)
@@ -31,13 +28,12 @@
 #define I2C_CONTROLLER_COUNT I2C_PORT_COUNT
 #endif
 
-static mutex_t port_mutex[I2C_CONTROLLER_COUNT];
+static struct k_mutex port_mutex[I2C_CONTROLLER_COUNT];
 
 /* A bitmap of the controllers which are currently servicing a request. */
 static volatile uint32_t i2c_port_active_list;
 BUILD_ASSERT(ARRAY_SIZE(port_mutex) < 32);
 
-#ifdef CONFIG_ZEPHYR
 static int init_port_mutex(void)
 {
 	for (int i = 0; i < ARRAY_SIZE(port_mutex); ++i)
@@ -46,7 +42,6 @@ static int init_port_mutex(void)
 	return 0;
 }
 SYS_INIT(init_port_mutex, POST_KERNEL, 50);
-#endif /* CONFIG_ZEPHYR */
 
 /**
  * Non-deterministically test the lock status of the port.  If another task
@@ -68,19 +63,10 @@ const struct i2c_port_t *get_i2c_port(const int port)
 {
 	int i;
 
-	/*
-	 * If the EC's I2C driver implementation is task event based and the
-	 * I2C is accessed before the task is initialized, it causes the system
-	 * panic hence these I2C will fall back to bitbang mode if enabled at
-	 * board level and will again switch back to event based I2C upon task
-	 * initialization.
-	 */
-	if (task_start_called()) {
-		/* Find the matching port in i2c_ports[] table. */
-		for (i = 0; i < i2c_ports_used; i++) {
-			if (i2c_ports[i].port == port)
-				return &i2c_ports[i];
-		}
+	/* Find the matching port in i2c_ports[] table. */
+	for (i = 0; i < i2c_ports_used; i++) {
+		if (i2c_ports[i].port == port)
+			return &i2c_ports[i];
 	}
 
 	return NULL;
@@ -100,7 +86,6 @@ int i2c_xfer_unlocked(const int port, const uint16_t addr_flags,
 	}
 
 	for (i = 0; i <= CONFIG_I2C_NACK_RETRY_COUNT; i++) {
-#ifdef CONFIG_ZEPHYR
 		struct i2c_msg msg[2];
 		int num_msgs = 0;
 
@@ -160,20 +145,6 @@ int i2c_xfer_unlocked(const int port, const uint16_t addr_flags,
 		default:
 			return EC_ERROR_UNKNOWN;
 		}
-#else
-		const struct i2c_port_t *i2c_port = get_i2c_port(port);
-
-		if (i2c_port == NULL)
-			return EC_ERROR_INVAL;
-
-		ret = chip_i2c_xfer(port, no_pec_af, out, out_size, in, in_size,
-				    flags);
-
-		if (IS_ENABLED(CONFIG_I2C_DEBUG)) {
-			i2c_trace_notify(port, addr_flags, out, out_size, in,
-					 in_size, ret);
-		}
-#endif /* !CONFIG_ZEPHYR */
 		if (ret != EC_ERROR_BUSY)
 			break;
 	}
@@ -201,7 +172,7 @@ void i2c_lock(int port, int lock)
 	if (lock) {
 		uint32_t irq_lock_key;
 
-		mutex_lock(port_mutex + port);
+		k_mutex_lock(port_mutex + port, K_FOREVER);
 
 		/* Disable interrupt during changing counter for preemption. */
 		irq_lock_key = irq_lock();
@@ -221,7 +192,7 @@ void i2c_lock(int port, int lock)
 
 		irq_unlock(irq_lock_key);
 
-		mutex_unlock(port_mutex + port);
+		k_mutex_unlock(port_mutex + port);
 	}
 }
 
@@ -231,7 +202,7 @@ void i2c_prepare_sysjump(void)
 
 	/* Lock all i2c controllers */
 	for (i = 0; i < ARRAY_SIZE(port_mutex); ++i)
-		mutex_lock(port_mutex + i);
+		k_mutex_lock(port_mutex + i, K_FOREVER);
 }
 
 static uint8_t i2c_header_crc8(const uint16_t addr_flags, uint8_t reg)
@@ -812,18 +783,18 @@ enum i2c_freq i2c_get_freq(int port)
 
 #ifdef CONFIG_HOSTCMD_I2C_CONTROL
 
-static enum ec_status i2c_command_control(struct host_cmd_handler_args *args)
+static enum ec_host_cmd_status
+i2c_command_control(struct ec_host_cmd_handler_args *args)
 {
-#ifdef CONFIG_ZEPHYR
 	/* For Zephyr, convert the received remote port number to a port number
 	 * used in EC.
 	 */
-	((struct ec_params_i2c_control *)(args->params))->port =
-		i2c_get_port_from_remote_port(
-			((struct ec_params_i2c_control *)(args->params))->port);
-#endif
-	const struct ec_params_i2c_control *params = args->params;
-	struct ec_response_i2c_control *resp = args->response;
+	((struct ec_params_i2c_control *)(uintptr_t)(args->input_buf))
+		->port = i2c_get_port_from_remote_port(
+		((struct ec_params_i2c_control *)(uintptr_t)(args->input_buf))
+			->port);
+	const struct ec_params_i2c_control *params = args->input_buf;
+	struct ec_response_i2c_control *resp = args->output_buf;
 	enum i2c_freq old_i2c_freq;
 	enum i2c_freq new_i2c_freq;
 	const struct i2c_port_t *cfg;
@@ -834,7 +805,7 @@ static enum ec_status i2c_command_control(struct host_cmd_handler_args *args)
 
 	cfg = get_i2c_port(params->port);
 	if (!cfg)
-		return EC_RES_INVALID_PARAM;
+		return EC_HOST_CMD_INVALID_PARAM;
 
 	switch (params->cmd) {
 	case EC_I2C_CONTROL_GET_SPEED:
@@ -848,30 +819,32 @@ static enum ec_status i2c_command_control(struct host_cmd_handler_args *args)
 		new_i2c_speed_khz = params->cmd_params.speed_khz;
 		new_i2c_freq = i2c_khz_to_freq(new_i2c_speed_khz);
 		if (new_i2c_freq == I2C_FREQ_COUNT)
-			return EC_RES_INVALID_PARAM;
+			return EC_HOST_CMD_INVALID_PARAM;
 
 		old_i2c_freq = i2c_get_freq(cfg->port);
 		old_i2c_speed_khz = i2c_freq_to_khz(old_i2c_freq);
 
 		rv = i2c_set_freq(cfg->port, new_i2c_freq);
 		if (rv != EC_SUCCESS)
-			return EC_RES_ERROR;
+			return EC_HOST_CMD_ERROR;
 
 		CPRINTS("I2C%d speed changed from %d kHz to %d kHz",
 			params->port, old_i2c_speed_khz, new_i2c_speed_khz);
 		break;
 
 	default:
-		return EC_RES_INVALID_COMMAND;
+		return EC_HOST_CMD_INVALID_COMMAND;
 	}
 
 	resp->cmd_response.speed_khz = old_i2c_speed_khz;
-	args->response_size = sizeof(*resp);
+	args->output_buf_size = sizeof(*resp);
 
-	return EC_RES_SUCCESS;
+	return EC_HOST_CMD_SUCCESS;
 }
 
-DECLARE_HOST_COMMAND(EC_CMD_I2C_CONTROL, i2c_command_control, EC_VER_MASK(0));
+EC_HOST_CMD_HANDLER(EC_CMD_I2C_CONTROL, i2c_command_control, EC_VER_MASK(0),
+		    struct ec_params_i2c_control,
+		    struct ec_response_i2c_control);
 
 #endif /* CONFIG_HOSTCMD_I2C_CONTROL */
 
@@ -1023,7 +996,7 @@ static int command_i2ctest(int argc, const char **argv)
 			} while (j);
 		}
 
-		crec_usleep(udelay);
+		k_usleep(udelay);
 	}
 
 	ccprintf("\n**********final result **********\n");
@@ -1035,7 +1008,7 @@ static int command_i2ctest(int argc, const char **argv)
 		for (i = 0; i < i2c_test_dev_used; i++) {
 			i2c_s_test = i2c_stress_tests[i].i2c_test;
 			i2c_test_status(&i2c_s_test->test_results, i + 1);
-			crec_msleep(100);
+			k_msleep(100);
 		}
 	}
 	cflush();

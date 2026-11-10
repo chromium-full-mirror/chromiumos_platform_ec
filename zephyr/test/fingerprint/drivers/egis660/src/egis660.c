@@ -21,6 +21,7 @@
 #include <fingerprint/v4l2_types.h>
 #include <fingerprint_egis660.h>
 #include <fingerprint_egis660_private.h>
+#include <fpsensor/fpsensor_vendor_data.h>
 
 DEFINE_FFF_GLOBALS;
 
@@ -39,6 +40,18 @@ static void *egis660_setup(void)
 	zassert_not_null(fixture.dev);
 	zassert_not_null(fixture.target);
 	return &fixture;
+}
+
+static void egis660_before(void *f)
+{
+	ARG_UNUSED(f);
+
+	/*
+	 * The APNS storage is backed by the vendor data cache, which fp_task
+	 * initializes on real hardware. Do it here (and again before every
+	 * test, so pending modifications don't leak between tests).
+	 */
+	zassert_ok(fp_vendor_data_init());
 }
 
 /* Converts capture types from the ec domain to the egis domain. */
@@ -64,7 +77,7 @@ static const struct fingerprint_image_frame_params
 		NUM_IMAGE_CAPTURE_TYPES, EGIS660_IMAGE_FRAME_PARAM_INITIALIZER,
 		(, ), DT_NODELABEL(egis660)) };
 
-ZTEST_SUITE(egis660, NULL, egis660_setup, NULL, NULL, NULL);
+ZTEST_SUITE(egis660, NULL, egis660_setup, egis660_before, NULL, NULL);
 
 ZTEST_F(egis660, test_init_success)
 {
@@ -350,13 +363,15 @@ ZTEST_F(egis660, test_acquire_image_wrong_capture_type)
 		      -EINVAL);
 }
 
-/* Flash test helpers — simulate APNS flash operations */
+/* APNS storage tests — exercise the PAL backed by the vendor data cache */
+
+#define APNS_TEST_ERASE_SIZE 4096
 
 ZTEST_F(egis660, test_flash_erase)
 {
 	int rc;
 
-	rc = egis660_pal_flash_erase(0, CONFIG_FLASH_ERASE_SIZE);
+	rc = egis660_pal_flash_erase(0, APNS_TEST_ERASE_SIZE);
 	zassert_ok(rc, "flash_erase failed: %d", rc);
 
 	/* Verify erased content */
@@ -375,13 +390,12 @@ ZTEST_F(egis660, test_flash_write_and_read)
 	int rc;
 
 	/* Erase first */
-	rc = egis660_pal_flash_erase(0, CONFIG_FLASH_ERASE_SIZE);
+	rc = egis660_pal_flash_erase(0, APNS_TEST_ERASE_SIZE);
 	zassert_ok(rc, "flash_erase failed: %d", rc);
 
-	/* Write test data - must be aligned to CONFIG_FLASH_WRITE_IDEAL_SIZE */
-	const uint8_t test_data[CONFIG_FLASH_WRITE_IDEAL_SIZE] = {
-		0x12, 0x34, 0x56, 0x78, 0xAB, 0xCD, 0xEF, 0x01
-	};
+	/* The storage has no alignment constraints */
+	const uint8_t test_data[] = { 0x12, 0x34, 0x56, 0x78,
+				      0xAB, 0xCD, 0xEF, 0x01 };
 
 	rc = egis660_pal_flash_write(0, test_data, sizeof(test_data));
 	zassert_ok(rc, "flash_write failed: %d", rc);
@@ -399,14 +413,12 @@ ZTEST_F(egis660, test_flash_write_offset)
 {
 	int rc;
 
-	rc = egis660_pal_flash_erase(0, CONFIG_FLASH_ERASE_SIZE);
+	rc = egis660_pal_flash_erase(0, APNS_TEST_ERASE_SIZE);
 	zassert_ok(rc, "flash_erase failed: %d", rc);
 
-	/* Write at a non-zero offset - aligned to CONFIG_FLASH_WRITE_IDEAL_SIZE
-	 */
-	const uint8_t test_data[CONFIG_FLASH_WRITE_IDEAL_SIZE] = { 0xDE, 0xAD,
-								   0xBE, 0xEF };
-	const uint32_t offset = CONFIG_FLASH_WRITE_IDEAL_SIZE;
+	/* Write at a non-zero, unaligned offset */
+	const uint8_t test_data[] = { 0xDE, 0xAD, 0xBE, 0xEF };
+	const uint32_t offset = 13;
 
 	rc = egis660_pal_flash_write(offset, test_data, sizeof(test_data));
 	zassert_ok(rc, "flash_write at offset failed: %d", rc);
@@ -427,8 +439,8 @@ ZTEST_F(egis660, test_flash_out_of_bounds)
 	/* Read/write/erase beyond partition size should fail */
 	zassert_not_ok(egis660_pal_flash_read(APNS_TEST_SIZE, 4, buf));
 	zassert_not_ok(egis660_pal_flash_write(APNS_TEST_SIZE, buf, 4));
-	zassert_not_ok(egis660_pal_flash_erase(APNS_TEST_SIZE,
-					       CONFIG_FLASH_ERASE_SIZE));
+	zassert_not_ok(
+		egis660_pal_flash_erase(APNS_TEST_SIZE, APNS_TEST_ERASE_SIZE));
 
 	/* Write spanning beyond partition boundary */
 	zassert_not_ok(egis660_pal_flash_write(APNS_TEST_SIZE - 2, buf, 4));
@@ -444,21 +456,20 @@ ZTEST_F(egis660, test_flash_overwrite)
 {
 	int rc;
 
-	/* Erase and write initial data - aligned to
-	 * CONFIG_FLASH_WRITE_IDEAL_SIZE */
-	rc = egis660_pal_flash_erase(0, CONFIG_FLASH_ERASE_SIZE);
+	/* Erase and write initial data */
+	rc = egis660_pal_flash_erase(0, APNS_TEST_ERASE_SIZE);
 	zassert_ok(rc, "flash_erase failed: %d", rc);
 
-	const uint8_t data1[CONFIG_FLASH_WRITE_IDEAL_SIZE] = { 0xAA };
+	const uint8_t data1[8] = { 0xAA };
 
 	rc = egis660_pal_flash_write(0, data1, sizeof(data1));
 	zassert_ok(rc, "flash_write data1 failed: %d", rc);
 
 	/* Erase and write different data at same location */
-	rc = egis660_pal_flash_erase(0, CONFIG_FLASH_ERASE_SIZE);
+	rc = egis660_pal_flash_erase(0, APNS_TEST_ERASE_SIZE);
 	zassert_ok(rc, "flash_erase second failed: %d", rc);
 
-	const uint8_t data2[CONFIG_FLASH_WRITE_IDEAL_SIZE] = { 0x55 };
+	const uint8_t data2[8] = { 0x55 };
 
 	rc = egis660_pal_flash_write(0, data2, sizeof(data2));
 	zassert_ok(rc, "flash_write data2 failed: %d", rc);

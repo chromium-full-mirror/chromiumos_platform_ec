@@ -3,13 +3,6 @@
  * found in the LICENSE file.
  */
 
-#ifdef CONFIG_ZEPHYR
-#include <zephyr/devicetree.h>
-#include <zephyr/sys/byteorder.h>
-#else
-#include "byteorder.h"
-#endif
-
 #include "common.h"
 #include "console.h"
 #include "driver/touchpad_elan.h"
@@ -30,6 +23,9 @@
 #include "util.h"
 #include "watchdog.h"
 
+#include <zephyr/devicetree.h>
+#include <zephyr/sys/byteorder.h>
+
 /* Console output macros */
 #define CPUTS(outstr) cputs(CC_TOUCHPAD, outstr)
 #define CPRINTF(format, args...) cprintf(CC_TOUCHPAD, format, ##args)
@@ -44,7 +40,6 @@
 #define FW_SIZE 65536
 #endif
 
-#ifdef CONFIG_ZEPHYR
 #if DT_HAS_COMPAT_STATUS_OKAY(elan_ekth3000)
 
 #define TP_NODE DT_INST(0, elan_ekth3000)
@@ -57,7 +52,6 @@
 #define CONFIG_USB_HID_TOUCHPAD_PHYSICAL_MAX_Y DT_PROP(TP_NODE, physical_max_y)
 
 #endif /* DT_HAS_COMPAT_STATUS_OKAY(elan_ekth3000) */
-#endif /* CONFIG_ZEPHYR */
 
 struct {
 	/* Max X/Y position */
@@ -324,11 +318,7 @@ static int elan_query_product(void)
 		if (rv) {
 			return rv;
 		}
-#ifdef CONFIG_ZEPHYR
 		elan_tp_params.ic_type = sys_be16_to_cpu(*(uint16_t *)val);
-#else
-		elan_tp_params.ic_type = be16toh(*(uint16_t *)val);
-#endif
 	} else {
 		rv = elan_tp_read_cmd(ETP_I2C_IC_TYPE_P0_CMD, (uint16_t *)val);
 		if (rv) {
@@ -367,7 +357,7 @@ test_export_static void elan_tp_init(void)
 	CPRINTS("%s", __func__);
 
 	elan_tp_write_cmd(ETP_I2C_STAND_CMD, ETP_I2C_RESET);
-	crec_msleep(100);
+	k_msleep(100);
 	rv = i2c_xfer(CONFIG_TOUCHPAD_I2C_PORT, CONFIG_TOUCHPAD_I2C_ADDR_FLAGS,
 		      NULL, 0, val, sizeof(val));
 
@@ -526,11 +516,11 @@ static int elan_prepare_for_update(void)
 	if (!initial_mode) {
 		CPRINTS("%s: In IAP mode, reset IC.", __func__);
 		elan_tp_write_cmd(ETP_I2C_IAP_RESET_CMD, ETP_I2C_IAP_RESET);
-		crec_msleep(30);
+		k_msleep(30);
 	}
 	/* Send the passphrase */
 	elan_tp_write_cmd(ETP_I2C_IAP_CMD, ETP_I2C_IAP_PASSWORD);
-	crec_msleep(initial_mode ? 100 : 30);
+	k_msleep(initial_mode ? 100 : 30);
 
 	/* We should be in the IAP mode now */
 	if (elan_in_main_mode()) {
@@ -545,7 +535,7 @@ static int elan_prepare_for_update(void)
 
 	/* Send the passphrase again */
 	elan_tp_write_cmd(ETP_I2C_IAP_CMD, ETP_I2C_IAP_PASSWORD);
-	crec_msleep(30);
+	k_msleep(30);
 
 	/* Verify the password */
 	if (elan_tp_read_cmd(ETP_I2C_IAP_CMD, &rx_buf)) {
@@ -570,11 +560,7 @@ static int touchpad_update_page(const uint8_t *data)
 	for (i = 0; i < elan_tp_params.page_size; i += 2)
 		checksum += ((uint16_t)(data[i + 1]) << 8) | (data[i]);
 
-#ifdef CONFIG_ZEPHYR
 	checksum = sys_cpu_to_le16(checksum);
-#else
-	checksum = htole16(checksum);
-#endif
 
 	i2c_lock(CONFIG_TOUCHPAD_I2C_PORT, 1);
 
@@ -599,7 +585,7 @@ fail:
 	i2c_lock(CONFIG_TOUCHPAD_I2C_PORT, 0);
 	if (rv)
 		return rv;
-	crec_msleep(elan_tp_params.page_size >= 512 ? 50 : 35);
+	k_msleep(elan_tp_params.page_size >= 512 ? 50 : 35);
 
 	rv = elan_tp_read_cmd(ETP_I2C_IAP_CTRL_CMD, &rx_buf);
 
@@ -687,9 +673,6 @@ test_mockable_static const uint8_t allowed_command_hashes
 		  0x8a, 0x68, 0xd1, 0xd5, 0x4c, 0x1a, 0x86, 0x52,
 		  0x89, 0x0c, 0x01, 0x21, 0x0e, 0x2b, 0xa5, 0x35 },
 	};
-
-/* Debugging commands need to allocate a <=1k buffer. */
-SHARED_MEM_CHECK_SIZE(1024);
 
 int touchpad_debug(const uint8_t *param, unsigned int param_size,
 		   uint8_t **data, unsigned int *data_size)
@@ -812,7 +795,7 @@ void elan_tp_read_report_retry(void)
 			return;
 
 		/* Try again */
-		crec_msleep(1);
+		k_msleep(1);
 	}
 
 	/* Failed to read data, reset the touchpad. */

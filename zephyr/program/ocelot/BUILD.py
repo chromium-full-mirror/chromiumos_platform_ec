@@ -9,6 +9,7 @@ def register_npcx9_project(
     project_name,
     extra_kconfig_base_files=(),
     extra_kconfig_proj_files=(),
+    extra_modules=(),
     boards=None,
 ):
     """Register an npcx9 based variant of ocelot."""
@@ -19,6 +20,7 @@ def register_npcx9_project(
         project_name=project_name,
         zephyr_board="npcx9/npcx9m7f",
         dts_overlays=[
+            here / "common.overlay",
             here / project_name / "project.overlay",
         ],
         kconfig_files=[
@@ -31,7 +33,7 @@ def register_npcx9_project(
             # Additional project-specific KConfig customization.
             *extra_kconfig_proj_files,
         ],
-        modules=["cmsis_6", "ec", "pigweed", "nanopb"],
+        modules=["cmsis_6", "ec", "pigweed", "nanopb", *extra_modules],
         boards=boards,
     )
 
@@ -51,6 +53,7 @@ def register_it8xxx2_project(
         project_name=project_name,
         zephyr_board=chip,
         dts_overlays=[
+            here / "common.overlay",
             here / project_name / "project.overlay",
         ],
         kconfig_files=[
@@ -82,6 +85,7 @@ def register_mec172x_project(
         project_name=project_name,
         zephyr_board="mec172x/mec172x_nsz/mec1727",
         dts_overlays=[
+            here / "common.overlay",
             here / project_name / "project.overlay",
         ],
         kconfig_files=[
@@ -111,6 +115,7 @@ def register_rtk59_project(
         boards=["ocelot"],
         zephyr_board="realtek/rts5912",
         dts_overlays=[
+            here / "common.overlay",
             here / project_name / "project.overlay",
         ],
         kconfig_files=[
@@ -134,6 +139,11 @@ register_npcx9_project(
         here / "rvp_program.conf",
         here / "dsp_comms.conf",
     ],
+)
+
+register_npcx9_project(
+    project_name="blanc",
+    extra_modules=["google-private"],
 )
 
 # For use on RVP SKU3
@@ -190,6 +200,7 @@ matsu.variant(
     project_name="matsu_it82000",
     zephyr_board="it8xxx2/it82000bw",
     dts_overlays=[
+        here / "common.overlay",
         here / "matsu" / "it82000.overlay",
     ],
 )
@@ -239,8 +250,17 @@ register_rtk59_project(
     ],
 )
 
+register_it8xxx2_project(
+    project_name="coolum",
+    chip="it8xxx2/it82002bw",
+    extra_kconfig_base_files=[
+        here / "dsp_comms.conf",
+    ],
+)
+
 # Note for reviews, do not let anyone edit these assertions, the addresses
 # must not change after the first RO release.
+assert_rw_fwid_DO_NOT_EDIT(project_name="blanc", addr=0x80144)
 assert_rw_fwid_DO_NOT_EDIT(project_name="hekla", addr=0x80404)
 assert_rw_fwid_DO_NOT_EDIT(project_name="kodkod", addr=0x80404)
 assert_rw_fwid_DO_NOT_EDIT(project_name="matsu", addr=0x60098)
@@ -251,3 +271,4 @@ assert_rw_fwid_DO_NOT_EDIT(project_name="ocelotrvp-mchp", addr=0x40318)
 assert_rw_fwid_DO_NOT_EDIT(project_name="ojal", addr=0x80404)
 assert_rw_fwid_DO_NOT_EDIT(project_name="ocicat", addr=0x60098)
 assert_rw_fwid_DO_NOT_EDIT(project_name="ocelotrvp-rtk", addr=0x80404)
+assert_rw_fwid_DO_NOT_EDIT(project_name="coolum", addr=0x60098)

@@ -24,6 +24,8 @@
 #include "usb_pe_sm.h"
 #include "util.h"
 
+#include <zephyr/kernel.h>
+
 #define CPRINTS(format, args...) cprints(CC_USBCHARGE, format, ##args)
 #define CPRINTF(format, args...) cprintf(CC_USBCHARGE, format, ##args)
 
@@ -105,7 +107,7 @@ test_mockable int rt1718s_sw_reset(int port)
 	rv = rt1718s_update_bits8(port, RT1718S_SYS_CTRL3, RT1718S_SWRESET_MASK,
 				  0xFF);
 
-	crec_msleep(RT1718S_SW_RESET_DELAY_MS);
+	k_msleep(RT1718S_SW_RESET_DELAY_MS);
 
 	return rv;
 }
@@ -168,7 +170,7 @@ static int rt1718s_set_vconn(int port, int enable)
 
 	if (enable) {
 		/* It takes 10ms that we can switch back to shutdown mode. */
-		crec_msleep(10);
+		k_msleep(10);
 		RETURN_ERROR(rt1718s_update_bits8(port, RT1718S_VCON_CTRL3,
 						  RT1718S_VCON_LIMIT_MODE, 0));
 	} else {
@@ -263,9 +265,8 @@ static void frs_gpio_disable_deferred(void)
 
 	for (i = 0; i < board_get_usb_pd_port_count(); ++i) {
 		if (frs_flag[i] & FLAG_FRS_VBUS_VALID_FALL) {
-			atomic_clear_bits(&frs_flag[i],
-					  FLAG_FRS_RX_SIGNALLED |
-						  FLAG_FRS_VBUS_VALID_FALL);
+			atomic_and(&frs_flag[i], ~(FLAG_FRS_RX_SIGNALLED |
+						   FLAG_FRS_VBUS_VALID_FALL));
 			/* If the FRS gets enabled again, do not disable it. */
 			if (!(frs_flag[i] & FLAG_FRS_ENABLED))
 				board_rt1718s_set_frs_enable(i, 0);
@@ -455,12 +456,12 @@ test_mockable int rt1718s_get_adc(int port, enum rt1718s_adc_channel channel,
 	int rv;
 	const int max_wait_times = 30;
 
-	if (in_interrupt_context()) {
+	if (k_is_in_isr()) {
 		CPRINTS("Err: use ADC in IRQ");
 		return EC_ERROR_INVAL;
 	}
 
-	mutex_lock(&adc_lock);
+	k_mutex_lock(&adc_lock, K_FOREVER);
 
 	/* Start ADC conversation */
 	rv = rt1718s_write16(port, RT1718S_ADC_CTRL_01, BIT(channel));
@@ -474,7 +475,7 @@ test_mockable int rt1718s_get_adc(int port, enum rt1718s_adc_channel channel,
 	for (int i = 0; i < max_wait_times; i++) {
 		int adc_done;
 
-		crec_usleep(100);
+		k_usleep(100);
 		rv = rt1718s_read8(port, RT1718S_RT_INT6, &adc_done);
 		if (rv)
 			goto out;
@@ -508,7 +509,7 @@ out:
 	rt1718s_write16(port, RT1718S_ADC_CTRL_01, 0);
 	rt1718s_write8(port, RT1718S_RT_INT6, RT1718S_RT_INT6_INT_ADC_DONE);
 
-	mutex_unlock(&adc_lock);
+	k_mutex_unlock(&adc_lock);
 	return rv;
 }
 
@@ -535,7 +536,7 @@ int rt1718s_set_frs_enable(int port, int enable)
 		vbus_ctrl_en |= RT1718S_VBUS_CTRL_EN_GPIO2_VBUS_PATH_EN;
 		vbus_ctrl_en |= RT1718S_VBUS_CTRL_EN_GPIO1_VBUS_PATH_EN;
 	} else {
-		atomic_clear_bits(&frs_flag[port], FLAG_FRS_ENABLED);
+		atomic_and(&frs_flag[port], ~FLAG_FRS_ENABLED);
 		if (FLAG_FRS_RX_SIGNALLED ==
 		    (frs_flag[port] &
 		     (FLAG_FRS_RX_SIGNALLED | FLAG_FRS_VBUS_VALID_FALL))) {

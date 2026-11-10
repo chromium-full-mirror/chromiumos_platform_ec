@@ -22,9 +22,9 @@
 #include "usb_pd_tcpm.h"
 #include "util.h"
 
-#ifdef CONFIG_ZEPHYR
+#include <zephyr/irq.h>
+
 #include <soc.h>
-#endif
 
 #ifdef CONFIG_USB_PD_TCPMV2
 #if defined(CONFIG_USB_PD_VBUS_DETECT_TCPC) || \
@@ -201,7 +201,7 @@ static enum tcpc_transmit_complete it8xxx2_send_hw_reset(enum usbpd_port port)
 {
 	/* Send hard reset */
 	USBPD_SEND_HARD_RESET(port);
-	crec_usleep(MSEC);
+	k_usleep(MSEC);
 
 	if (!(IT83XX_USBPD_ISR(port) & USBPD_REG_MASK_HARD_RESET_TX_DONE))
 		return TCPC_TX_COMPLETE_FAILED;
@@ -215,7 +215,7 @@ it8xxx2_send_cable_reset(enum usbpd_port port)
 {
 	/* Send cable reset */
 	USBPD_SEND_CABLE_RESET(port);
-	crec_usleep(MSEC);
+	k_usleep(MSEC);
 
 	if (!(IT83XX_USBPD_ISR(port) & USBPD_REG_MASK_CABLE_RESET_TX_DONE))
 		return TCPC_TX_COMPLETE_FAILED;
@@ -227,7 +227,7 @@ it8xxx2_send_cable_reset(enum usbpd_port port)
 static void it8xxx2_send_bist_mode2_pattern(enum usbpd_port port)
 {
 	USBPD_ENABLE_SEND_BIST_MODE_2(port);
-	crec_usleep(PD_T_BIST_TRANSMIT);
+	k_usleep(PD_T_BIST_TRANSMIT);
 	USBPD_DISABLE_SEND_BIST_MODE_2(port);
 }
 
@@ -493,7 +493,7 @@ static int it8xxx2_tcpm_set_vconn(int port, int enable)
 			 * dropped below 3.3v (>500us) to avoid the potential
 			 * risk of voltage fed back into Vcore.
 			 */
-			udelay(IT83XX_USBPD_T_VCONN_BELOW_3_3V);
+			k_busy_wait(IT83XX_USBPD_T_VCONN_BELOW_3_3V);
 			/*
 			 * Since our cc are not Vconn SRC, enable cc analog
 			 * module (ex.UP/RD/DET/Tx/Rx) and disable 5v tolerant.
@@ -720,16 +720,44 @@ it8xxx2_tcpm_get_chip_info(int port, int live,
 	return EC_SUCCESS;
 }
 
+static void it8xxx2_tcpm_enable_plug_in_detect(int port)
+{
+	/*
+	 * Clear plug-out select and detect-disable to arm plug-in detection.
+	 * Mask out the W1C detect status bit so a pending plug-in interrupt
+	 * is not inadvertently cleared by the read-modify-write.
+	 */
+	IT83XX_USBPD_TCDCR(port) &= ~(USBPD_REG_PLUG_OUT_SELECT |
+				      USBPD_REG_PLUG_IN_OUT_DETECT_DISABLE |
+				      USBPD_REG_PLUG_IN_OUT_DETECT_STAT);
+}
+
 #ifdef CONFIG_USB_PD_TCPC_LOW_POWER
 static int it8xxx2_tcpm_enter_low_power_mode(int port)
 {
+	enum tcpc_cc_voltage_status cc1, cc2;
+
+	/*
+	 * The TC state machine stops polling CC in low power mode, so the
+	 * plug in interrupt is the only way to detect a new partner.
+	 * it8xxx2_tcpm_switch_plug_out_type() disables the interrupt (sink)
+	 * or switches to plug out detection (source) when it sees partner
+	 * terminations. If that partner went away without the port
+	 * attaching (e.g. a CC glitch or AttachWait bounce), detection is
+	 * left disabled. Re-arm plug in detection and then check CC to wake
+	 * the PD task if a partner attached during the low power debounce
+	 * window.
+	 */
+	it8xxx2_tcpm_enable_plug_in_detect(port);
+
+	it8xxx2_tcpm_get_cc(port, &cc1, &cc2);
+	if (!cc_is_open(cc1, cc2) && !cc_is_pwred_cbl_without_snk(cc1, cc2))
+		task_set_event(PD_PORT_TO_TASK_ID(port), PD_EVENT_CC);
+
 	/*
 	 * ITE embedded TCPC SLEEP_MASK_USB_PD flag is only controlled by
 	 * it8xxx2 driver in tc_update_pd_sleep_mask(), and do low power
 	 * mode in idle_task().
-	 * In deep sleep mode, ITE TCPC clock is turned off, and the
-	 * timer every 5ms to exit the mode and wakeup PD task to run
-	 * (ex. change the CC lines termination).
 	 */
 	return EC_SUCCESS;
 }
@@ -872,7 +900,6 @@ static void it8xxx2_init(enum usbpd_port port, int role)
 	/* Enable tx done and hard reset detect interrupt */
 	IT83XX_USBPD_IMR(port) &= ~(USBPD_REG_MASK_MSG_TX_DONE |
 				    USBPD_REG_MASK_HARD_RESET_DETECT);
-#ifdef IT83XX_INTC_PLUG_IN_OUT_SUPPORT
 	/*
 	 * When tcpc detect type-c plug in (cc lines voltage change), it will
 	 * interrupt fw to wake pd task, so task can react immediately.
@@ -883,18 +910,15 @@ static void it8xxx2_init(enum usbpd_port port, int role)
 				    ~(USBPD_REG_PLUG_IN_OUT_DETECT_DISABLE |
 				      USBPD_REG_PLUG_OUT_SELECT)) |
 				   USBPD_REG_PLUG_IN_OUT_DETECT_STAT;
-#endif
 	/* Set cc1/cc2 pins alternate mode */
 	*usbpd_ctrl_regs[port].cc1 = cc_config;
 	*usbpd_ctrl_regs[port].cc2 = cc_config;
-	task_clear_pending_irq(usbpd_ctrl_regs[port].irq);
-#ifdef CONFIG_ZEPHYR
-	task_disable_irq(usbpd_ctrl_regs[port].irq);
+	it83xx_pd_clear_pending_irq(usbpd_ctrl_regs[port].irq);
+	irq_disable(usbpd_ctrl_regs[port].irq);
 	irq_connect_dynamic(usbpd_ctrl_regs[port].irq, 0,
 			    (void (*)(const void *))chip_pd_irq, (void *)port,
 			    0);
-#endif
-	task_enable_irq(usbpd_ctrl_regs[port].irq);
+	irq_enable(usbpd_ctrl_regs[port].irq);
 	USBPD_START(port);
 	/*
 	 * Disconnect CCs Rd_DB from GND
@@ -1012,14 +1036,11 @@ static void it8xxx2_tcpm_hook_disconnect(void)
 	if (port > (CONFIG_USB_PD_ITE_ACTIVE_PORT_COUNT - 1))
 		return;
 
-	if (IS_ENABLED(IT83XX_INTC_PLUG_IN_OUT_SUPPORT))
-		/*
-		 * Switch to detect plug in and enable detect plug in interrupt,
-		 * since pd task has detected a type-c physical disconnected.
-		 */
-		IT83XX_USBPD_TCDCR(port) &=
-			~(USBPD_REG_PLUG_OUT_SELECT |
-			  USBPD_REG_PLUG_IN_OUT_DETECT_DISABLE);
+	/*
+	 * Switch to detect plug in and enable detect plug in interrupt,
+	 * since pd task has detected a type-c physical disconnected.
+	 */
+	it8xxx2_tcpm_enable_plug_in_detect(port);
 
 	/* Exit BIST test data mode */
 	USBPD_SW_RESET(port);

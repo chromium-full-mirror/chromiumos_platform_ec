@@ -5,7 +5,6 @@
 
 /* One-Time Programmable (OTP) Key */
 
-#include "chip/npcx/rom_chip.h"
 #include "common.h"
 #include "console.h"
 #include "openssl/mem.h"
@@ -13,10 +12,13 @@
 #include "panic.h"
 #include "printf.h"
 #include "registers.h"
+#include "rom_chip.h"
 #include "system.h"
 #include "task.h"
 #include "trng.h"
 #include "util.h"
+
+#include <zephyr/kernel.h>
 
 void otp_key_init(void)
 {
@@ -25,11 +27,7 @@ void otp_key_init(void)
 	status = otpi_power(true);
 	if (status != API_RET_OTP_STATUS_OK) {
 		ccprintf("ERROR! %s failed %x\n", __func__, status);
-#if defined(CONFIG_ZEPHYR)
 		k_oops();
-#else
-		software_panic(PANIC_SW_ASSERT, task_get_current());
-#endif
 	}
 }
 
@@ -63,15 +61,20 @@ static enum ec_error_list otp_key_write(const uint8_t *key_buffer)
 {
 	enum API_RETURN_STATUS_T status = API_RET_OTP_STATUS_FAIL;
 	uint8_t i;
+	unsigned int key;
 
 	if (key_buffer == NULL)
 		return EC_ERROR_INVAL;
 
+	key = irq_lock();
 	for (i = 0; i < OTP_KEY_SIZE_BYTES; i++) {
 		status = otpi_write(OTP_KEY_ADDR + i, key_buffer[i]);
-		if (status != API_RET_OTP_STATUS_OK)
+		if (status != API_RET_OTP_STATUS_OK) {
+			irq_unlock(key);
 			return EC_ERROR_UNKNOWN;
+		}
 	}
+	irq_unlock(key);
 
 	return EC_SUCCESS;
 }
@@ -102,11 +105,7 @@ enum ec_error_list otp_key_provision(void)
 
 	if (bytes_are_trivial(otp_key_buffer, OTP_KEY_SIZE_BYTES)) {
 		ccprintf("ERROR! %s RNG failed!\n", __func__);
-#if defined(CONFIG_ZEPHYR)
 		k_oops();
-#else
-		software_panic(PANIC_SW_BAD_RNG, task_get_current());
-#endif
 	}
 
 	ec_status = otp_key_write(otp_key_buffer);

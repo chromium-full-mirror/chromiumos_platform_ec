@@ -10,6 +10,8 @@
 #include "motion_sense_fifo.h"
 #include "test/drivers/test_state.h"
 
+#include <limits.h>
+
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/ztest.h>
 
@@ -23,11 +25,44 @@ static void lis2dh_before(void *state)
 {
 	ARG_UNUSED(state);
 	lis2dh_emul_reset(emul);
+	acc->collection_rate = 0;
+	acc->flags &= ~MOTIONSENSE_FLAG_IN_SPOOF_MODE;
 }
 
 ZTEST_USER(lis2dh, test_init)
 {
+	struct stprivate_data *drvdata = acc->drv_data;
+
 	zassert_ok(lis2dh_drv.init(acc));
+	zassert_equal(drvdata->resol, 12,
+		      "expected 12-bit resolution for LIS2DH");
+}
+
+static int emul_read_ctrl4_lis2de(const struct emul *target, int reg,
+				  uint8_t *val, int bytes, void *data)
+{
+	ARG_UNUSED(target);
+	ARG_UNUSED(bytes);
+	ARG_UNUSED(data);
+
+	if (reg == LIS2DH_CTRL4_ADDR) {
+		*val = LIS2DH_BDU_MASK; /* HR bit (0x08) not supported */
+		return 0;
+	}
+	return 1;
+}
+
+ZTEST(lis2dh, test_init_lis2de_8bit)
+{
+	struct i2c_common_emul_data *common_data =
+		emul_lis2dh_get_i2c_common_data(emul);
+	struct stprivate_data *drvdata = acc->drv_data;
+
+	i2c_common_emul_set_read_func(common_data, emul_read_ctrl4_lis2de,
+				      NULL);
+	zassert_ok(lis2dh_drv.init(acc));
+	zassert_equal(drvdata->resol, 8,
+		      "expected 8-bit resolution for LIS2DE");
 }
 
 ZTEST(lis2dh, test_lis2dh_init__fail_read_who_am_i)
@@ -81,6 +116,20 @@ ZTEST(lis2dh, test_lis2dh__set_range)
 ZTEST_USER(lis2dh, test_lis2dh__set_data_rate)
 {
 	struct stprivate_data *drvdata = acc->drv_data;
+	const struct {
+		int rate;
+		int rnd;
+	} invalid[] = {
+		{ -1, 0 },
+		{ -1, 1 },
+		{ LIS2DH_ODR_MAX_VAL + 1, 0 },
+		{ LIS2DH_ODR_MAX_VAL + 1, 1 },
+		{ INT_MAX, 0 },
+		{ INT_MAX, 1 },
+		/* Below the minimum rate cannot be rounded down. */
+		{ 1, 0 },
+		{ LIS2DH_ODR_MIN_VAL - 1, 0 },
+	};
 
 	zassert_ok(lis2dh_drv.init(acc));
 
@@ -88,9 +137,44 @@ ZTEST_USER(lis2dh, test_lis2dh__set_data_rate)
 	zassert_ok(acc->drv->set_data_rate(acc, 10000, 1));
 	zassert_equal(drvdata->base.odr, 10000);
 
-	/* Set data rate to 0 (Power Off) */
-	zassert_ok(acc->drv->set_data_rate(acc, 0, 1));
+	/*
+	 * Invalid rates must fail before touching the sensor: the mutex stays
+	 * unlocked, the ODR is unchanged, and the FIFO keeps running.
+	 */
+	for (int i = 0; i < ARRAY_SIZE(invalid); i++) {
+		zassert_equal(acc->drv->set_data_rate(acc, invalid[i].rate,
+						      invalid[i].rnd),
+			      EC_RES_INVALID_PARAM, "rate %d", invalid[i].rate);
+		zassert_equal(acc->mutex->lock_count, 0);
+		zassert_equal(drvdata->base.odr, 10000);
+		if (IS_ENABLED(ACCEL_LIS2DH_INT_ENABLE)) {
+			zassert_true(lis2dh_emul_is_fifo_enabled(emul));
+		}
+	}
+
+	/* The ends of the supported range are accepted */
+	zassert_ok(acc->drv->set_data_rate(acc, LIS2DH_ODR_MAX_VAL, 0));
+	zassert_equal(drvdata->base.odr, LIS2DH_ODR_MAX_VAL);
+	zassert_ok(acc->drv->set_data_rate(acc, LIS2DH_ODR_MIN_VAL, 0));
+	zassert_equal(drvdata->base.odr, LIS2DH_ODR_MIN_VAL);
+	zassert_ok(acc->drv->set_data_rate(acc, LIS2DH_ODR_MIN_VAL - 1, 1));
+	zassert_equal(drvdata->base.odr, LIS2DH_ODR_MIN_VAL);
+
+	/* 15Hz rounds up to 25Hz, or down to 10Hz */
+	zassert_ok(acc->drv->set_data_rate(acc, 15000, 1));
+	zassert_equal(drvdata->base.odr, 25000);
+	zassert_ok(acc->drv->set_data_rate(acc, 15000, 0));
+	zassert_equal(drvdata->base.odr, 10000);
+
+	/* Set data rate to 0 (Power Off), which leaves the FIFO stopped */
+	if (IS_ENABLED(ACCEL_LIS2DH_INT_ENABLE)) {
+		zassert_true(lis2dh_emul_is_fifo_enabled(emul));
+	}
+	zassert_ok(acc->drv->set_data_rate(acc, 0, 0));
 	zassert_equal(drvdata->base.odr, 0);
+	if (IS_ENABLED(ACCEL_LIS2DH_INT_ENABLE)) {
+		zassert_false(lis2dh_emul_is_fifo_enabled(emul));
+	}
 }
 
 ZTEST_SUITE(lis2dh, drivers_predicate_post_main, NULL, lis2dh_before, NULL,

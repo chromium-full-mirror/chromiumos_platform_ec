@@ -93,7 +93,9 @@ ALL_TESTS_PASSED_REGEX_ZEPHYR = re.compile(r"PROJECT EXECUTION SUCCESSFUL")
 ALL_TESTS_FAILED_REGEX_ZEPHYR = re.compile(r"PROJECT EXECUTION FAILED")
 
 SINGLE_CHECK_PASSED_REGEX = re.compile(r"(Pass: .*)|(.* PASS - )")
-SINGLE_CHECK_FAILED_REGEX = re.compile(r"(.*failed:.*)|(.* FAIL - )")
+SINGLE_CHECK_FAILED_REGEX = re.compile(
+    r".*(?:ASSERTION failed:|assertion .* failed:| FAIL - )"
+)
 
 RW_IMAGE_BOOTED_REGEX = re.compile(r".*\[Image: RW.*")
 
@@ -306,8 +308,7 @@ class Platform(ABC):
         flasher: str,
         remote_ip: str,
         remote_port: int,
-        test_name: str,
-        enable_hw_write_protect: bool,
+        test_config: TestConfig,
         zephyr: bool,
     ) -> bool:
         """Flash specified test to specified board."""
@@ -381,8 +382,7 @@ class Hardware(Platform):
         flasher: str,
         remote_ip: str,
         remote_port: int,
-        test_name: str,
-        enable_hw_write_protect: bool,
+        test_config: TestConfig,
         zephyr: bool,
     ) -> bool:
         logging.info("Flashing test")
@@ -449,8 +449,7 @@ class Renode(Platform):
         flasher: str,
         remote_ip: str,
         remote_port: int,
-        test_name: str,
-        enable_hw_write_protect: bool,
+        test_config: TestConfig,
         zephyr: bool,
     ) -> bool:
         if self.process:
@@ -469,16 +468,14 @@ class Renode(Platform):
             "0",
         ]
         if zephyr:
-            # We've adopted the convention that we prefix upstream Zephyr test
-            # names with "zephyr_".
-            if test_name.startswith("zephyr_"):
+            if test_config.zephyr_name is not None:
                 cmd.extend(["--zephyr-bin", image_path])
             else:
                 cmd.append("--zephyr")
-        else:
-            cmd.extend(["--ec", test_name])
+        elif test_config.apptype_to_use == ApplicationType.TEST:
+            cmd.extend(["--ec", test_config.test_name])
 
-        if enable_hw_write_protect:
+        if test_config.enable_hw_write_protect:
             cmd.append("--enable-write-protect")
 
         env = os.environ.copy()
@@ -557,8 +554,6 @@ class Renode(Platform):
 
         # bloonchipper Zephyr tests to skip on Renode.
         if zephyr and test_name in [
-            "benchmark",  # TODO(b/390253975)
-            "fp_transport",  # TODO(b/384094788)
             "zephyr_flash_stm32f4",  # TODO(b/384974228)
             # TODO(b/384975384)
             "zephyr_counter_basic_api_stm32_subsec",
@@ -641,7 +636,7 @@ class Renode(Platform):
             return True
 
         if zephyr and test_config.config_name in [
-            "flash_physical_ro",  # TODO(b/448407366)
+            "flash_physical_ro",  # TODO(b/485668836)
             "system_is_locked_wp_on",  # TODO(b/485669841)
             "system_is_locked_wp_on_helipilot_v2.0.24337",  # TODO(b/485669841)
             "system_is_locked_wp_on_helipilot_v2.0.27609",  # TODO(b/485669841)
@@ -654,10 +649,9 @@ class Renode(Platform):
     def _skip_test_sanok(self, test_config: TestConfig) -> bool:
         if test_config.test_name in [
             "benchmark",  # TODO(b/537717577)
-            "flash_physical",  # TODO(b/468410778)
-            "flash_protection",  # TODO(b/487848806)
-            "flash_protection_rw",  # TODO(b/487848806)
-            "flash_write_protect",  # TODO(b/406944986)
+            "flash_protection",  # TODO(b/567678305)
+            "flash_protection_rw",  # TODO(b/567678305)
+            "flash_write_protect",  # TODO(b/567678305)
             "rollback",  # TODO(b/468406461)
             "rollback_entropy",  # TODO(b/468406461)
             "system_is_locked",  # TODO(b/483118063)
@@ -685,7 +679,6 @@ class Renode(Platform):
         if test_name in [
             "fpsensor_hw",  # TODO(b/384743080)
             "power_utilization",  # Can't measure power on Renode.
-            "production_app_test",  # TODO(b/384740370)
             "watchdog",  # TODO(b/390021699)
         ]:
             return True
@@ -819,8 +812,7 @@ class AllTests:
                 # TODO(b/485954886): Runs slowly on helipilot Renode.
                 timeout_secs=150,
             ),
-            # Cryptoc is not supported with Zephyr.
-            # TODO(b/333039464) A new test for OPENSSL_cleanse has to be implemented.
+            # Cryptoc is not supported with Zephyr; covered by openssl_cleanse.
             TestConfig(test_name="always_memset", skip_for_zephyr=True),
             TestConfig(
                 test_name="assert_builtin",
@@ -889,6 +881,8 @@ class AllTests:
             ),
             TestConfig(
                 test_name="fp_buffer_clear",
+                # TODO(b/524097509): Enable on ec-legacy once test is added.
+                skip_for_ec_legacy=True,
             ),
             TestConfig(
                 config_name="fp_transport_spi_ro",
@@ -959,6 +953,11 @@ class AllTests:
             TestConfig(test_name="mutex_trylock", skip_for_zephyr=True),
             TestConfig(test_name="mutex_recursive", skip_for_zephyr=True),
             TestConfig(test_name="null_pointer"),
+            # Zephyr equivalent of always_memset (ec-legacy uses cryptoc).
+            TestConfig(
+                test_name="openssl_cleanse",
+                skip_for_ec_legacy=True,
+            ),
             TestConfig(
                 test_name="otp_key",
                 exclude_boards=[BLOONCHIPPER, DARTMONKEY],
@@ -1391,7 +1390,8 @@ SANOK_CONFIG = BoardConfig(
     architecture=Architecture.RISCV,
     servo_uart_name="raw_fpmcu_console_uart_pty",
     servo_power_enable="fpmcu_pp3300",
-    reboot_timeout=3.0,
+    # TODO(b/410057326): use polling instead of hardcoded timeout
+    reboot_timeout=5.0,
     # TODO(b/468406461): configure rollback regex.
     rollback_region0_regex=NEVER_MATCH_REGEX,
     rollback_region1_regex=NEVER_MATCH_REGEX,
@@ -1631,6 +1631,8 @@ def build_zephyr(
 
     cmd = ["zmake"] + ["build"]
     cmd = cmd + [board_name] + ["--clobber"]
+    for config in zephyr_extra_configs:
+        cmd.extend(["-D", config])
     if app_type != ApplicationType.TEST:
         return cmd
 
@@ -1668,9 +1670,6 @@ def build_zephyr(
         # because of lack of space
         if img_type == ImageType.RO:
             f_test_config.write("CONFIG_HW_TEST_RW_ONLY=n\n")
-
-        for config in zephyr_extra_configs:
-            f_test_config.write(f"{config}\n")
 
     with open(test_conf, "r", encoding="utf-8") as f:
         logging.info("test_conf content:\n%s", f.read())
@@ -2046,8 +2045,7 @@ def flash_and_run_test(
             args.flasher,
             args.remote,
             args.jlink_port,
-            test.test_name,
-            test.enable_hw_write_protect,
+            test,
             args.zephyr,
         ):
             logging.debug("Flashing failed")

@@ -48,7 +48,8 @@ static const struct body_detect_params default_body_detect_params = {
 static bool body_detect_enable = IS_ENABLED(CONFIG_BODY_DETECTION);
 static bool body_detect_initialized;
 static bool body_detect_rate_is_set;
-STATIC_IF(CONFIG_ACCEL_SPOOF_MODE) bool spoof_enable;
+static int inactivity_cnt;
+extern bool spoof_enable;
 
 /* Depends on body_detect_common.c */
 extern uint64_t onbody_lasttime;
@@ -142,14 +143,12 @@ static void body_detect_init(float x0, float y0, float z0)
 test_export_static void body_detect_step(float x, float y, float z,
 					 uint64_t curtime)
 {
-	static int inactivity_cnt;
 	float x_avg = 0, y_avg = 0, z_avg = 0;
 	float var = 0;
 	float motion_confidence = 0;
 
 	if (body_detect_initialized == false) {
 		body_detect_init(x, y, z);
-		body_detect_change_state(BODY_DETECTION_ON_BODY, false);
 		return;
 	}
 
@@ -159,7 +158,7 @@ test_export_static void body_detect_step(float x, float y, float z,
 	}
 
 	/* Check if we need to decimate */
-	if (iir_decimator_step(&decimator, &x, &y, &z)) {
+	if (!iir_decimator_step(&decimator, &x, &y, &z)) {
 		/* Value was decimated */
 		return;
 	}
@@ -222,15 +221,17 @@ test_export_static void body_detect_step(float x, float y, float z,
 	 *      | 0%        | var < var_threshold - confidence_delta  |
 	 *      -------------------------------------------------------
 	 */
+	const float delta =
+		CLAMP(confidence_delta, 0.0f, MAX(var_threshold, 0.0f));
+
 	var = var * 1000.0f;
-	if (var < var_threshold - confidence_delta) {
+	if (var <= var_threshold - delta) {
 		motion_confidence = 0;
-	} else if (var > var_threshold + confidence_delta) {
+	} else if (var >= var_threshold + delta) {
 		motion_confidence = 100;
 	} else {
-		motion_confidence = 100.0f *
-				    (var - var_threshold + confidence_delta) /
-				    (2 * confidence_delta);
+		motion_confidence =
+			100.0f * (var - var_threshold + delta) / (2.0f * delta);
 	}
 
 	LOG_DBG("time=%lld conf=%d var=%d x=%d/%d y=%d/%d z=%d/%d [%d %d %d]",
@@ -242,11 +243,11 @@ test_export_static void body_detect_step(float x, float y, float z,
 	 * Body detection
 	 */
 	if (body_detect_get_state() == BODY_DETECTION_ON_BODY) {
-		if (motion_confidence > CONFIG_BODY_DETECTION_ON_BODY_CON) {
+		if (motion_confidence >= CONFIG_BODY_DETECTION_OFF_BODY_CON) {
 			LOG_DBG("Confidence(%d) is above threshold(%d), "
 				"updating timestamp to %llu",
 				(int)motion_confidence,
-				CONFIG_BODY_DETECTION_ON_BODY_CON, curtime);
+				CONFIG_BODY_DETECTION_OFF_BODY_CON, curtime);
 			onbody_lasttime = curtime;
 		}
 		if (curtime - onbody_lasttime >
@@ -304,10 +305,14 @@ void body_detect_reset(void)
 	LOG_DBG("Resetting body detection");
 	if (body_detect_get_state() == BODY_DETECTION_ON_BODY) {
 		onbody_lasttime = onbody_get_curtime();
-	} else if (IS_ENABLED(CONFIG_ACCEL_SPOOF_MODE)) {
-		body_detect_change_state(BODY_DETECTION_ON_BODY, spoof_enable);
+	} else {
+		body_detect_change_state(BODY_DETECTION_ON_BODY,
+					 IS_ENABLED(CONFIG_ACCEL_SPOOF_MODE) &&
+						 spoof_enable);
 	}
 
+	body_detect_initialized = false;
+	inactivity_cnt = 0;
 	body_detect_get_params();
 	body_detect_set_update_rate(odr);
 }

@@ -189,7 +189,7 @@ static int get_amon_bmon(int chgnum, enum isl923x_amon_bmon amon,
 			return ret;
 	}
 
-	mutex_lock(&control1_mutex_isl923x);
+	k_mutex_lock(&control1_mutex_isl923x, K_FOREVER);
 
 	ret = raw_read16(chgnum, ISL923X_REG_CONTROL1, &reg);
 	if (!ret) {
@@ -221,7 +221,7 @@ static int get_amon_bmon(int chgnum, enum isl923x_amon_bmon amon,
 		goto err;
 
 err:
-	mutex_unlock(&control1_mutex_isl923x);
+	k_mutex_unlock(&control1_mutex_isl923x);
 	return ret;
 }
 #endif
@@ -282,7 +282,7 @@ static enum ec_error_list isl923x_enable_otg_power(int chgnum, int enabled)
 {
 	int rv, control1;
 
-	mutex_lock(&control1_mutex_isl923x);
+	k_mutex_lock(&control1_mutex_isl923x, K_FOREVER);
 
 	rv = raw_read16(chgnum, ISL923X_REG_CONTROL1, &control1);
 	if (rv)
@@ -296,7 +296,7 @@ static enum ec_error_list isl923x_enable_otg_power(int chgnum, int enabled)
 	rv = raw_write16(chgnum, ISL923X_REG_CONTROL1, control1);
 
 out:
-	mutex_unlock(&control1_mutex_isl923x);
+	k_mutex_unlock(&control1_mutex_isl923x);
 
 	return rv;
 }
@@ -363,7 +363,7 @@ static enum ec_error_list isl923x_set_frequency(int chgnum, int freq_khz)
 	int reg;
 	int dev_id;
 
-	mutex_lock(&control1_mutex_isl923x);
+	k_mutex_lock(&control1_mutex_isl923x, K_FOREVER);
 
 	rv = isl923x_device_id(chgnum, &dev_id);
 	if (rv) {
@@ -374,7 +374,7 @@ static enum ec_error_list isl923x_set_frequency(int chgnum, int freq_khz)
 	rv = raw_read16(chgnum, ISL923X_REG_CONTROL1, &reg);
 	if (rv) {
 		CPRINTS("Could not read CONTROL1. (rv=%d)", rv);
-		mutex_unlock(&control1_mutex_isl923x);
+		k_mutex_unlock(&control1_mutex_isl923x);
 		return rv;
 	}
 
@@ -423,7 +423,7 @@ static enum ec_error_list isl923x_set_frequency(int chgnum, int freq_khz)
 #endif
 	rv = raw_write16(chgnum, ISL923X_REG_CONTROL1, reg);
 
-	mutex_unlock(&control1_mutex_isl923x);
+	k_mutex_unlock(&control1_mutex_isl923x);
 	return rv;
 }
 #endif
@@ -498,12 +498,15 @@ static enum ec_error_list raa489000_get_actual_current(int chgnum, int *current)
 	int reg;
 
 	rv = raw_read16(chgnum, RAA489000_REG_ADC_CHARGE_CURRENT, &reg);
+	if (rv)
+		return rv;
+
 	/* The value is in 22.2mA increments. */
 	reg *= 222;
 	reg /= 10;
 
 	*current = REG_TO_CURRENT(reg);
-	return rv;
+	return EC_SUCCESS;
 }
 #endif /* CONFIG_CHARGER_RAA489000 */
 
@@ -997,9 +1000,9 @@ static enum ec_error_list isl923x_discharge_on_ac(int chgnum, int enable)
 {
 	int rv;
 
-	mutex_lock(&control1_mutex_isl923x);
+	k_mutex_lock(&control1_mutex_isl923x, K_FOREVER);
 	rv = isl923x_discharge_on_ac_unsafe(chgnum, enable);
-	mutex_unlock(&control1_mutex_isl923x);
+	k_mutex_unlock(&control1_mutex_isl923x);
 	return rv;
 }
 
@@ -1008,11 +1011,11 @@ static enum ec_error_list isl923x_discharge_on_ac_weak_disable(int chgnum)
 {
 	int rv = 0;
 
-	mutex_lock(&control1_mutex_isl923x);
+	k_mutex_lock(&control1_mutex_isl923x, K_FOREVER);
 	if (!learn_mode)
 		rv = isl923x_discharge_on_ac_unsafe(chgnum, 0);
 
-	mutex_unlock(&control1_mutex_isl923x);
+	k_mutex_unlock(&control1_mutex_isl923x);
 	return rv;
 }
 
@@ -1236,7 +1239,7 @@ static void charger_enable_psys(void)
 {
 	int val;
 
-	mutex_lock(&control1_mutex_isl923x);
+	k_mutex_lock(&control1_mutex_isl923x, K_FOREVER);
 
 	/*
 	 * enable system power monitor PSYS function
@@ -1252,7 +1255,7 @@ static void charger_enable_psys(void)
 	psys_enabled = 1;
 
 out:
-	mutex_unlock(&control1_mutex_isl923x);
+	k_mutex_unlock(&control1_mutex_isl923x);
 }
 DECLARE_HOOK(HOOK_CHIPSET_RESUME, charger_enable_psys, HOOK_PRIO_DEFAULT);
 
@@ -1260,7 +1263,7 @@ static void charger_disable_psys(void)
 {
 	int val;
 
-	mutex_lock(&control1_mutex_isl923x);
+	k_mutex_lock(&control1_mutex_isl923x, K_FOREVER);
 
 	/*
 	 * disable system power monitor PSYS function
@@ -1276,7 +1279,7 @@ static void charger_disable_psys(void)
 	psys_enabled = 0;
 
 out:
-	mutex_unlock(&control1_mutex_isl923x);
+	k_mutex_unlock(&control1_mutex_isl923x);
 }
 DECLARE_HOOK(HOOK_CHIPSET_SUSPEND, charger_disable_psys, HOOK_PRIO_DEFAULT);
 
@@ -1451,7 +1454,6 @@ static enum ec_error_list raa489000_enable_linear_charge(int chgnum,
 	const struct battery_info *batt_info;
 	int trickle_regval;
 	int precharge_current;
-	int regval;
 	enum ec_error_list rv;
 	int act_chg = charge_get_active_chg_chip();
 
@@ -1486,12 +1488,11 @@ static enum ec_error_list raa489000_enable_linear_charge(int chgnum,
 		precharge_current = max(64, batt_info->precharge_current);
 		trickle_regval = precharge_current / 32;
 		trickle_regval--; /* convert to 0-based field */
-		rv |= raw_read16(CHARGER_PRIMARY, ISL923X_REG_CONTROL2,
-				 &regval);
-		regval &= ~(GENMASK(15, 13));
-		regval |= trickle_regval << 13;
-		rv |= raw_write16(CHARGER_PRIMARY, ISL923X_REG_CONTROL2,
-				  regval);
+		rv |= i2c_field_update16(
+			chg_chips[CHARGER_PRIMARY].i2c_port,
+			chg_chips[CHARGER_PRIMARY].i2c_addr_flags,
+			ISL923X_REG_CONTROL2, GENMASK(15, 13),
+			trickle_regval << 13);
 
 		/* Enable DVC trickle charge and DVC charge mode. */
 		rv |= raw_update16(
@@ -1611,9 +1612,8 @@ static enum ec_error_list raa489000_set_vsys_compensation(int chgnum,
 	}
 
 	/* Lastly, enable DVC fast charge mode for the primary charger IC. */
-	rv = raw_read16(CHARGER_PRIMARY, RAA489000_REG_CONTROL10, &regval);
-	regval |= RAA489000_C10_ENABLE_DVC_CHARGE_MODE;
-	rv |= raw_write16(CHARGER_PRIMARY, RAA489000_REG_CONTROL10, regval);
+	rv = raw_update16(CHARGER_PRIMARY, RAA489000_REG_CONTROL10,
+			  RAA489000_C10_ENABLE_DVC_CHARGE_MODE, MASK_SET);
 	if (rv) {
 		CPRINTS("%s Failed to enable DVC on primary charger!",
 			__func__);

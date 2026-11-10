@@ -50,6 +50,7 @@
 #define BMA4_ACC_DRDY_INT BIT(7)
 
 #define BMA4_FIFO_LENGTH_0_ADDR 0x24
+#define BMA4_FIFO_LENGTH_MSB_MSK 0x3F
 #define BMA4_FIFO_DATA_ADDR 0x26
 #define BMA4_ACTIVITY_OUT_ADDR 0x27
 #define BMA4_ORIENTATION_OUT_ADDR 0x28
@@ -188,7 +189,6 @@ extern const struct accelgyro_drv bma4_accel_drv;
 
 void bma4xx_interrupt(enum gpio_signal signal);
 
-#if defined(CONFIG_ZEPHYR)
 #include <zephyr/devicetree.h>
 
 #if DT_NODE_EXISTS(DT_ALIAS(bma4xx_int))
@@ -207,6 +207,5 @@ void bma4xx_interrupt(enum gpio_signal signal);
 #define CONFIG_ACCEL_BMA4XX_INT_EVENT \
 	TASK_EVENT_MOTION_SENSOR_INTERRUPT(SENSOR_ID(DT_ALIAS(bma4xx_int)))
 #endif /* DT_NODE_EXISTS */
-#endif /* CONFIG_ZEPHYR */
 
 #endif /* PLATFORM_EC_DRIVER_ACCEL_BMA4XX_H_ */

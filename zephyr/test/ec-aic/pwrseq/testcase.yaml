@@ -1,0 +1,26 @@
+# Copyright 2026 The ChromiumOS Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+common:
+  platform_allow:
+    - realtek/rts5912
+  timeout: 120
+tests:
+  aic.pwrseq:
+    harness: pytest
+    harness_config:
+      pytest_dut_scope: session
+      pytest_root:
+        - pytest/test_pwrseq.py
+  aic.pwrseq.fault_injection:
+    extra_configs:
+      - CONFIG_AIC_PWRSEQ_FAULT_INJECTION=y
+    extra_dtc_overlay_files:
+      - boards/realtek_rts5912.overlay
+      - fault_injection.overlay
+    harness: pytest
+    harness_config:
+      pytest_dut_scope: session
+      pytest_root:
+        - pytest/test_pwrseq_fault.py

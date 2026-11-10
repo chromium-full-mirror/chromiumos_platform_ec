@@ -22,6 +22,7 @@ extern uint8_t fp_buffer[FP_SENSOR_IMAGE_SIZE];
 /* Events for the FPSENSOR task */
 #define TASK_EVENT_SENSOR_IRQ TASK_EVENT_CUSTOM_BIT(0)
 #define TASK_EVENT_UPDATE_CONFIG TASK_EVENT_CUSTOM_BIT(1)
+#define TASK_EVENT_VENDOR_DATA_SYNC TASK_EVENT_CUSTOM_BIT(2)
 
 #ifdef __cplusplus
 }

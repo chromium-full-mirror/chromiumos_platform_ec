@@ -20,6 +20,8 @@
 #include "timer.h"
 #include "util.h"
 
+#include <zephyr/kernel.h>
+
 /* Console output macros */
 #define CPUTS(outstr) cputs(CC_HOSTCMD, outstr)
 #define CPRINTF(format, args...) cprintf(CC_HOSTCMD, format, ##args)
@@ -95,7 +97,7 @@ test_mockable void host_send_response(struct host_cmd_handler_args *args)
 	 * When a EC_CMD_RESEND_RESPONSE arrives we will supply this response
 	 * to that command.
 	 */
-	if (!in_interrupt_context()) {
+	if (!k_is_in_isr()) {
 		if (command_pending) {
 			/*
 			 * We previously got EC_RES_IN_PROGRESS.  This must be
@@ -336,40 +338,7 @@ host_packet_bad:
 
 const struct host_command *find_host_command(int command)
 {
-	if (IS_ENABLED(CONFIG_ZEPHYR)) {
-		return zephyr_find_host_command(command);
-	} else if (IS_ENABLED(CONFIG_HOSTCMD_SECTION_SORTED)) {
-		const struct host_command *l, *r, *m;
-		uint32_t num;
-
-		/* Use binary search to locate host command handler */
-		l = __hcmds;
-		r = __hcmds_end - 1;
-
-		while (1) {
-			if (l > r)
-				return NULL;
-
-			num = r - l;
-			m = l + (num / 2);
-
-			if (m->command < command)
-				l = m + 1;
-			else if (m->command > command)
-				r = m - 1;
-			else
-				return m;
-		}
-	} else {
-		const struct host_command *cmd;
-
-		for (cmd = __hcmds; cmd < __hcmds_end; cmd++) {
-			if (command == cmd->command)
-				return cmd;
-		}
-
-		return NULL;
-	}
+	return zephyr_find_host_command(command);
 }
 
 void host_command_task(void *u)
@@ -408,7 +377,7 @@ void host_command_task(void *u)
 		 */
 		if (t1.val - t_recess.val > CONFIG_HOSTCMD_RATE_LIMITING_PERIOD)
 			/* Short recess */
-			crec_usleep(CONFIG_HOSTCMD_RATE_LIMITING_RECESS);
+			k_usleep(CONFIG_HOSTCMD_RATE_LIMITING_RECESS);
 	}
 }
 
@@ -447,7 +416,6 @@ static void dump_host_command_suppressed(int force)
 		hc_suppressed_cnt[i] = 0;
 	}
 	CPRINTF("]\n");
-	cflush();
 
 	/* Reset the timer */
 	suppressed_cmd_deadline.val = get_time().val + SUPPRESSED_CMD_INTERVAL;
@@ -518,7 +486,7 @@ uint16_t host_command_process(struct host_cmd_handler_args *args)
 	const struct host_command *cmd;
 	int rv;
 
-	if (hcdebug)
+	if (hcdebug && !k_is_in_isr())
 		host_command_debug_request(args);
 
 	/*
@@ -643,7 +611,7 @@ static int command_host_command(int argc, const char **argv)
 	int rv;
 
 	/* Use shared memory for command params space */
-	if (SHARED_MEM_ACQUIRE_CHECK(EC_PROTO2_MAX_PARAM_SIZE, &cmd_params)) {
+	if (shared_mem_acquire(EC_PROTO2_MAX_PARAM_SIZE, &cmd_params)) {
 		ccputs("Can't acquire shared memory buffer.\n");
 		return EC_ERROR_UNKNOWN;
 	}

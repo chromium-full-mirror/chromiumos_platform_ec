@@ -19,6 +19,7 @@ def register_rtk59_project(
         boards=["atria"],
         zephyr_board="realtek/rts5912",
         dts_overlays=[
+            here / "common.overlay",
             here / project_name / "project.overlay",
         ],
         kconfig_files=[
@@ -52,6 +53,7 @@ def register_it8xxx2_project(
         boards=["atria"],
         zephyr_board="it8xxx2/it82002aw",
         dts_overlays=[
+            here / "common.overlay",
             here / project_name / "project.overlay",
         ],
         kconfig_files=[
@@ -77,7 +79,10 @@ register_rtk59_project(
 
 register_it8xxx2_project(
     project_name="penghu",
-    extra_modules=["pigweed"],
+    extra_kconfig_files=[
+        here / "dsp_comms.conf",
+    ],
+    extra_modules=["pigweed", "nanopb"],
     snippets=["pw-tokenize"],
 )
 
@@ -104,6 +109,20 @@ register_ish_project(
     ],
     kconfig_files=[
         here / "penghu-ish" / "project.conf",
+        here / "dsp_comms.conf",
+        here / ".." / ".." / "ish.conf",
+    ],
+)
+
+register_ish_project(
+    project_name="atria-ish-idle",
+    boards=["atria"],
+    zephyr_board="intel_ish_5_8_0",
+    dts_overlays=[
+        here / "atria-ish-idle" / "project.overlay",
+    ],
+    kconfig_files=[
+        here / "atria-ish-idle" / "project.conf",
         here / ".." / ".." / "ish.conf",
     ],
 )

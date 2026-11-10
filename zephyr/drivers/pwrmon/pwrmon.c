@@ -202,8 +202,8 @@ static enum ec_status pwrmon_channels_enable(bool start)
 					      channel_enable_attr, &val);
 			if (ret) {
 				enabled_channels--;
-				LOG_ERR("Unable to start channel %d %s err: %d",
-					i, channel->channel_name, ret);
+				LOG_ERR("Unable to start channel %d err: %d", i,
+					ret);
 			}
 		}
 	}
@@ -289,8 +289,8 @@ static enum ec_status pwrmon_sample_get(uint8_t channel_id, uint32_t *samples,
 		pwrmon_config.power_monitors[channel->power_monitor_idx];
 	ret = sensor_channel_get(power_monitor, sensor_channel, &val);
 	if (ret) {
-		LOG_WRN("Failed to get sample count for channel %s err: %d",
-			channel->channel_name, ret);
+		LOG_WRN("Failed to get sample count for channel %d err: %d",
+			channel_id, ret);
 		return EC_RES_ERROR;
 	}
 	*samples = val.val1;
@@ -319,18 +319,19 @@ DEVICE_DT_INST_DEFINE(0, pwrmon_init, NULL, &pwrmon_data, &pwrmon_config,
 BUILD_ASSERT(DT_NUM_INST_STATUS_OKAY(DT_DRV_COMPAT) == 1,
 	     "Exactly one instance of cros-ec,pwrmon should be defined.");
 
-static enum ec_status hc_pwrmon_handler(struct host_cmd_handler_args *args)
+static enum ec_host_cmd_status
+hc_pwrmon_handler(struct ec_host_cmd_handler_args *args)
 {
 	const struct device *pwrmon_dev = DEVICE_DT_INST_GET(0);
-	const struct ec_params_pwrmon *p = args->params;
-	struct ec_response_pwrmon *r = args->response;
-	enum ec_status ret = EC_RES_SUCCESS;
+	const struct ec_params_pwrmon *p = args->input_buf;
+	struct ec_response_pwrmon *r = args->output_buf;
+	enum ec_host_cmd_status ret = EC_HOST_CMD_SUCCESS;
 	int channel_id;
 
 	switch (p->cmd) {
 	case EC_PWRMON_GET_CHANNEL_COUNT:
 		r->channel_count = pwrmon_config.channels_count;
-		args->response_size = sizeof(pwrmon_config.channels_count);
+		args->output_buf_size = sizeof(pwrmon_config.channels_count);
 		break;
 
 	case EC_PWRMON_DUMP_INFO:
@@ -339,7 +340,7 @@ static enum ec_status hc_pwrmon_handler(struct host_cmd_handler_args *args)
 		if (channel_id >= pwrmon_config.channels_count) {
 			LOG_ERR("Channel index %d bigger than channel_count: %d",
 				channel_id, pwrmon_config.channels_count);
-			ret = EC_RES_ERROR;
+			ret = EC_HOST_CMD_ERROR;
 			break;
 		}
 
@@ -353,12 +354,12 @@ static enum ec_status hc_pwrmon_handler(struct host_cmd_handler_args *args)
 				 sizeof(r->dump_info.channel_name), "%d",
 				 channel_id);
 		}
-		args->response_size = sizeof(struct pwrmon_dump_info);
+		args->output_buf_size = sizeof(struct pwrmon_dump_info);
 		break;
 
 	case EC_PWRMON_GET_RATE:
 		r->sample_rate = pwrmon_data.sample_rate;
-		args->response_size = sizeof(pwrmon_data.sample_rate);
+		args->output_buf_size = sizeof(pwrmon_data.sample_rate);
 		break;
 
 	case EC_PWRMON_SET_RATE:
@@ -375,28 +376,28 @@ static enum ec_status hc_pwrmon_handler(struct host_cmd_handler_args *args)
 			if (ret) {
 				LOG_ERR("Failed to initialize pwrmon err: %d",
 					ret);
-				return EC_RES_ERROR;
+				return EC_HOST_CMD_ERROR;
 			}
 		}
 
 		ret = gpio_pin_configure_dt(&pwrmon_config.pwrmon_gpio,
-					    GPIO_OUTPUT_HIGH);
+					    GPIO_OUTPUT_ACTIVE);
 		if (ret) {
 			LOG_ERR("Failed to initialize gpio err: %d", ret);
-			return EC_RES_ERROR;
+			return EC_HOST_CMD_ERROR;
 		}
 		/* Give I2C switch some time to settle */
 		k_msleep(10);
 		ret = pwrmon_monitors_start();
 		if (ret) {
 			LOG_ERR("Failed to start power monitors err: %d", ret);
-			return EC_RES_ERROR;
+			return EC_HOST_CMD_ERROR;
 		}
 
 		pwrmon_set_rate(pwrmon_data.sample_rate);
 
 		ret = pwrmon_channels_enable(true);
-		if (ret == EC_RES_SUCCESS) {
+		if (ret == EC_HOST_CMD_SUCCESS) {
 			pwrmon_data.pwrmon_enable = true;
 		}
 		break;
@@ -415,7 +416,7 @@ static enum ec_status hc_pwrmon_handler(struct host_cmd_handler_args *args)
 	case EC_PWRMON_LATCH:
 		if (!pwrmon_data.pwrmon_enable) {
 			LOG_ERR("Power monitoring not started");
-			ret = EC_RES_ERROR;
+			ret = EC_HOST_CMD_ERROR;
 			break;
 		}
 
@@ -425,10 +426,10 @@ static enum ec_status hc_pwrmon_handler(struct host_cmd_handler_args *args)
 		}
 		break;
 	default:
-		ret = EC_RES_INVALID_COMMAND;
+		ret = EC_HOST_CMD_INVALID_COMMAND;
 		break;
 	}
 
 	return ret;
 }
-DECLARE_HOST_COMMAND(EC_CMD_PWRMON, hc_pwrmon_handler, EC_VER_MASK(0));
+EC_HOST_CMD_HANDLER_UNBOUND(EC_CMD_PWRMON, hc_pwrmon_handler, EC_VER_MASK(0));

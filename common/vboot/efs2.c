@@ -104,15 +104,6 @@ static enum cr50_comm_err send_to_cr50(const uint8_t *data, size_t size)
 
 	until.val = get_time().val + CR50_COMM_TIMEOUT;
 
-	/*
-	 * Make sure console task won't steal the response in case we exchange
-	 * packets after tasks start.
-	 */
-#ifndef CONFIG_ZEPHYR
-	if (task_start_called())
-		task_disable_task(TASK_ID_CONSOLE);
-#endif /* !CONFIG_ZEPHYR */
-
 	/* Wait for response from Cr50 */
 	for (i = 0; i < sizeof(res); i++) {
 		while (!timeout) {
@@ -121,16 +112,12 @@ static enum cr50_comm_err send_to_cr50(const uint8_t *data, size_t size)
 				res.error = res.error | c << (i * 8);
 				break;
 			}
-			crec_msleep(1);
+			k_msleep(1);
 			timeout = timestamp_expired(until, NULL);
 		}
 	}
 
 	uart_shell_start();
-#ifndef CONFIG_ZEPHYR
-	if (task_start_called())
-		task_enable_task(TASK_ID_CONSOLE);
-#endif /* CONFIG_ZEPHYR */
 
 	/* Exit packet mode */
 	board_enable_packet_mode(false);
@@ -176,7 +163,7 @@ static enum cr50_comm_err cmd_to_cr50(enum cr50_comm_cmd cmd,
 				  sizeof(s.preamble) + sizeof(*p) + p->size);
 		if (is_valid_cr50_response(rv))
 			break;
-		crec_msleep(5);
+		k_msleep(5);
 	} while (--retry);
 
 	return rv;
@@ -190,7 +177,7 @@ static enum cr50_comm_err verify_hash(void)
 	/* Wake up Cr50 beforehand in case it's asleep. */
 	board_enable_packet_mode(true);
 	CPRINTS("Ping Cr50");
-	crec_msleep(1);
+	k_msleep(1);
 	board_enable_packet_mode(false);
 
 	rv = vboot_get_rw_hash(&hash);
