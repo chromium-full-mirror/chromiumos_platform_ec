@@ -258,6 +258,32 @@ ZTEST_F(usb_pe_test_sink, test_pe_role_swaps)
 /**
  * @brief Test Source Capabilities rejection / not supported response.
  */
+
+/**
+ * @brief Verify that PE_Send_Soft_Reset as Sink handles discarded message and
+ * successful send without an active DPM request.
+ */
+ZTEST_F(usb_pe_test_sink, test_pe_soft_reset_discard_without_dpm_request_sink)
+{
+	struct tcpci_partner_data *partner = &fixture->fixture.partner_emul;
+	int port = TEST_USB_PORT;
+
+	/* Connect extension to cause a collision on the first Soft Reset */
+	soft_reset_collision_ext.next = partner->extensions;
+	partner->extensions = &soft_reset_collision_ext;
+
+	tcpci_partner_common_clear_logged_msgs(partner);
+
+	/* Inject unexpected Wait to trigger Soft Reset */
+	tcpci_partner_send_control_msg(partner, PD_CTRL_WAIT, 0);
+
+	/* Allow time for Soft Reset to occur and complete negotiation */
+	k_sleep(K_SECONDS(2));
+
+	zassert_equal(PE_SNK_READY, get_state_pe(port),
+		      "Expected PE_SNK_Ready");
+}
+
 ZTEST_F(usb_pe_test_sink, test_pe_source_caps_rejected)
 {
 	struct usb_pe_test_fixture *super_fixture = &fixture->fixture;
@@ -504,6 +530,32 @@ ZTEST_F(usb_pe_test_source, test_pe_soft_reset_discard_with_dpm_request)
 /**
  * @brief Test PE Get Source Cap Extended and Get Status handling.
  */
+
+/**
+ * @brief Verify that PE_Send_Soft_Reset handles discarded message and
+ * successful send without an active DPM request.
+ */
+ZTEST_F(usb_pe_test_source, test_pe_soft_reset_discard_without_dpm_request)
+{
+	struct tcpci_partner_data *partner = &fixture->fixture.partner_emul;
+	int port = TEST_USB_PORT;
+
+	/* Connect extension to cause a collision on the first Soft Reset */
+	soft_reset_collision_ext.next = partner->extensions;
+	partner->extensions = &soft_reset_collision_ext;
+
+	tcpci_partner_common_clear_logged_msgs(partner);
+
+	/* Inject unexpected Wait to trigger Soft Reset */
+	tcpci_partner_send_control_msg(partner, PD_CTRL_WAIT, 0);
+
+	/* Allow time for Soft Reset to occur and complete negotiation */
+	k_sleep(K_SECONDS(2));
+
+	zassert_equal(PE_SRC_READY, get_state_pe(port),
+		      "Expected PE_SRC_Ready");
+}
+
 ZTEST_F(usb_pe_test_source, test_pe_extended_queries)
 {
 	struct usb_pe_test_fixture *super_fixture = &fixture->fixture;
