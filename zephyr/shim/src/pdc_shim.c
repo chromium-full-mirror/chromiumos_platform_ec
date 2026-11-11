@@ -5,7 +5,7 @@
 
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/atomic.h>
-#include <zephyr/toolchain/common.h>
+#include <zephyr/toolchain.h>
 
 #include <usbc/pdc_power_mgmt.h>
 
