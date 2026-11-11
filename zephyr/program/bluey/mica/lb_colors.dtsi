@@ -1,0 +1,18 @@
+/* Copyright 2025 The ChromiumOS Authors
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file.
+ */
+
+#include "lb_colors.h"
+
+/ {
+	led_pins2: lightbar {
+		status = "okay";
+		compatible = "cros-ec,led-lightbar";
+		led-segments = <0x03 0x0c 0x30 0xc0>;
+		lightbar0 {
+			led-id = "EC_LED_ID_LIGHTBAR_LED";
+			strip = <&uart4_dev0>;
+		};
+	};
+};

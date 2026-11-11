@@ -46,13 +46,13 @@ register_npcx9_project(
 register_npcx9_project(
     project_name="quartz",
     zephyr_board="npcx9/npcx9m7fb",
-    extra_modules=["google-private", "nanopb", "pigweed"],
+    extra_modules=["nanopb", "pigweed"],
 )
 
 register_npcx9_project(
     project_name="mica",
     zephyr_board="npcx9/npcx9m7fb",
-    extra_modules=["google-private", "nanopb", "pigweed"],
+    extra_modules=["nanopb", "pigweed"],
 )
 
 register_npcx9_project(

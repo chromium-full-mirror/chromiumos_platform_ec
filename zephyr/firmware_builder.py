@@ -183,8 +183,6 @@ def get_projects(opts=None):
                 "moonstone",
                 "ruby",
                 "sapphire",
-                "quartz",
-                "mica",
                 "mensa",
                 "annite",
                 "hekla",

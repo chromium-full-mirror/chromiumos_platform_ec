@@ -1,0 +1,18 @@
+/* Copyright 2025 The ChromiumOS Authors
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file.
+ */
+
+/* Quartz lightbar includes */
+
+#include "lb_colors.dtsi"
+#include "led_strip_uart.dtsi"
+#include <cros/lightbar_policy.dtsi>
+
+&lb_state_resume_debounce {
+	pattern-0 {
+		color-0 {
+			period-ms = <6000>;
+		};
+	};
+};
