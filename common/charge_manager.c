@@ -570,7 +570,18 @@ static void
 charge_manager_fill_power_info(int port,
 			       struct ec_response_usb_pd_power_info *r)
 {
-	enum charge_supplier sup = get_current_supplier(port);
+	enum charge_supplier sup;
+
+	memset(r, 0, sizeof(*r));
+
+	if (!is_valid_port(port)) {
+		r->role = USB_PD_PORT_POWER_DISCONNECTED;
+		r->type = USB_CHG_TYPE_NONE;
+		return;
+	}
+
+	CM_MUTEX_LOCK(&cm_refresh);
+	sup = get_current_supplier(port);
 
 	/* Fill in power role */
 	r->role = get_current_power_role(port, sup);
@@ -692,6 +703,7 @@ charge_manager_fill_power_info(int port,
 
 		r->meas.voltage_now = get_vbus_voltage(port, r->role);
 	}
+	CM_MUTEX_UNLOCK(&cm_refresh);
 }
 
 #ifdef CONFIG_USB_PD_LOGGING
@@ -1724,19 +1736,22 @@ hc_pd_power_info(struct ec_host_cmd_handler_args *args)
 	struct ec_response_usb_pd_power_info *r = args->output_buf;
 	int port = p->port;
 
+	/*
+	 * Reject out-of-range ports, except PD_POWER_CHARGING_PORT. Allow
+	 * unpopulated port indices (!is_valid_port()) through so ectool still
+	 * receives a zeroed disconnected response when scanning up to
+	 * CHARGE_PORT_COUNT.
+	 */
+	if (port != PD_POWER_CHARGING_PORT && port >= CHARGE_PORT_COUNT)
+		return EC_HOST_CMD_INVALID_COMMAND;
+
+	CM_MUTEX_LOCK(&cm_refresh);
 	/* If host is asking for the charging port, set port appropriately */
 	if (port == PD_POWER_CHARGING_PORT)
 		port = charge_port;
 
-	/*
-	 * Not checking for invalid port here, because it might break existing
-	 * contract with ectool users. The invalid ports will have the response
-	 * voltage, current and power parameters set to 0.
-	 */
-	if (port >= CHARGE_PORT_COUNT)
-		return EC_HOST_CMD_INVALID_COMMAND;
-
 	charge_manager_fill_power_info(port, r);
+	CM_MUTEX_UNLOCK(&cm_refresh);
 
 	args->output_buf_size = sizeof(*r);
 	return EC_HOST_CMD_SUCCESS;

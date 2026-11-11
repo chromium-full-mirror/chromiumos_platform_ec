@@ -7,6 +7,8 @@
 #include "host_command.h"
 #include "test/drivers/test_state.h"
 
+#include <string.h>
+
 #include <zephyr/ztest.h>
 
 ZTEST_USER(charge_manager, test_port_count)
@@ -77,6 +79,32 @@ ZTEST_USER(charge_manager, test_charge_state_get_debug_params)
 	params.get_param.param = CS_PARAM_DEBUG_MAX;
 	zassert_equal(EC_HOST_CMD_INVALID_PARAM,
 		      ec_cmd_charge_state(NULL, &params, &response));
+}
+
+ZTEST_USER(charge_manager, test_pd_power_info)
+{
+	struct ec_params_usb_pd_power_info params = {
+		.port = PD_POWER_CHARGING_PORT,
+	};
+	struct ec_response_usb_pd_power_info response;
+
+	memset(&response, 0xff, sizeof(response));
+	zassert_ok(ec_cmd_usb_pd_power_info(NULL, &params, &response));
+	zassert_equal(response.role, USB_PD_PORT_POWER_DISCONNECTED);
+	zassert_equal(response.type, USB_CHG_TYPE_NONE);
+	zassert_equal(response.dualrole, 0);
+	zassert_equal(response.max_power, 0);
+
+	memset(&response, 0xff, sizeof(response));
+	params.port = 0;
+	zassert_ok(ec_cmd_usb_pd_power_info(NULL, &params, &response));
+	zassert_equal(response.role, USB_PD_PORT_POWER_DISCONNECTED);
+	zassert_equal(response.reserved1, 0);
+	zassert_equal(response.meas.current_lim, 0);
+
+	params.port = CHARGE_PORT_COUNT;
+	zassert_equal(EC_RES_INVALID_COMMAND,
+		      ec_cmd_usb_pd_power_info(NULL, &params, &response));
 }
 
 ZTEST_SUITE(charge_manager, drivers_predicate_post_main, NULL, NULL, NULL,

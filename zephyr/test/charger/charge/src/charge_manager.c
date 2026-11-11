@@ -8,7 +8,10 @@
 #include "drivers/ucsi_v3.h"
 #include "ec_commands.h"
 #include "emul/emul_pdc.h"
+#include "host_command.h"
 #include "usbc/pdc_power_mgmt.h"
+
+#include <string.h>
 
 #include <zephyr/ztest.h>
 
@@ -78,6 +81,29 @@ ZTEST_USER(charge_manager, test_has_no_active_charge_port)
 	emul_pdc_disconnect(emul);
 	pdc_power_mgmt_wait_for_sync(0, -1);
 	zassert_false(charge_manager_has_active_charge_port());
+}
+
+ZTEST_USER(charge_manager, test_pd_power_info_charging_port)
+{
+	union connector_status_t connector_status = {};
+	struct ec_params_usb_pd_power_info params = {
+		.port = PD_POWER_CHARGING_PORT,
+	};
+	struct ec_response_usb_pd_power_info response;
+
+	charge_manager_leave_safe_mode();
+	emul_pdc_configure_snk(emul, &connector_status);
+	emul_pdc_connect_partner(emul, &connector_status);
+	pdc_power_mgmt_wait_for_sync(0, -1);
+
+	memset(&response, 0xff, sizeof(response));
+	zassert_ok(ec_cmd_usb_pd_power_info(NULL, &params, &response));
+	zassert_equal(response.role, USB_PD_PORT_POWER_SINK);
+	zassert_equal(response.reserved1, 0);
+	zassert_true(response.max_power > 0);
+
+	emul_pdc_disconnect(emul);
+	pdc_power_mgmt_wait_for_sync(0, -1);
 }
 
 ZTEST_USER(charge_manager, test_available_current)
