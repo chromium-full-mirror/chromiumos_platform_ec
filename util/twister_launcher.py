@@ -63,9 +63,11 @@ DAGWOOD_PLATFORMS = {"it8xxx2/it82002aw", "npcx9/npcx9m7f", "realtek/rts5912"}
 
 # Additional upstream test paths that we want to run on dagwood.
 DAGWOOD_TEST_PATHS = [
+    Path("tests/kernel/sleep"),
     Path("tests/kernel/sys_timer"),
     Path("tests/kernel/tickless"),
     Path("tests/kernel/timer/timeout_churn"),
+    Path("tests/kernel/timer/timer_api"),
 ]
 
 # These tests require a board specific overlay upstream. The dagwood platform
