@@ -64,7 +64,9 @@ static uint32_t in_debug; /* Signal values which print debug output */
 
 static enum power_state state = POWER_G3; /* Current state */
 static int want_g3_exit; /* Should we exit the G3 state? */
+#ifdef CONFIG_HIBERNATE
 static uint64_t last_shutdown_time; /* When did we enter G3? */
+#endif
 static const uint64_t uninitialized_time = -1;
 static uint64_t first_S0_time = uninitialized_time; /* When did we enter S0? */
 static uint64_t first_S5_time = uninitialized_time; /* When did we enter S5? */
@@ -232,9 +234,11 @@ int power_wait_mask_signals_timeout(uint32_t want, uint32_t mask, int timeout)
 
 void power_set_state(enum power_state new_state)
 {
+#ifdef CONFIG_HIBERNATE
 	/* Record the time we go into G3 */
 	if (new_state == POWER_G3)
 		last_shutdown_time = get_time().val;
+#endif
 
 	/* Print out the RTC value to help correlate EC and kernel logs. */
 	print_system_rtc(CC_CHIPSET);
@@ -796,7 +800,9 @@ static void power_ac_change(void)
 		CPRINTS("AC off");
 
 		if (state == POWER_G3) {
+#ifdef CONFIG_HIBERNATE
 			last_shutdown_time = get_time().val;
+#endif
 			task_wake(TASK_ID_CHIPSET);
 		}
 	}

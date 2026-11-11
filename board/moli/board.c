@@ -149,8 +149,6 @@ int board_set_active_charge_port(int port)
 	return EC_SUCCESS;
 }
 
-static uint8_t usbc_overcurrent;
-
 /******************************************************************************/
 /*
  * Barrel jack power supply handling
@@ -235,10 +233,6 @@ DECLARE_HOOK(HOOK_INIT, board_init, HOOK_PRIO_DEFAULT);
 
 void board_overcurrent_event(int port, int is_overcurrented)
 {
-	/* Check that port number is valid. */
-	if ((port < 0) || (port >= CONFIG_USB_PD_PORT_MAX_COUNT))
-		return;
-	usbc_overcurrent = is_overcurrented;
 }
 /*
  * Power monitoring and management.

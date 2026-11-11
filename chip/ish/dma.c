@@ -11,8 +11,6 @@
 #include "registers.h"
 #include "util.h"
 
-static int dma_init_called; /* If ish_dma_init is called */
-
 void ish_dma_ocp_timeout_disable(void)
 {
 	if (!IS_ENABLED(CONFIG_ISH_NEW_PM)) {
@@ -42,8 +40,6 @@ void ish_dma_init(void)
 	/* set DRAM address 32 MSB for DMA transactions on UMA */
 	uma_msb = IPC_UMA_RANGE_LOWER_1;
 	ish_dma_set_msb(PAGING_CHAN, uma_msb, uma_msb);
-
-	dma_init_called = 1;
 }
 
 int ish_dma_copy(uint32_t chan, uint32_t dst, uint32_t src, uint32_t length,

@@ -138,8 +138,10 @@ static volatile int kbd_polls;
 /* If true, we'll force a keyboard poll */
 static volatile int force_poll;
 
+#ifdef CONFIG_POWER_BUTTON
 /* Indicates keyboard_scan_task has started. */
 test_export_static uint8_t keyboard_scan_task_started;
+#endif
 
 uint8_t keyboard_get_cols(void)
 {
@@ -1094,7 +1096,9 @@ void keyboard_scan_task(void *u)
 	/* Set initial clock frequency-based minimum delay between scans */
 	keyboard_freq_change();
 
+#ifdef CONFIG_POWER_BUTTON
 	keyboard_scan_task_started = 1;
+#endif
 	while (1) {
 		/* Enable all outputs */
 		CPRINTS5("wait");

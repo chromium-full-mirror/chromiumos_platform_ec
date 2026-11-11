@@ -19,7 +19,10 @@
 #define UARTN CONFIG_UART_CONSOLE
 #define UART_IDLE_WAIT_US 500
 
-static uint8_t uart_done, tx_started;
+static uint8_t uart_done;
+#if (UARTN >= SCP_UART_COUNT)
+static uint8_t tx_started;
+#endif
 
 int uart_init_done(void)
 {
@@ -32,11 +35,13 @@ int uart_init_done(void)
 
 void uart_tx_start(void)
 {
-	tx_started = 1;
-
 	/* AP UART mode doesn't support interrupt */
-	if (UARTN >= SCP_UART_COUNT)
+	if (UARTN >= SCP_UART_COUNT) {
+#if (UARTN >= SCP_UART_COUNT)
+		tx_started = 1;
+#endif
 		return;
+	}
 
 	if (UART_IER(UARTN) & UART_IER_THRI)
 		return;
@@ -46,11 +51,13 @@ void uart_tx_start(void)
 
 void uart_tx_stop(void)
 {
-	tx_started = 0;
-
 	/* AP UART mode doesn't support interrupt */
-	if (UARTN >= SCP_UART_COUNT)
+	if (UARTN >= SCP_UART_COUNT) {
+#if (UARTN >= SCP_UART_COUNT)
+		tx_started = 0;
+#endif
 		return;
+	}
 
 	UART_IER(UARTN) &= ~UART_IER_THRI;
 	enable_sleep(SLEEP_MASK_UART);

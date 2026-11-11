@@ -43,9 +43,6 @@ struct atlas_batt_params {
 #define DEFAULT_BATTERY_TYPE BATTERY_LISHEN
 static enum battery_type board_battery_type = BATTERY_TYPE_COUNT;
 
-/* Battery may delay reporting battery present */
-static int battery_report_present = 1;
-
 /*
  * Battery info for LG A50. Note that the fields start_charging_min/max and
  * charging_min/max are not used for the Eve charger. The effective temperature
@@ -240,14 +237,6 @@ enum battery_present battery_hw_present(void)
 	/* The GPIO is low when the battery is physically present */
 	return gpio_get_level(GPIO_BATTERY_PRESENT_L) ? BP_NO : BP_YES;
 }
-
-/* Allow booting now that the battery has woke up */
-static void battery_now_present(void)
-{
-	CPRINTS("battery will now report present");
-	battery_report_present = 1;
-}
-DECLARE_DEFERRED(battery_now_present);
 
 /*
  * Physical detection of battery.

@@ -32,10 +32,12 @@
 
 /* Low power idle statistics */
 #ifdef CONFIG_LOW_POWER_IDLE
+#ifdef CONFIG_CMD_IDLE_STATS
 static int idle_sleep_cnt;
 static int idle_dsleep_cnt;
 static uint64_t idle_dsleep_time_us;
 static int dsleep_recovery_margin_us = 1000000;
+#endif
 
 /*
  * minimum delay to enter stop mode
@@ -323,7 +325,9 @@ void __idle(void)
 #endif
 		    (next_delay > (STOP_MODE_LATENCY + SET_RTC_MATCH_DELAY))) {
 			/* Deep-sleep in STOP mode */
+#ifdef CONFIG_CMD_IDLE_STATS
 			idle_dsleep_cnt++;
+#endif
 
 			uart_enable_wakeup(1);
 
@@ -354,8 +358,10 @@ void __idle(void)
 			hook_call_deferred(
 				&restore_host_wake_alarm_deferred_data, 0);
 #endif
+#ifdef CONFIG_CMD_IDLE_STATS
 			/* Record time spent in deep sleep. */
 			idle_dsleep_time_us += rtc_diff;
+#endif
 
 			/* Calculate how close we were to missing deadline */
 			margin_us = next_delay - rtc_diff;
@@ -363,11 +369,15 @@ void __idle(void)
 				/* Use CPUTS to save stack space */
 				CPUTS("Idle overslept!\n");
 
+#ifdef CONFIG_CMD_IDLE_STATS
 			/* Record the closest to missing a deadline. */
 			if (margin_us < dsleep_recovery_margin_us)
 				dsleep_recovery_margin_us = margin_us;
+#endif
 		} else {
+#ifdef CONFIG_CMD_IDLE_STATS
 			idle_sleep_cnt++;
+#endif
 
 			/* Normal idle : only CPU clock stopped */
 			asm("wfi");

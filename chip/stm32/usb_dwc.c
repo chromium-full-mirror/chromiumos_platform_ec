@@ -169,14 +169,6 @@ struct dwc_usb_ep ep0_ctl = {
 	.tx_deferred = 0,
 };
 
-/* Overall device state (USB 2.0 spec, section 9.1.1).
- * We only need a few, though.
- */
-static enum {
-	DS_DEFAULT,
-	DS_ADDRESS,
-	DS_CONFIGURED,
-} device_state;
 static uint8_t configuration_value;
 
 /* True if the HW Rx/OUT FIFO is currently listening. */
@@ -700,19 +692,16 @@ static int handle_setup_with_no_data_stage(enum table_case tc,
 		 */
 		GWRITE_FIELD(USB, DCFG, DEVADDR, set_addr);
 		CPRINTS("SETAD 0x%02x (%d)", set_addr, set_addr);
-		device_state = DS_ADDRESS;
 		break;
 
 	case USB_REQ_SET_CONFIGURATION:
 		switch (req->wValue) {
 		case 0:
 			configuration_value = req->wValue;
-			device_state = DS_ADDRESS;
 			break;
 		case 1: /* Caution: Only one config descriptor TODAY */
 			/* TODO: All endpoints set to DATA0 toggle state */
 			configuration_value = req->wValue;
-			device_state = DS_CONFIGURED;
 			break;
 		default:
 			/* Nope. That's a paddlin. */
@@ -962,7 +951,6 @@ static void usb_init_endpoints(void)
 static void usb_reset(void)
 {
 	/* Clear our internal state */
-	device_state = DS_DEFAULT;
 	configuration_value = 0;
 
 	/* Clear the device address */
@@ -1080,7 +1068,6 @@ void usb_disconnect(void)
 {
 	GR_USB_DCTL |= DCTL_SFTDISCON;
 
-	device_state = DS_DEFAULT;
 	configuration_value = 0;
 }
 
@@ -1191,10 +1178,8 @@ void usb_init(void)
 		/* Caution: We only have one config TODAY, so there's no real
 		 * difference between DS_CONFIGURED and DS_ADDRESS.
 		 */
-		device_state = DS_CONFIGURED;
 		configuration_value = 1;
 	} else {
-		device_state = DS_DEFAULT;
 		configuration_value = 0;
 	}
 

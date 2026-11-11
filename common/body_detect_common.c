@@ -17,12 +17,6 @@ static
 #endif
 	int onbody_stationary_timeframe;
 
-/* Support V2 algorithm */
-#ifndef CONFIG_BODY_DETECTION_ALOGIRTHM_V2
-static
-#endif
-	uint64_t onbody_lasttime;
-
 bool spoof_enable;
 
 /* Clock */
@@ -67,7 +61,6 @@ void body_detect_change_state(enum body_detect_states state, bool spoof)
 
 	if (state == BODY_DETECTION_ON_BODY) {
 		/* reset time counting of stationary */
-		onbody_lasttime = onbody_get_curtime();
 		onbody_stationary_timeframe = 0;
 	}
 

@@ -12,30 +12,32 @@
 #include "timer.h"
 #include "watchdog.h"
 
+#if defined(CONFIG_HOSTCMD_WATCHDOG_INFO) || \
+	defined(CONFIG_CONSOLE_CMD_WATCHDOG_INFO)
 /* Variables for tracking watchdog stats */
 static timestamp_t watchdog_reload_period_max_ts;
 static int32_t watchdog_reload_period_max_ms;
 static timestamp_t watchdog_reload_last_ts;
 static uint32_t watchdog_reload_count;
 static timestamp_t watchdog_stats_reset_ts;
+#endif
 
 void watchdog_reload(void)
 {
-	if (IS_ENABLED(CONFIG_HOSTCMD_WATCHDOG_INFO) ||
-	    IS_ENABLED(CONFIG_CONSOLE_CMD_WATCHDOG_INFO)) {
-		uint32_t key = irq_lock();
-		timestamp_t now_ts = get_time();
-		int32_t elapsed_ms =
-			(now_ts.val - watchdog_reload_last_ts.val) / MSEC;
+#if defined(CONFIG_HOSTCMD_WATCHDOG_INFO) || \
+	defined(CONFIG_CONSOLE_CMD_WATCHDOG_INFO)
+	uint32_t key = irq_lock();
+	timestamp_t now_ts = get_time();
+	int32_t elapsed_ms = (now_ts.val - watchdog_reload_last_ts.val) / MSEC;
 
-		watchdog_reload_count++;
-		if (elapsed_ms > watchdog_reload_period_max_ms) {
-			watchdog_reload_period_max_ms = elapsed_ms;
-			watchdog_reload_period_max_ts = watchdog_reload_last_ts;
-		}
-		watchdog_reload_last_ts = now_ts;
-		irq_unlock(key);
+	watchdog_reload_count++;
+	if (elapsed_ms > watchdog_reload_period_max_ms) {
+		watchdog_reload_period_max_ms = elapsed_ms;
+		watchdog_reload_period_max_ts = watchdog_reload_last_ts;
 	}
+	watchdog_reload_last_ts = now_ts;
+	irq_unlock(key);
+#endif
 
 	chip_watchdog_reload();
 }
@@ -44,16 +46,16 @@ DECLARE_HOOK(HOOK_SYSJUMP, watchdog_reload, HOOK_PRIO_LAST);
 
 void reset_watchdog_stats(void)
 {
-	if (IS_ENABLED(CONFIG_HOSTCMD_WATCHDOG_INFO) ||
-	    IS_ENABLED(CONFIG_CONSOLE_CMD_WATCHDOG_INFO)) {
-		uint32_t key = irq_lock();
+#if defined(CONFIG_HOSTCMD_WATCHDOG_INFO) || \
+	defined(CONFIG_CONSOLE_CMD_WATCHDOG_INFO)
+	uint32_t key = irq_lock();
 
-		watchdog_stats_reset_ts = watchdog_reload_last_ts;
-		watchdog_reload_period_max_ts.val = 0;
-		watchdog_reload_period_max_ms = 0;
-		watchdog_reload_count = 0;
-		irq_unlock(key);
-	}
+	watchdog_stats_reset_ts = watchdog_reload_last_ts;
+	watchdog_reload_period_max_ts.val = 0;
+	watchdog_reload_period_max_ms = 0;
+	watchdog_reload_count = 0;
+	irq_unlock(key);
+#endif
 }
 
 #if defined(CONFIG_HOSTCMD_WATCHDOG_INFO)

@@ -1227,7 +1227,9 @@ static int isl923x_ramp_get_current_limit(int chgnum)
 #endif /* CONFIG_CHARGE_RAMP_HW */
 
 #ifdef CONFIG_CHARGER_PSYS
+#ifdef CONFIG_CHARGER_PSYS_READ
 static int psys_enabled;
+#endif
 /*
  * TODO(b/147440290): Set to appropriate charger with multiple charger support,
  * hardcode to 0 for now
@@ -1249,7 +1251,9 @@ static void charger_enable_psys(void)
 	if (raw_write16(CHARGER_SOLO, ISL923X_REG_CONTROL1, val))
 		goto out;
 
+#ifdef CONFIG_CHARGER_PSYS_READ
 	psys_enabled = 1;
+#endif
 
 out:
 	mutex_unlock(&control1_mutex_isl923x);
@@ -1273,7 +1277,9 @@ static void charger_disable_psys(void)
 	if (raw_write16(CHARGER_SOLO, ISL923X_REG_CONTROL1, val))
 		goto out;
 
+#ifdef CONFIG_CHARGER_PSYS_READ
 	psys_enabled = 0;
+#endif
 
 out:
 	mutex_unlock(&control1_mutex_isl923x);
