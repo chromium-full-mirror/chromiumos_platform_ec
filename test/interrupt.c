@@ -13,10 +13,12 @@
 
 #include <stdio.h>
 
-static int main_count;
-static int has_error;
-static int interrupt_count;
-static int critical_section_isr_count;
+#include <unistd.h>
+
+static volatile int main_count;
+static volatile int has_error;
+static volatile int interrupt_count;
+static volatile int critical_section_isr_count;
 
 /* period between 50us and 3.2ms */
 #define PERIOD_US(num) (((num % 64) + 1) * 50)
@@ -62,14 +64,18 @@ void interrupt_generator(void)
 
 static int interrupt_test(void)
 {
-	timestamp_t deadline = get_time();
-	deadline.val += SECOND / 2;
-	while (!timestamp_expired(deadline, NULL))
-		++main_count;
+	int i, j;
+
+	for (i = 0; i < 50; i++) {
+		for (j = 0; j < 10000; j++)
+			++main_count;
+		usleep(MSEC);
+	}
 
 	ccprintf("Interrupt count: %d\n", interrupt_count);
 	ccprintf("Main thread tick: %d\n", main_count);
 
+	TEST_GT(interrupt_count, 0, "%d");
 	TEST_EQ(has_error, 0, "0x%x");
 	TEST_ASSERT(!in_interrupt_context());
 
@@ -78,14 +84,11 @@ static int interrupt_test(void)
 
 static int interrupt_disable_test(void)
 {
-	timestamp_t deadline = get_time();
 	int start_int_cnt, end_int_cnt;
-	deadline.val += SECOND / 2;
 
 	interrupt_disable();
 	start_int_cnt = interrupt_count;
-	while (!timestamp_expired(deadline, NULL))
-		;
+	usleep(50 * MSEC);
 	end_int_cnt = interrupt_count;
 	interrupt_enable();
 
@@ -106,7 +109,13 @@ void test_init(void)
 
 static int test_interrupt_disable_in_isr(void)
 {
-	TEST_GT(critical_section_isr_count, 0, "%d");
+	int start_int_cnt = critical_section_isr_count;
+	int i;
+
+	for (i = 0; i < 50 && critical_section_isr_count == start_int_cnt; i++)
+		usleep(MSEC);
+
+	TEST_GT(critical_section_isr_count, start_int_cnt, "%d");
 	TEST_EQ(has_error, 0, "0x%x");
 	TEST_ASSERT(is_interrupt_enabled());
 
