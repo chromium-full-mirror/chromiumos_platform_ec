@@ -346,14 +346,30 @@ Find the serial device of the ec console (on your workstation):
 (chroot) $ dut-control ec_uart_pty
 ```
 
-Connect to the console:
+Connect to the console in raw mode (recommended for Zephyr EC so interactive
+shell features like `<Tab>` autocompletion and arrow-key history work):
 
 ```bash
-(chroot) $ socat READLINE /dev/pts/XX
+(chroot) $ tio $(dut-control -o ec_uart_pty)
+# or with socat:
+(chroot) $ socat -,raw,echo=0 $(dut-control -o ec_uart_pty)
 ```
 
-Where `XX` is the device number. Use `cu`, `minicom`, or `screen` if you prefer
-them over `socat`.
+Use `tio`, `picocom`, `minicom`, or `cu` if you prefer a dedicated terminal
+emulator over `socat`.
+
+> **Tip (`<Tab>` Autocomplete over `servod`):**
+> * Avoid `socat READLINE /dev/pts/XX` when using Zephyr EC's interactive shell.
+>   `servod` (`ec3po`) leaves the user-facing slave PTY in canonical (`ICANON`)
+>   and local `ECHO` mode by default, and `socat READLINE` buffers input locally
+>   until `<Enter>` is pressed—preventing raw `<Tab>` (`0x09`) bytes from
+>   reaching the EC and causing commands to echo twice.
+> * If `<Tab>` still does not respond in raw mode, press `<Enter>` and send
+>   `%interrogate never` to ensure `ec3po` is not in enhanced line-editing mode
+>   (which drops `0x09`), and optionally `%timestamp off` so `ec3po` timestamp
+>   prefixes do not shift the Zephyr shell's VT100 cursor column tracking.
+> * If live Pigweed detokenization is not needed for a session, you can also
+>   connect directly to `$(dut-control -o raw_ec_uart_pty)` to bypass `ec3po`.
 
 ### Useful EC console commands:
 

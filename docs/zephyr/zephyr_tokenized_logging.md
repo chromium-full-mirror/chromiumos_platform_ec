@@ -229,6 +229,37 @@ enter is pressed. To force a "\n" when using socat press `<ctrl+v> <enter>` then
 send it off with another press of enter. So the command will look something like
 `%tokens off<ctrl+v><enter><enter>` using socat.*
 
+#### Interactive Shell Features (`<Tab>` Autocomplete and History)
+
+Zephyr EC enables shell `<Tab>` autocompletion (`CONFIG_SHELL_TAB_AUTOCOMPLETION=y`)
+and command history by default. For `<Tab>` completion and line editing to work
+over `servod` (`ec3po`):
+
+1. **Connect with a raw-mode terminal client (`-icanon -echo`):**
+   `servod` (`ec3po_interface.py`) only sets `tty.setraw()` on its internal
+   master PTY FD, leaving the user-facing slave PTY (`ec_uart_pty`) in canonical
+   (`ICANON`) and local `ECHO` mode unless the client switches it to raw mode.
+   Line-buffered clients such as `socat READLINE` buffer keystrokes locally
+   until `<Enter>` is pressed, preventing `<Tab>` (`0x09`) from reaching the EC
+   and causing commands to echo twice. Instead, use a terminal client that puts
+   the PTY into raw mode:
+   ```bash
+   tio $(dut-control -o ec_uart_pty)
+   # or with socat:
+   socat -,raw,echo=0 $(dut-control -o ec_uart_pty)
+   ```
+2. **Use non-enhanced `ec3po` mode (`%interrogate never`):**
+   When `ec3po` is in enhanced mode (`enhanced_ec = True`), `Console.handle_char()`
+   buffers lines on the host and silently drops `0x09` (`\t`). At the console
+   prompt, press `<Enter>` and run `%interrogate never` so `ec3po` forwards raw
+   bytes immediately.
+3. **Optional — Disable `ec3po` timestamps (`%timestamp off`):**
+   `ec3po`'s `YY-MM-DD HH:MM:SS.mmm ` line prefixes shift the terminal cursor
+   column out of sync with Zephyr shell's VT100 cursor math
+   (`CONFIG_SHELL_VT100_COMMANDS=y`) when redrawing the prompt after completion.
+   Run `%timestamp off` during interactive editing, or connect to
+   `$(dut-control -o raw_ec_uart_pty)` if live detokenization is not needed.
+
 
 ## On DUT EC Logs
 ### [Timberslide](https://chromium.googlesource.com/chromiumos/platform2/+/HEAD/timberslide)

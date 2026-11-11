@@ -264,3 +264,35 @@ ninja -C build/zephyr/$PROJECT/build-ro initlevels
 Potential fixes of init sequence regressions can be either adding `BUILD_CHECK`
 to validate the sequence in the appropriate files, or converting `SYS_CALL` to
 `DEVICE_DT_DEFINE` if the dependency is already represented in the device tree.
+
+## `<Tab>` autocomplete not working on EC console over `servod`
+
+Zephyr EC enables `<Tab>` autocompletion (`CONFIG_SHELL_TAB=y`,
+`CONFIG_SHELL_TAB_AUTOCOMPLETION=y`) by default, which requires raw `0x09`
+(`\t`) bytes to be sent immediately to the EC UART. If pressing `<Tab>` inserts
+spaces locally or does nothing when connected via `servod` (`ec_uart_pty`),
+check the following:
+
+1. **Terminal client in canonical (`ICANON` + `ECHO`) mode:**
+   `servod` (`ec3po_interface.py`) only calls `tty.setraw()` on its internal
+   master PTY FD, leaving the slave PTY (`ec_uart_pty`) in canonical line-buffered
+   mode unless the client configures raw mode. Using `socat READLINE` buffers
+   keystrokes on the host until `<Enter>` is pressed (and echoes commands twice).
+   Connect with a client that sets raw mode and disables local echo:
+   ```bash
+   tio $(dut-control -o ec_uart_pty)
+   # or with socat:
+   socat -,raw,echo=0 $(dut-control -o ec_uart_pty)
+   ```
+2. **`ec3po` Enhanced EC mode (`enhanced_ec = True`):**
+   When `ec3po` is in enhanced mode, `Console.handle_char()` intercepts input
+   for host-side line editing and ignores `0x09` (`\t`). Press `<Enter>` and
+   type `%interrogate never` in the console session so `ec3po` forwards raw
+   characters directly to the EC.
+3. **`ec3po` Timestamp Prefixes (`%timestamp on`):**
+   `ec3po` injects `YY-MM-DD HH:MM:SS.mmm ` timestamps on newlines, which can
+   desynchronize the terminal cursor column from Zephyr shell's VT100 cursor
+   tracking (`CONFIG_SHELL_VT100_COMMANDS=y`) during tab completion. Run
+   `%timestamp off` while using interactive completion, or connect to
+   `$(dut-control -o raw_ec_uart_pty)` if live Pigweed detokenization is not
+   needed.
