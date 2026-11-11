@@ -23,6 +23,8 @@
 #include "imvp.dtsi"
 #include "interrupt.dtsi"
 #include "keyboard.dtsi"
+#include "led-pins.dtsi"
+#include "led-policy.dtsi"
 #include "power_signals.dtsi"
 #include "thermal.dtsi"
 #include "usbc.dtsi"

@@ -30,7 +30,7 @@
 			gpios = <&gpioc 0 (GPIO_INPUT)>;
 			enum-name = "GPIO_AC_PRESENT";
 		};
-		gpio_ec_pwr_led_pwm_en: ec_pwr_led_pwm_en {
+		gpio_led_blue: ec_led_blue {
 			gpios = <&gpioc 4 (GPIO_OUTPUT | GPIO_ACTIVE_HIGH | GPIO_OUTPUT_INIT_LOW)>;
 		};
 		gpio_ec_en_edp_bl: ec_en_edp_bl {
