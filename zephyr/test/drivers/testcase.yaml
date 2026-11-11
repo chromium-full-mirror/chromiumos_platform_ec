@@ -613,6 +613,7 @@ tests:
     extra_configs:
     - CONFIG_LINK_TEST_SUITE_CONSOLE_BUFFER=y
     - CONFIG_IRQ_OFFLOAD=y
+    - CONFIG_TEST_CONSOLE_BUFFER_OVERRIDE_FORMAT=y
     extra_conf_files:
     - prj.conf
     - default/prj.conf

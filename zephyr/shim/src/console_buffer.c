@@ -244,23 +244,33 @@ static inline bool is_log_entry_boundary(char c)
 }
 
 /*
- * Format the dropped logs message, if any. This is done before taking
- * console_lock since format_dropped_logs_msg() may be overridden, e.g. by
- * the tokenized logging backend, which takes its own lock.
+ * Atomically claim pending drops and format the dropped logs message, if any.
+ * This is done before taking console_lock since format_dropped_logs_msg() may
+ * be overridden, e.g. by the tokenized logging backend, which takes its own
+ * lock. If formatting fails or the message is not emitted, the claimed drops
+ * must be restored via atomic_add(&dropped_logs_overflow, *drops).
  *
  * The ISR and Mutex counts are kept in the message for compatibility with
  * existing parsers. Logs are no longer dropped for those reasons.
  */
 static int format_dropped_logs(char *msg, size_t msg_size, uint32_t *drops)
 {
-	*drops = atomic_get(&dropped_logs_overflow);
+	*drops = atomic_clear(&dropped_logs_overflow);
 	if (*drops == 0)
 		return 0;
 
 	int len = format_dropped_logs_msg(msg, msg_size, 0, 0, *drops);
 
-	/* Skip the message if formatting failed or was truncated. */
-	return (len > 0 && (size_t)len < msg_size) ? len : 0;
+	/*
+	 * Restore claimed drops and skip the message if formatting failed or
+	 * was truncated.
+	 */
+	if (len <= 0 || (size_t)len >= msg_size) {
+		atomic_add(&dropped_logs_overflow, *drops);
+		return 0;
+	}
+
+	return len;
 }
 
 /* Called with console_lock held. */
@@ -283,10 +293,11 @@ static void process_dropped_logs(uint32_t *head, uint32_t snapshot_idx,
 		}
 	}
 
-	if ((size_t)msg_len >= (size_t)(dest_size - *write_count))
+	if ((size_t)msg_len >= (size_t)(dest_size - *write_count)) {
+		atomic_add(&dropped_logs_overflow, drops);
 		return;
+	}
 
-	atomic_sub(&dropped_logs_overflow, drops);
 	memcpy(dest + *write_count, msg, msg_len);
 	*write_count += msg_len;
 }

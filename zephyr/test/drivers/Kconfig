@@ -19,6 +19,9 @@ config LINK_TEST_SUITE_DEFAULT_CONSOLE_CMDS
 config LINK_TEST_SUITE_CONSOLE_BUFFER
 	bool "Link and test the console buffer test suite"
 
+config TEST_CONSOLE_BUFFER_OVERRIDE_FORMAT
+	bool "Override format_dropped_logs_msg for race and error injection tests"
+
 config LINK_TEST_SUITE_CONSOLE_CMD_CRASH
 	bool "Link and test the console command crash test suite"
 
