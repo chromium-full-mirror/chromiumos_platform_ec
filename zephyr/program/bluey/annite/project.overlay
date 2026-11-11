@@ -21,7 +21,7 @@
 #include "keyboard.dtsi"
 #include "temp_sensors.dtsi"
 #include "battery.dtsi"
-#include <annite/overlay.dtsi>
+#include "lightbar.dtsi"
 
 /* annite overrides follow... */
 

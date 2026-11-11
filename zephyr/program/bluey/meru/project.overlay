@@ -11,7 +11,7 @@
 #include "../interrupts.dtsi"
 #include "../adc.dtsi"
 #include "../common.dtsi"
-#include <meru/overlay.dtsi>
+#include "lightbar.dtsi"
 
 /* meru project DTS includes */
 

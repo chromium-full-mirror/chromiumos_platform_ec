@@ -32,7 +32,7 @@ def register_npcx9_project(
 
 register_npcx9_project(
     project_name="mensa",
-    extra_modules=["google-private", "nanopb", "pigweed"],
+    extra_modules=["nanopb", "pigweed"],
 )
 
 register_npcx9_project(

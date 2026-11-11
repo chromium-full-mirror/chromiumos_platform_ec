@@ -179,15 +179,7 @@ def get_projects(opts=None):
         if (
             project.config.project_name
             in [
-                "sapphire",
-                "mensa",
-                "annite",
-                "hekla",
                 "c1nv",
-                "aneto",
-                "pic",
-                "meru",
-                "blanc",
             ]
             and not platform_ec_private.exists()
         ):

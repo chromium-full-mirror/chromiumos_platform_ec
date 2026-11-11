@@ -24,7 +24,7 @@ def register_tanjiro_project(project_name, extra_modules=()):
 register_tanjiro_project(project_name="tanjiro")
 register_tanjiro_project(
     project_name="sapphire",
-    extra_modules=["google-private", "pigweed", "nanopb"],
+    extra_modules=["pigweed", "nanopb"],
 )
 
 # Note for reviews, do not let anyone edit these assertions, the addresses

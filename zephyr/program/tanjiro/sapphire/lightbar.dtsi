@@ -1,0 +1,20 @@
+/* Copyright 2025 The ChromiumOS Authors
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file.
+ */
+
+/* sapphire lightbar includes */
+
+#include "lb_colors.dtsi"
+#include "led_strip_spi.dtsi"
+#include <cros/lightbar_policy.dtsi>
+
+/ {
+	lb-led-colors {
+		sysrq-alias = "EC_LED_ID_LIGHTBAR_LED";
+		sysrq-led-control-color = "LED_BLUE";
+
+		recovery-hw-reinit-alias = "EC_LED_ID_LIGHTBAR_LED";
+		recovery-hw-reinit-led-control-color = "LED_RED";
+	};
+};

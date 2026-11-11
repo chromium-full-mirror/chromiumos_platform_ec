@@ -143,7 +143,6 @@ register_npcx9_project(
 
 register_npcx9_project(
     project_name="blanc",
-    extra_modules=["google-private"],
 )
 
 # For use on RVP SKU3
@@ -189,7 +188,7 @@ register_rtk59_project(
 
 register_rtk59_project(
     project_name="hekla",
-    extra_modules=["google-private", "pigweed", "nanopb"],
+    extra_modules=["pigweed", "nanopb"],
 )
 
 matsu = register_it8xxx2_project(

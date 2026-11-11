@@ -12,7 +12,7 @@
 #include "../adc.dtsi"
 #include "../common.dtsi"
 #include "battery.dtsi"
-#include <mensa/overlay.dtsi>
+#include "lightbar.dtsi"
 
 /* mensa project DTS includes */
 

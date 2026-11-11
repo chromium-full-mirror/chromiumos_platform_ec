@@ -21,7 +21,7 @@
 #include "../power_signal.dtsi"
 #include "led.dtsi"
 #include "sapphire_ec_ufsc.dtsi"
-#include <sapphire/overlay.dtsi>
+#include "lightbar.dtsi"
 
 / {
 	aliases {

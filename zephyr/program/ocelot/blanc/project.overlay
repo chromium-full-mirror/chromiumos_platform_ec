@@ -31,7 +31,7 @@
 #include "temp_sensors.dtsi"
 #include "npcx_psl.dtsi"
 #include <cros/cbi_flash.dtsi>
-#include <blanc/overlay.dtsi>
+#include "lightbar.dtsi"
 
 /*
  * Aliases to common names

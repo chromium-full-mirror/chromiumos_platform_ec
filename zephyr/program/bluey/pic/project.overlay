@@ -12,7 +12,7 @@
 #include "../adc.dtsi"
 #include "../common.dtsi"
 #include "../psl.dtsi"
-#include <pic/overlay.dtsi>
+#include "lightbar.dtsi"
 
 /* pic project DTS includes */
 

@@ -58,25 +58,25 @@ register_npcx9_project(
 register_npcx9_project(
     project_name="annite",
     zephyr_board="npcx9/npcx9m7fb",
-    extra_modules=["google-private", "nanopb", "pigweed"],
+    extra_modules=["nanopb", "pigweed"],
 )
 
 register_npcx9_project(
     project_name="aneto",
     zephyr_board="npcx9/npcx9m7fb",
-    extra_modules=["google-private", "nanopb", "pigweed"],
+    extra_modules=["nanopb", "pigweed"],
 )
 
 register_npcx9_project(
     project_name="pic",
     zephyr_board="npcx9/npcx9m7fb",
-    extra_modules=["google-private", "nanopb", "pigweed"],
+    extra_modules=["nanopb", "pigweed"],
 )
 
 register_npcx9_project(
     project_name="meru",
     zephyr_board="npcx9/npcx9m7fb",
-    extra_modules=["google-private", "nanopb", "pigweed"],
+    extra_modules=["nanopb", "pigweed"],
 )
 
 # Note for reviews, do not let anyone edit these assertions, the addresses
