@@ -43,7 +43,7 @@ config USBC_PDC_TPS6699X
 
 config USBC_PDC_TPS6699X_STACK_SIZE
 	int "USB-C TI TPS6699X PDC thread stack size"
-	default 1024
+	default 1280
 	depends on USBC_PDC_TPS6699X
 	help
 	  Stack size of thread created for each instance.
