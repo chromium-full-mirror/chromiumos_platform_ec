@@ -5,8 +5,8 @@
 
 #define DT_DRV_COMPAT microchip_xec_cros_flash
 
-#include "../drivers/flash/spi_nor.h"
 #include "flash.h"
+#include "spi_flash.h"
 #include "spi_flash_reg.h"
 #include "write_protect.h"
 
@@ -87,8 +87,8 @@ static int cros_flash_xec_wait_ready(const struct device *dev)
 	do {
 		uint8_t reg;
 
-		cros_flash_xec_get_status_reg(dev, SPI_NOR_CMD_RDSR, &reg);
-		if ((reg & SPI_NOR_WIP_BIT) == 0)
+		cros_flash_xec_get_status_reg(dev, SPI_FLASH_READ_SR1, &reg);
+		if ((reg & SPI_FLASH_SR1_BUSY) == 0)
 			break;
 
 		k_usleep(wait_period);
@@ -109,9 +109,9 @@ static int cros_flash_xec_wait_ready_and_we(const struct device *dev)
 	do {
 		uint8_t reg;
 
-		cros_flash_xec_get_status_reg(dev, SPI_NOR_CMD_RDSR, &reg);
-		if ((reg & SPI_NOR_WIP_BIT) == 0 &&
-		    (reg & SPI_NOR_WEL_BIT) != 0) {
+		cros_flash_xec_get_status_reg(dev, SPI_FLASH_READ_SR1, &reg);
+		if ((reg & SPI_FLASH_SR1_BUSY) == 0 &&
+		    (reg & SPI_FLASH_SR1_WEL) != 0) {
 			break;
 		}
 		k_usleep(wait_period);
@@ -126,7 +126,7 @@ static int cros_flash_xec_wait_ready_and_we(const struct device *dev)
 static int cros_flash_xec_set_write_enable(const struct device *dev)
 {
 	int ret;
-	uint8_t opcode = SPI_NOR_CMD_WREN;
+	uint8_t opcode = SPI_FLASH_WRITE_ENABLE;
 	struct cros_flash_xec_data *data = dev->data;
 
 	struct spi_buf spi_buf = {
@@ -156,7 +156,7 @@ static int cros_flash_xec_set_write_enable(const struct device *dev)
 static int cros_flash_xec_set_status_reg(const struct device *dev,
 					 uint8_t *data)
 {
-	uint8_t opcode = SPI_NOR_CMD_WRSR;
+	uint8_t opcode = SPI_FLASH_WRITE_SR;
 	int ret = 0;
 	struct cros_flash_xec_data *dev_data = dev->data;
 
@@ -243,7 +243,7 @@ static void flash_get_status(const struct device *dev, uint8_t *sr1)
 	crec_flash_lock_mapped_storage(1);
 
 	/* Read status register1 */
-	cros_flash_xec_get_status_reg(dev, SPI_NOR_CMD_RDSR, sr1);
+	cros_flash_xec_get_status_reg(dev, SPI_FLASH_READ_SR1, sr1);
 
 	/* Unlock physical flash operations */
 	crec_flash_lock_mapped_storage(0);

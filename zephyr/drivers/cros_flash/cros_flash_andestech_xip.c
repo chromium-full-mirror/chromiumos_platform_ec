@@ -36,7 +36,6 @@
 
 #define DT_DRV_COMPAT andestech_qspi_nor_xip_cros_flash
 
-#include "../drivers/flash/spi_nor.h"
 #include "flash.h"
 #include "spi_flash_reg.h"
 #include "system.h"

@@ -5,9 +5,9 @@
 
 #define DT_DRV_COMPAT nuvoton_npcx_cros_flash
 
-#include "../drivers/flash/spi_nor.h"
 #include "flash.h"
 #include "hooks.h"
+#include "spi_flash.h"
 #include "spi_flash_reg.h"
 #include "system.h"
 #include "watchdog.h"
@@ -44,8 +44,6 @@ struct cros_flash_npcx_data {
 #define FLASH_DEV DT_CHOSEN(zephyr_flash_controller)
 
 #define DRV_DATA(dev) ((struct cros_flash_npcx_data *)(dev)->data)
-
-#define SPI_NOR_CMD_RDSR2 0x35
 
 #define FLASH_SYSJUMP_TAG 0x5750 /* "WP" - Write Protect */
 #define FLASH_HOOK_VERSION 1
@@ -87,13 +85,13 @@ static int cros_flash_npcx_wait_ready(const struct device *dev)
 	do {
 		uint8_t reg;
 
-		int ret = cros_flash_npcx_get_status_reg(dev, SPI_NOR_CMD_RDSR,
-							 &reg);
+		int ret = cros_flash_npcx_get_status_reg(
+			dev, SPI_FLASH_READ_SR1, &reg);
 		if (ret != 0) {
 			return ret;
 		}
 
-		if ((reg & SPI_NOR_WIP_BIT) == 0) {
+		if ((reg & SPI_FLASH_SR1_BUSY) == 0) {
 			return 0;
 		}
 		k_usleep(NPCX_WAIT_PERIOD_US);
@@ -111,15 +109,15 @@ static int cros_flash_npcx_wait_write_enable_state(const struct device *dev,
 	do {
 		uint8_t reg;
 
-		int ret = cros_flash_npcx_get_status_reg(dev, SPI_NOR_CMD_RDSR,
-							 &reg);
+		int ret = cros_flash_npcx_get_status_reg(
+			dev, SPI_FLASH_READ_SR1, &reg);
 		if (ret != 0) {
 			return ret;
 		}
 
-		bool wel_set = (reg & SPI_NOR_WEL_BIT) != 0;
+		bool wel_set = (reg & SPI_FLASH_SR1_WEL) != 0;
 
-		if ((reg & SPI_NOR_WIP_BIT) == 0 && wel_set == enabled) {
+		if ((reg & SPI_FLASH_SR1_BUSY) == 0 && wel_set == enabled) {
 			return 0;
 		}
 
@@ -140,7 +138,7 @@ int cros_flash_npcx_set_write_enable(const struct device *dev)
 {
 	int ret;
 	struct npcx_ex_ops_uma_in op_in = {
-		.opcode = SPI_NOR_CMD_WREN,
+		.opcode = SPI_FLASH_WRITE_ENABLE,
 		.tx_count = 0,
 		.addr_count = 0,
 	};
@@ -177,7 +175,7 @@ int __maybe_unused cros_flash_npcx_set_write_disable(const struct device *dev)
 {
 	int ret;
 	struct npcx_ex_ops_uma_in write_disable_op = {
-		.opcode = SPI_NOR_CMD_WRDI,
+		.opcode = SPI_FLASH_WRITE_DISABLE,
 		.tx_count = 0,
 		.addr_count = 0,
 	};
@@ -207,7 +205,7 @@ static int cros_flash_npcx_set_status_reg(const struct device *dev,
 {
 	int ret;
 	struct npcx_ex_ops_uma_in op_in = {
-		.opcode = SPI_NOR_CMD_WRSR,
+		.opcode = SPI_FLASH_WRITE_SR,
 		.tx_buf = reg,
 		.tx_count = 2,
 		.addr_count = 0,
@@ -298,7 +296,7 @@ int __maybe_unused flash_control_register_locked(const struct device *dev)
 	/* Lock physical flash operations */
 	crec_flash_lock_mapped_storage(1);
 
-	ret = cros_flash_npcx_get_status_reg(dev, SPI_NOR_CMD_RDSR, &reg);
+	ret = cros_flash_npcx_get_status_reg(dev, SPI_FLASH_READ_SR1, &reg);
 	if (ret != 0) {
 		goto unlock;
 	}
@@ -317,7 +315,7 @@ int __maybe_unused flash_control_register_locked(const struct device *dev)
 	 * machine will reject any incoming write/erase commands per the SPI NOR
 	 * protocol.
 	 */
-	ret = wp_set || ((reg & SPI_NOR_WEL_BIT) == 0);
+	ret = wp_set || ((reg & SPI_FLASH_SR1_WEL) == 0);
 
 unlock:
 	/* Unlock physical flash operations */
@@ -355,9 +353,9 @@ static void flash_get_status(const struct device *dev, uint8_t *sr1,
 	crec_flash_lock_mapped_storage(1);
 
 	/* Read status register1 */
-	cros_flash_npcx_get_status_reg(dev, SPI_NOR_CMD_RDSR, sr1);
+	cros_flash_npcx_get_status_reg(dev, SPI_FLASH_READ_SR1, sr1);
 	/* Read status register2 */
-	cros_flash_npcx_get_status_reg(dev, SPI_NOR_CMD_RDSR2, sr2);
+	cros_flash_npcx_get_status_reg(dev, SPI_FLASH_READ_SR2, sr2);
 
 	/* Unlock physical flash operations */
 	crec_flash_lock_mapped_storage(0);
