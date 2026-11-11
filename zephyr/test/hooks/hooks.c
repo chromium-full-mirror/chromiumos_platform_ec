@@ -119,7 +119,7 @@ ZTEST(hooks_tests, test_deferred_func_push_out)
 		"The deferred function was called, but should not have been");
 	k_usleep(DEFERRED_DELAY_US * 2);
 	zassert_true(
-		deferred_func_called,
+		deferred_func_2_called,
 		"The deferred function was not called, but should have been");
 }
 
