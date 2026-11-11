@@ -1,0 +1,35 @@
+/* Copyright 2026 The ChromiumOS Authors
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file.
+ */
+
+#ifndef __CROS_EC_LAPIS_LB_COLORS_H
+#define __CROS_EC_LAPIS_LB_COLORS_H
+
+#include "drivers/led_colors_util.h"
+
+#define LIGHTBAR_RED_GOLDEN 0xff0a02
+#define LIGHTBAR_GREEN_GOLDEN 0x12e100
+#define LIGHTBAR_BLUE_GOLDEN 0x000acd
+#define LIGHTBAR_YELLOW_GOLDEN 0xcd6400
+#define LIGHTBAR_WHITE_GOLDEN 0xdbdb91
+#define LIGHTBAR_PURPLE_GOLDEN 0x6400cd
+
+#define LIGHTBAR_RED_REF_PCT 100
+#define LIGHTBAR_GREEN_REF_PCT 100
+#define LIGHTBAR_BLUE_REF_PCT 80
+#define LIGHTBAR_YELLOW_REF_PCT 100
+#define LIGHTBAR_WHITE_REF_PCT 100
+#define LIGHTBAR_PURPLE_REF_PCT 100
+
+#define LIGHTBAR_RED_BASE LB_BASE_RESCALE(RED)
+#define LIGHTBAR_GREEN_BASE LB_BASE_RESCALE(GREEN)
+#define LIGHTBAR_BLUE_BASE LB_BASE_RESCALE(BLUE)
+#define LIGHTBAR_YELLOW_BASE LB_BASE_RESCALE(YELLOW)
+#define LIGHTBAR_WHITE_BASE LB_BASE_RESCALE(WHITE)
+#define LIGHTBAR_PURPLE_BASE LB_BASE_RESCALE(PURPLE)
+
+/* 43% perceptual brightness maps to 16% linear. */
+#define LIGHTBAR_WHITE_DIM_PCT 43
+
+#endif /* __CROS_EC_LAPIS_LB_COLORS_H */

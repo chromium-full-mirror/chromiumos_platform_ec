@@ -131,7 +131,7 @@ register_npcx9_project(
 register_npcx9_project(
     project_name="ruby",
     zephyr_board="npcx9/npcx9m7fb",
-    extra_modules=["google-private", "nanopb", "pigweed"],
+    extra_modules=["nanopb", "pigweed"],
     snippets=["pw-tokenize"],
 )
 
@@ -160,7 +160,7 @@ register_it8xxx2_project(
 register_realtek_project(
     project_name="lapis",
     extra_kconfig_files=[],
-    extra_modules=["google-private", "pigweed", "nanopb"],
+    extra_modules=["pigweed", "nanopb"],
     snippets=["pw-tokenize"],
 )
 
@@ -169,7 +169,7 @@ register_it8xxx2_project(
     extra_kconfig_files=[
         here / "dsp_comms.conf",
     ],
-    extra_modules=["google-private", "pigweed", "nanopb"],
+    extra_modules=["pigweed", "nanopb"],
     snippets=["pw-tokenize"],
 )
 

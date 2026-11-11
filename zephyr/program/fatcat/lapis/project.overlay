@@ -31,7 +31,7 @@
 #include "usb_typec.dtsi"
 #include "usba.dtsi"
 #include "rtk_ulpm.dtsi"
-#include <lapis/overlay.dtsi>
+#include "lightbar.dtsi"
 
 /*
  * Lapis specific: increase the available code size without changing

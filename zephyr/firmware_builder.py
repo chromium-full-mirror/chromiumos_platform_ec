@@ -179,9 +179,6 @@ def get_projects(opts=None):
         if (
             project.config.project_name
             in [
-                "lapis",
-                "moonstone",
-                "ruby",
                 "sapphire",
                 "mensa",
                 "annite",

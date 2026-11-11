@@ -27,7 +27,7 @@
 #include "../kinmen/power_signals.dtsi"
 #include "../kinmen/pwm.dtsi"
 #include "../kinmen/usba.dtsi"
-#include <moonstone/overlay.dtsi>
+#include "lightbar.dtsi"
 
 #include <cros/cbi_ufsc_std_schema.dtsi>
 #include <cros/cbi_ufsc_oem_schema.dtsi>

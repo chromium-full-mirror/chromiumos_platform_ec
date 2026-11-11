@@ -1,0 +1,22 @@
+/* Copyright 2025 The ChromiumOS Authors
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file.
+ */
+
+#include <zephyr/dt-bindings/led/led.h>
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+&spi0_dev0 {
+	compatible = "worldsemi,ws2812-spi";
+	color-mapping = <LED_COLOR_ID_BLUE
+			 LED_COLOR_ID_GREEN
+			 LED_COLOR_ID_RED>;
+};
+
+&led_pins2 {
+	default-brightness-percent = <60>;
+	min-brightness-percent = <2>;
+	max-power-constrained-white-rgb = <0x373724>;
+	enable-gpios = <&gpiog 1 GPIO_ACTIVE_HIGH>;
+	ramp-up-delay-ms = <10>;
+};
