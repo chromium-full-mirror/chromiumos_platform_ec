@@ -154,7 +154,7 @@ void uart_shell_rx_bypass(bool enable)
 
 int uart_init_done(void)
 {
-	return uart_shell_dev->state->initialized;
+	return device_is_ready(uart_shell_dev);
 }
 
 int uart_shell_stop(void)
