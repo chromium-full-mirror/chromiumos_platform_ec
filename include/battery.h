@@ -416,6 +416,16 @@ int battery_bq4050_imbalance_mv(void);
 int board_cut_off_battery(void);
 
 /**
+ * Check if the battery cutoff has actually completed.
+ *
+ * Default implementation returns true (no re-send). Boards can override
+ * this to implement custom cutoff success detection.
+ *
+ * @return true if cutoff is complete, false to re-send cutoff command.
+ */
+__override_proto bool board_battery_cutoff_succeeded(void);
+
+/**
  * Return if the battery start cut off.
  */
 int battery_cutoff_in_progress(void);

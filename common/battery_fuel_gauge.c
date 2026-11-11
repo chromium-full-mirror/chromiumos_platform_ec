@@ -363,6 +363,15 @@ int board_cut_off_battery(void)
 }
 #endif /* !CONFIG_FUEL_GAUGE */
 
+__overridable bool board_battery_cutoff_succeeded(void)
+{
+	/*
+	 * Default: assume cutoff succeeds immediately after the command
+	 * is accepted.
+	 */
+	return true;
+}
+
 #ifndef TEST_BATTERY_CONFIG
 enum ec_error_list battery_sleep_fuel_gauge(void)
 {
