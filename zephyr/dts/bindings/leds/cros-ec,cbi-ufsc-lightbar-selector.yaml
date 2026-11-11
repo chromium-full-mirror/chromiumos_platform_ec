@@ -1,0 +1,20 @@
+# Copyright 2026 The ChromiumOS Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+include: base.yaml
+
+description: UFSC-based Lightbar Golden Color Set Selector
+compatible: "cros-ec,cbi-ufsc-lightbar-selector"
+
+properties:
+  selections:
+    type: phandles
+    required: true
+    description: >
+      Alternating list of <&ufsc_value &golden_color_set_node>.
+      If UFSC matches the value, the paired golden color set is selected.
+
+      The primary color set (e.g., UFSC = 0) defined in the main
+      cros-ec,led-lightbar node can be omitted from this list; if no match
+      is found, the primary color set (index 0) remains selected.

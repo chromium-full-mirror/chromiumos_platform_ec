@@ -1,0 +1,71 @@
+/* Copyright 2026 The ChromiumOS Authors
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file.
+ */
+
+#include <board-overlays/native_sim.dts>
+#include <zephyr/dt-bindings/led/led.h>
+
+/ {
+	mock_strip: mock-strip {
+		compatible = "worldsemi,ws2812-gpio";
+		chain-length = <16>;
+		color-mapping = <LED_COLOR_ID_RED
+				 LED_COLOR_ID_GREEN
+				 LED_COLOR_ID_BLUE>;
+		gpios = <&gpio99 0 0>;
+		delay-t1h = <0>;
+		delay-t1l = <0>;
+		delay-t0h = <0>;
+		delay-t0l = <0>;
+	};
+
+	lightbar {
+		compatible = "cros-ec,led-lightbar";
+		status = "okay";
+		led-segments = <1 2 4 8>;
+		default-brightness-percent = <100>;
+		min-brightness-percent = <0>;
+		max-power-constrained-white-rgb = <0xFFFFFF>;
+
+		lightbar0 {
+			led-id = "EC_LED_ID_LIGHTBAR_LED";
+			strip = <&mock_strip>;
+
+			lightbar_white: white {
+				color = <0xFFFFFF>;
+				srgb = <0xFFFFFF>;
+				brightness-cap = "CAP_WHITE_AC";
+			};
+			lightbar_white_dim: white_dim {
+				color = <0x808080>;
+				srgb = <0x808080>;
+				brightness-cap = "CAP_WHITE_DIM";
+			};
+			lightbar_seg0_white_dim: seg0_white_dim {
+				color = <0x808080>;
+				srgb = <0x808080>;
+				segment-id = <0>;
+				brightness-cap = "CAP_WHITE_DIM";
+			};
+			lightbar_seg1_white_dim: seg1_white_dim {
+				color = <0x808080>;
+				srgb = <0x808080>;
+				segment-id = <1>;
+				brightness-cap = "CAP_WHITE_DIM";
+			};
+			lightbar_seg2_white_dim: seg2_white_dim {
+				color = <0x808080>;
+				srgb = <0x808080>;
+				segment-id = <2>;
+				brightness-cap = "CAP_WHITE_DIM";
+			};
+			lightbar_seg3_white_dim: seg3_white_dim {
+				color = <0x808080>;
+				srgb = <0x808080>;
+				segment-id = <3>;
+				brightness-cap = "CAP_WHITE_DIM";
+			};
+		};
+	};
+};

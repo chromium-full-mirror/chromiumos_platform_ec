@@ -1,0 +1,103 @@
+# Copyright 2025 The ChromiumOS Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+description: CrOS EC LIGHTBAR LED
+
+compatible: "cros-ec,led-lightbar"
+
+properties:
+  default-brightness-percent:
+    type: int
+    description: |
+      Default brightness level in percent.
+    default: 100
+  min-brightness-percent:
+    type: int
+    description: |
+      Minimal brightness level in percent.
+    default: 0
+  enable-gpios:
+    type: phandle-array
+    description: GPIO to enable/disable the lightbar power.
+  ramp-up-delay-ms:
+    type: int
+    description: |
+      Delay in ms to wait after enabling the lightbar power.
+  led-segments:
+    type: array
+    description: |
+      Array of bitmasks defining the physical segments.
+  max-power-constrained-white-rgb:
+    type: int
+    description: |
+      The maximum RGB value for White that keeps the lightbar's power
+      consumption under the power limit (e.g., 100mW). Measured by EE.
+      Format: 0xRRGGBB. Default is 0xFFFFFF.
+
+# Provision in case we need per-LED animation
+child-binding:
+  description: |
+    Node representing a LIGHTBAR instance.
+  properties:
+    led-id:
+      type: string
+      required: true
+      description: |
+        The EC LED ID for LIGHTBAR. This should match one of the values
+        from the ec_led_id enum.
+      enum:
+        - "EC_LED_ID_BATTERY_LED"
+        - "EC_LED_ID_POWER_LED"
+        - "EC_LED_ID_ADAPTER_LED"
+        - "EC_LED_ID_LEFT_LED"
+        - "EC_LED_ID_RIGHT_LED"
+        - "EC_LED_ID_RECOVERY_HW_REINIT_LED"
+        - "EC_LED_ID_SYSRQ_DEBUG_LED"
+        - "EC_LED_ID_LIGHTBAR_LED"
+    strip:
+      type: phandles
+      required: true
+      description: Phandle to the LED device.
+  child-binding:
+    description: Node representing a specific color for the LIGHTBAR LED.
+    properties:
+      led-color:
+        type: string
+        description: |
+          The color this node represents. This should match one of the values
+          from the led_color enum. It is optional, but required to support
+          the EC_CMD_LED_CONTROL host command.
+        enum:
+          - "LED_OFF"
+          - "LED_RED"
+          - "LED_GREEN"
+          - "LED_BLUE"
+          - "LED_YELLOW"
+          - "LED_WHITE"
+          - "LED_AMBER"
+          - "LED_MAGENTA"
+          - "LED_IDLE"
+      color:
+        type: int
+        required: true
+        description: Hardware RGB value for the color (e.g., 0xFF0000 for red).
+      srgb:
+        type: int
+        required: true
+        description: sRGB value for the color (e.g., 0xFF0000 for red).
+      segment-id:
+        type: int
+        description: |
+          Logical ID of the segment (0-based index into led-segments).
+          Default is -1 (All LEDs/Global).
+      brightness-cap:
+        type: string
+        enum:
+          - "CAP_WHITE_AC"
+          - "CAP_WHITE_DIM"
+        description: |
+          If set, the entire lightbar's brightness will be capped dynamically
+          based on the specified cap type: 100mW limit for "CAP_WHITE_DIM"
+          (battery), and 250mW limit for "CAP_WHITE_AC" (calculated via
+          max-power-constrained-white-rgb).

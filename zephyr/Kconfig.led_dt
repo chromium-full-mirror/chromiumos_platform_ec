@@ -28,4 +28,60 @@ config PLATFORM_EC_LED_DT_PWM
 	help
 	  Enable support for devicetree PWM LEDs, requires a node using the
           cros-ec,pwm-led-pins compatible.
+
+config PLATFORM_EC_LED_DT_LIGHTBAR
+	bool "DT Lightbar LED driver"
+	default y
+	depends on DT_HAS_CROS_EC_LED_LIGHTBAR_ENABLED
+	select LED_STRIP
+	select NANOPB
+	select NANOPB_NO_ERRMSG
+	select NANOPB_BUFFER_ONLY
+	select NANOPB_WITHOUT_64BIT
+	help
+	  Enable support for devicetree Lightbar LEDs, requires a node using the
+	  cros-ec,led-lightbar compatible.
+
+config PLATFORM_EC_LB_CONSOLE_CMD
+	bool "Lightbar console command"
+	default y
+	depends on SHELL && PLATFORM_EC_LED_DT_LIGHTBAR
+	help
+	  Enable console commands for the lightbar.
+
+config PLATFORM_EC_CBI_UFSC_LIGHTBAR
+	bool "Select Lightbar Golden Color Set via CBI UFSC"
+	default y if DT_HAS_CROS_EC_CBI_UFSC_LIGHTBAR_SELECTOR_ENABLED
+	depends on PLATFORM_EC_LED_DT_LIGHTBAR
+	depends on CROS_EC_CBI_UFSC_PARSER
+	help
+	  Enables generic logic to select the lightbar golden color set
+	  based on UFSC data defined in a node with the
+	  'cros-ec,cbi-ufsc-lightbar-selector' compatible string.
+
+config PLATFORM_EC_LIGHTBAR_ANIMATION_EXTRA_HOLD_MS
+	int "Lightbar animation extra hold time (ms) [DEPRECATED]"
+	default 0
+	depends on PLATFORM_EC_LED_DT_LIGHTBAR
+	help
+	  [DEPRECATED] Specifies the additional duration (in milliseconds) to
+	  hold the final state of a one-shot lightbar animation beyond the
+	  standard 50ms baseline before allowing a transition to the next state.
+	  Default is 0 (uses standard 50ms hold). Only available on legacy
+	  projects (meru, mica, quartz, annite, pic, aneto); do not use on new
+	  projects.
+
+config PLATFORM_EC_LIGHTBAR_AC_UNPLUG_DELAY_MS
+	int "AC unplug animation start delay (ms) [DEPRECATED]"
+	default 0
+	depends on PLATFORM_EC_LED_DT_LIGHTBAR
+	help
+	  [DEPRECATED] Specifies a configurable delay (in milliseconds) to wait
+	  after an AC unplug event is detected before triggering the unplug
+	  animation.
+	  Set to 0 to trigger the animation instantly (default). When 0, all
+	  delay timer logic and callback code are compiled out to save flash
+	  and RAM. Only available on legacy projects (meru, mica, quartz, annite,
+	  pic, aneto); do not use on new projects.
+
 endif

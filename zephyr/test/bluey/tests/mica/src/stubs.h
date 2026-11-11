@@ -36,7 +36,7 @@ DECLARE_FAKE_VALUE_FUNC(int, cbi_get_board_version, uint32_t *);
 DECLARE_FAKE_VALUE_FUNC(int, adc_read_channel, enum adc_channel);
 DECLARE_FAKE_VALUE_FUNC(int, input_kbd_matrix_actual_key_mask_set,
 			const struct device *, uint8_t, uint8_t, bool);
-DECLARE_FAKE_VALUE_FUNC(int, lb_set_diag_policy, int, int);
+DECLARE_FAKE_VOID_FUNC(lb_set_diag_policy, int, uint32_t);
 DECLARE_FAKE_VALUE_FUNC(enum battery_present, battery_is_present);
 DECLARE_FAKE_VOID_FUNC(host_set_single_event, enum host_event_code);
 DECLARE_FAKE_VOID_FUNC(extpower_interrupt, enum gpio_signal);

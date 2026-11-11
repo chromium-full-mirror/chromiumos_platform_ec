@@ -1,0 +1,102 @@
+/* Copyright 2026 The ChromiumOS Authors
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file.
+ */
+
+#include <board-overlays/native_sim.dts>
+#include <cros/cbi_ufsc_oem_schema.dtsi>
+#include <zephyr/dt-bindings/led/led.h>
+#include <drivers/led_colors_util.h>
+
+/* Primary golden color set: Cashmere (UFSC = 0) */
+#define LIGHTBAR_RED_GOLDEN 0xff250e
+#define LIGHTBAR_GREEN_GOLDEN 0x72ff2c
+#define LIGHTBAR_BLUE_GOLDEN 0x5936ff
+#define LIGHTBAR_YELLOW_GOLDEN 0xe08d09
+#define LIGHTBAR_WHITE_GOLDEN 0xffc795
+#define LIGHTBAR_PURPLE_GOLDEN 0xe538d9
+
+#define LIGHTBAR_RED_REF_PCT 100
+#define LIGHTBAR_GREEN_REF_PCT 100
+#define LIGHTBAR_BLUE_REF_PCT 100
+#define LIGHTBAR_YELLOW_REF_PCT 100
+#define LIGHTBAR_WHITE_REF_PCT 100
+#define LIGHTBAR_PURPLE_REF_PCT 100
+
+#define LIGHTBAR_RED_BASE LB_BASE_RESCALE(RED)
+#define LIGHTBAR_GREEN_BASE LB_BASE_RESCALE(GREEN)
+#define LIGHTBAR_BLUE_BASE LB_BASE_RESCALE(BLUE)
+#define LIGHTBAR_YELLOW_BASE LB_BASE_RESCALE(YELLOW)
+#define LIGHTBAR_WHITE_BASE LB_BASE_RESCALE(WHITE)
+#define LIGHTBAR_PURPLE_BASE LB_BASE_RESCALE(PURPLE)
+
+/* Alternative golden color set: Pacific (UFSC = 1) */
+#define LIGHTBAR_PACIFIC_RED_GOLDEN 0xff2109
+#define LIGHTBAR_PACIFIC_GREEN_GOLDEN 0x8eff1e
+#define LIGHTBAR_PACIFIC_BLUE_GOLDEN 0x9164ff
+#define LIGHTBAR_PACIFIC_YELLOW_GOLDEN 0xff7f05
+#define LIGHTBAR_PACIFIC_WHITE_GOLDEN 0xffa755
+#define LIGHTBAR_PACIFIC_PURPLE_GOLDEN 0xfe3c8b
+
+#define LIGHTBAR_WHITE_DIM_PCT 43
+
+#include <cros/lightbar_colors.dtsi>
+
+&ufsc_ec_oem_2bit_field0 {
+	status = "okay";
+	enum-name = "UFSC_EC_LED_CMF";
+
+	ufsc_cashmere_dark: cashmere-dark {
+		compatible = "cros-ec,cbi-ufsc-value";
+		status = "okay";
+		value = <0>;
+	};
+	ufsc_pacific: pacific {
+		compatible = "cros-ec,cbi-ufsc-value";
+		status = "okay";
+		value = <1>;
+	};
+};
+
+/ {
+	mock_strip: mock-strip {
+		compatible = "worldsemi,ws2812-gpio";
+		chain-length = <16>;
+		color-mapping = <LED_COLOR_ID_RED
+				 LED_COLOR_ID_GREEN
+				 LED_COLOR_ID_BLUE>;
+		gpios = <&gpio99 0 0>;
+		delay-t1h = <0>;
+		delay-t1l = <0>;
+		delay-t0h = <0>;
+		delay-t0l = <0>;
+	};
+
+	led_pins2: lightbar {
+		compatible = "cros-ec,led-lightbar";
+		status = "okay";
+		led-segments = <1 2 4 8>;
+		default-brightness-percent = <100>;
+		min-brightness-percent = <0>;
+		max-power-constrained-white-rgb = <0x383823>;
+
+		lightbar0 {
+			led-id = "EC_LED_ID_LIGHTBAR_LED";
+			strip = <&mock_strip>;
+		};
+	};
+
+	lightbar-golden-sets {
+		compatible = "cros-ec,lightbar-golden-sets";
+
+		set_pacific: pacific {
+			max-power-constrained-white-rgb = <0x1c1c12>;
+			LB_DEFINE_GOLDEN_COLOR_SET(PACIFIC)
+		};
+	};
+
+	lightbar-ufsc-selector {
+		compatible = "cros-ec,cbi-ufsc-lightbar-selector";
+		selections = <&ufsc_pacific &set_pacific>;
+	};
+};

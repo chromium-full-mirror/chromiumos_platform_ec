@@ -1,0 +1,25 @@
+# Copyright 2026 The ChromiumOS Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+description: CrOS EC Lightbar Alternative Golden Color Sets
+
+compatible: "cros-ec,lightbar-golden-sets"
+
+include:
+  - name: cros-ec,led-lightbar.yaml
+    property-allowlist: []
+    child-binding:
+      property-allowlist: []
+
+child-binding:
+  description: |
+    Node representing an alternative golden color set (e.g., for UFSC > 0).
+  properties:
+    max-power-constrained-white-rgb:
+      type: int
+      description: |
+        The maximum RGB value for White that keeps the lightbar's power
+        consumption under the power limit (e.g., 100mW) for this color set.
+        Format: 0xRRGGBB. If omitted, falls back to the lightbar node's
+        max-power-constrained-white-rgb property.

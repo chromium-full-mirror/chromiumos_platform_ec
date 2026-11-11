@@ -1,0 +1,8 @@
+# Only the lightbar owners review the lightbar driver changes here.
+per-file led_lb*,led_lightbar* = set noparent
+per-file led_lb*,led_lightbar* = bmbm@google.com
+per-file led_lb*,led_lightbar* = fabiobaltieri@google.com
+per-file led_lb*,led_lightbar* = jbettis@chromium.org
+per-file led_lb*,led_lightbar* = kylelinck@google.com
+per-file led_lb*,led_lightbar* = subratabanik@google.com
+per-file led_lb*,led_lightbar* = waihong@google.com

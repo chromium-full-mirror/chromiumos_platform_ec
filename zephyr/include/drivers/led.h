@@ -71,7 +71,7 @@ BUILD_ASSERT(LED_TRANSITION_COUNT <= UINT8_MAX,
  *
  * @return>-int to represent the label of each board-led-alt-policy.
  */
-__overridable int board_led_alt_policy(void);
+__override_proto int board_led_alt_policy(void);
 
 #define LED_ENUM(id, enum_name) DT_STRING_TOKEN(id, enum_name)
 #define LED_ENUM_WITH_COMMA(id, enum_name) \

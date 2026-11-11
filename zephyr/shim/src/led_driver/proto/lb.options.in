@@ -1,0 +1,2 @@
+vendor.google.desktop.lights.LightEffects.effect type:FT_CALLBACK
+vendor.google.desktop.lights.LightEffect.segment type:FT_CALLBACK

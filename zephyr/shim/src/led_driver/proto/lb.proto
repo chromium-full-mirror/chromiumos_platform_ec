@@ -1,0 +1,35 @@
+syntax = "proto3"; // Use proto3 syntax
+
+// Optionally specify a package name for organization
+package vendor.google.desktop.lights;
+
+// The protocol:
+message LightSegment
+{
+	// Duration of the frame in `period`.
+	uint32 frame = 1;
+	// New color to apply.
+	fixed32 color = 2;
+}
+
+enum InterpolationType {
+	// No interpolation from the current color.
+	NONE = 0;
+	// Linear interpolation.
+	LINEAR = 1;
+}
+
+message LightEffect
+{
+	uint32 light_id = 1;
+	repeated LightSegment segment = 2;
+	uint32 iterations = 3;
+	bool preemptive = 4;
+	uint32 period = 5;
+	InterpolationType type = 6;
+}
+
+message LightEffects
+{
+	repeated LightEffect effect = 1;
+}

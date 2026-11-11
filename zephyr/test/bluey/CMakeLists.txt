@@ -10,7 +10,7 @@ add_subdirectory(${PLATFORM_EC}/zephyr/test/test_utils test_utils)
 
 zephyr_include_directories(
 	"${PLATFORM_EC_PROGRAM_DIR}/bluey/include"
-	include)
+	"${PLATFORM_EC}/zephyr/shim/src/led_driver")
 
 add_subdirectory_ifdef(CONFIG_TEST_BOARD_BASEBOARD tests/baseboard)
 add_subdirectory_ifdef(CONFIG_TEST_BOARD_BLUEY tests/bluey)
