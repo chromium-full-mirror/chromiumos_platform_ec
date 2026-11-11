@@ -21,7 +21,7 @@
 struct rt1739_data {
 	struct i2c_common_emul_data common;
 	uint8_t regs[RT1739_REG_MAX + 1];
-	struct _slist set_private_reg_history;
+	sys_slist_t set_private_reg_history;
 };
 
 int rt1739_emul_peek_reg(const struct emul *emul, int reg, uint8_t *val)
@@ -46,7 +46,7 @@ int rt1739_emul_write_reg(const struct emul *emul, int reg, int val)
 	return EC_SUCCESS;
 }
 
-struct _snode *rt1739_emul_get_reg_set_history_head(const struct emul *emul)
+sys_snode_t *rt1739_emul_get_reg_set_history_head(const struct emul *emul)
 {
 	struct rt1739_data *data = emul->data;
 
@@ -55,7 +55,7 @@ struct _snode *rt1739_emul_get_reg_set_history_head(const struct emul *emul)
 
 void rt1739_emul_reset_set_reg_history(const struct emul *emul)
 {
-	struct _snode *iter_node;
+	sys_snode_t *iter_node;
 	struct rt1739_set_reg_entry_t *iter_entry;
 	struct rt1739_data *data = emul->data;
 

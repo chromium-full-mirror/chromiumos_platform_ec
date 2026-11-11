@@ -114,12 +114,12 @@ ZTEST(rt1718s_tcpc, test_init_with_device_id_es2)
 
 ZTEST(rt1718s_tcpc, test_set_vconn_enable)
 {
-	struct _snode *iter_node = NULL;
+	sys_snode_t *iter_node = NULL;
 	struct set_reg_entry_t *iter_entry = NULL;
 	struct set_reg_entry_t *set_vconn_limit_on_entry = NULL;
 	struct set_reg_entry_t *set_vconn_limit_off_entry = NULL;
 	struct rt1718s_emul_data *rt1718s_data = rt1718s_emul->data;
-	struct _slist *set_private_reg_history =
+	sys_slist_t *set_private_reg_history =
 		&rt1718s_data->set_private_reg_history;
 
 	zassert_ok(rt1718s_tcpm_drv.set_vconn(tcpm_rt1718s_port, true));

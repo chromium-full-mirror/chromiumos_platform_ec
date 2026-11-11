@@ -154,7 +154,7 @@ int rt1718s_emul_set_reg(const struct emul *emul, int reg, uint16_t val)
 
 void rt1718s_emul_reset_set_history(const struct emul *emul)
 {
-	struct _snode *iter_node;
+	sys_snode_t *iter_node;
 	struct set_reg_entry_t *iter_entry;
 	struct rt1718s_emul_data *rt1718s_data = emul->data;
 

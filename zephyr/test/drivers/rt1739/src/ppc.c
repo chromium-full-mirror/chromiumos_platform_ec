@@ -63,7 +63,7 @@ int pd_snk_is_vbus_provided(int port)
 }
 
 static struct rt1739_set_reg_entry_t *
-get_next_reg_set_entry(struct _snode **iter_node, uint8_t target_reg)
+get_next_reg_set_entry(sys_snode_t **iter_node, uint8_t target_reg)
 {
 	struct rt1739_set_reg_entry_t *iter_entry = NULL;
 
@@ -77,7 +77,7 @@ get_next_reg_set_entry(struct _snode **iter_node, uint8_t target_reg)
 	return NULL;
 }
 
-static void test_next_set_entry(struct _snode **iter_node,
+static void test_next_set_entry(sys_snode_t **iter_node,
 				uint8_t expected_reg_address,
 				uint8_t expected_val)
 {
@@ -243,7 +243,7 @@ ZTEST(rt1739_ppc, test_init_common_settings)
 
 ZTEST(rt1739_ppc, test_init_with_dead_battery)
 {
-	struct _snode *iter_node = NULL;
+	sys_snode_t *iter_node = NULL;
 	struct rt1739_set_reg_entry_t *set_sys_ctrl = NULL;
 	struct rt1739_set_reg_entry_t *set_vbus_switch_ctrl = NULL;
 
@@ -280,7 +280,7 @@ ZTEST(rt1739_ppc, test_init_with_dead_battery)
 
 ZTEST(rt1739_ppc, test_init_not_dead_battery)
 {
-	struct _snode *iter_node = NULL;
+	sys_snode_t *iter_node = NULL;
 	struct rt1739_set_reg_entry_t *set_vbus_switch_ctrl = NULL;
 
 	rt1739_emul_write_reg(rt1739_emul, RT1739_REG_VBUS_SWITCH_CTRL,
@@ -327,7 +327,7 @@ ZTEST(rt1739_ppc, test_es1_specific_init)
 ZTEST(rt1739_ppc, test_es2_specific_init)
 {
 	uint8_t val;
-	struct _snode *iter_node = NULL;
+	sys_snode_t *iter_node = NULL;
 	struct rt1739_set_reg_entry_t *hidden_mode_F1 = NULL;
 	struct rt1739_set_reg_entry_t *vbus_switch_ctrl = NULL;
 	int64_t vbus_switch_previous_set_time;

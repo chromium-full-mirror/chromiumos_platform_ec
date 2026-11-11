@@ -15,7 +15,7 @@
 #define RT1718S_EMUL_MAX_REG_INDEX (RT1718S_EMUL_REG_COUNT_PER_PAGE - 1)
 
 struct set_reg_entry_t {
-	struct _snode node;
+	sys_snode_t node;
 	int reg;
 	uint16_t val;
 	int64_t access_time;
@@ -29,7 +29,7 @@ struct rt1718s_emul_data {
 	uint8_t reg_page2[RT1718S_EMUL_REG_COUNT_PER_PAGE];
 	uint8_t current_page;
 	uint8_t current_page2_register;
-	struct _slist set_private_reg_history;
+	sys_slist_t set_private_reg_history;
 };
 
 /**

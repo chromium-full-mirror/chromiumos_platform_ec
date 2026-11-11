@@ -10,7 +10,7 @@
 #include <zephyr/sys/slist.h>
 
 struct rt1739_set_reg_entry_t {
-	struct _snode node;
+	sys_snode_t node;
 	int reg;
 	uint8_t val;
 	int64_t access_time;
@@ -49,7 +49,7 @@ int rt1739_emul_write_reg(const struct emul *emul, int reg, int val);
  *
  * @return pointer to the head node of the set private register history
  */
-struct _snode *rt1739_emul_get_reg_set_history_head(const struct emul *emul);
+sys_snode_t *rt1739_emul_get_reg_set_history_head(const struct emul *emul);
 
 /**
  * @brief Reset the register setting history on a rt1739 emulator.

@@ -22,7 +22,7 @@
 #define REG_IS_VALID(reg) ((reg) >= 0 && (reg) <= KTU1125_REG_MAX)
 
 struct ktu1125_set_reg_entry_t {
-	struct _snode node;
+	sys_snode_t node;
 	int reg;
 	uint8_t val;
 	int64_t access_time;
@@ -33,7 +33,7 @@ struct ktu1125_data {
 	/** GPIO ports connected to the PPC */
 	struct gpio_dt_spec irq_gpio;
 	uint8_t regs[KTU1125_REG_MAX + 1];
-	struct _slist set_private_reg_history;
+	sys_slist_t set_private_reg_history;
 };
 
 int ktu1125_emul_set_reg(const struct emul *emul, int reg, int val)
@@ -56,7 +56,7 @@ int ktu1125_emul_set_reg(const struct emul *emul, int reg, int val)
  */
 static void ktu1125_emul_reset_set_reg_history(const struct emul *emul)
 {
-	struct _snode *iter_node;
+	sys_snode_t *iter_node;
 	struct ktu1125_set_reg_entry_t *iter_entry;
 	struct ktu1125_data *data = emul->data;
 
