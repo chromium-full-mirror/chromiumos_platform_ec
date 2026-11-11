@@ -473,6 +473,16 @@ static void pending_cutoff_deferred(void)
 		/* Cutoff is still taking place. May brown out any time. */
 		CUTOFFPRINTS("waiting for completion (%llu)",
 			     (cutoff_timeout.val - get_time().val) / MSEC);
+
+		/*
+		 * Board-specific cutoff success check. Override
+		 * board_battery_cutoff_succeeded() to verify actual
+		 * cutoff status (e.g. D-FET off) and re-send the
+		 * cutoff command if needed.
+		 */
+		if (!board_battery_cutoff_succeeded()) {
+			board_cut_off_battery();
+		}
 		cflush();
 		hook_call_deferred(&pending_cutoff_deferred_data,
 				   cutoff_poll_msec * MSEC);

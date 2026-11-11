@@ -403,6 +403,15 @@ test_export_static int board_wakeup_cutoff_battery(void)
 #endif /* CONFIG_PLATFORM_EC_BATTERY_WAKEUP_CUT_OFF */
 #endif /* !CONFIG_FUEL_GAUGE */
 
+__overridable bool board_battery_cutoff_succeeded(void)
+{
+	/*
+	 * Default: assume cutoff succeeds immediately after the command
+	 * is accepted.
+	 */
+	return true;
+}
+
 #ifndef TEST_BATTERY_CONFIG
 enum ec_error_list battery_sleep_fuel_gauge(void)
 {
