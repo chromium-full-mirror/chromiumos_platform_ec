@@ -11,7 +11,7 @@
 			tach = <&tach0>;
 			rpm-min = <1600>;
 			rpm-start = <1600>;
-			rpm-max = <4000>;
+			rpm-max = <4800>;
 			rpm-deviation = <1>;
 			pgood-gpio = <&gpio_all_sys_pwrgd>;
 		};
@@ -20,7 +20,7 @@
 			tach = <&tach1>;
 			rpm-min = <1800>;
 			rpm-start = <1800>;
-			rpm-max = <5400>;
+			rpm-max = <5000>;
 			rpm-deviation = <1>;
 			pgood-gpio = <&gpio_all_sys_pwrgd>;
 		};
