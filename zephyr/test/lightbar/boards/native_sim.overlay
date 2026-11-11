@@ -4,6 +4,7 @@
  */
 
 #include <board-overlays/native_sim.dts>
+#include <zephyr/dt-bindings/gpio/gpio.h>
 #include <zephyr/dt-bindings/led/led.h>
 
 / {
@@ -24,6 +25,7 @@
 		compatible = "cros-ec,led-lightbar";
 		status = "okay";
 		led-segments = <1 2 4 8>;
+		enable-gpios = <&gpio0 1 GPIO_ACTIVE_HIGH>;
 		default-brightness-percent = <100>;
 		min-brightness-percent = <0>;
 		max-power-constrained-white-rgb = <0xFFFFFF>;
@@ -33,6 +35,7 @@
 			strip = <&mock_strip>;
 
 			lightbar_white: white {
+				led-color = "LED_WHITE";
 				color = <0xFFFFFF>;
 				srgb = <0xFFFFFF>;
 				brightness-cap = "CAP_WHITE_AC";
