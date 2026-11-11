@@ -24,11 +24,13 @@ BUILD_ASSERT(
 struct ap_throttle_config {
 	struct gpio_dt_spec throttle_gpio;
 	bool ac_only_boot_throttle;
+	bool g3s5_boot_throttle;
 };
 
 struct ap_throttle_data {
-	bool ac_only_boot;
-	bool throttle_active;
+	bool boot_throttle; /* G3S5 pre-init boot throttle */
+	bool ac_only_boot; /* Booted without battery */
+	bool thermal_throttle; /* Commanded by chipset_throttle_cpu() */
 };
 
 static struct ap_throttle_data throttle_data;
@@ -36,6 +38,7 @@ static struct ap_throttle_data throttle_data;
 static const struct ap_throttle_config throttle_cfg = {
 	.throttle_gpio = GPIO_DT_SPEC_GET(DT_DRV_INST(0), throttle_gpios),
 	.ac_only_boot_throttle = DT_PROP(DT_DRV_INST(0), ac_only_boot_throttle),
+	.g3s5_boot_throttle = DT_PROP(DT_DRV_INST(0), g3s5_boot_throttle),
 };
 
 void chipset_throttle_cpu(int throttle)
@@ -50,13 +53,13 @@ void chipset_throttle_cpu(int throttle)
 	gpio_pin_set_dt(&throttle_cfg.throttle_gpio, throttle ? 1 : 0);
 
 	if (throttle) {
-		if (!throttle_data.throttle_active) {
-			throttle_data.throttle_active = true;
+		if (!throttle_data.thermal_throttle) {
+			throttle_data.thermal_throttle = true;
 			LOG_INF("Asserting AP throttle");
 		}
 	} else {
-		if (throttle_data.throttle_active) {
-			throttle_data.throttle_active = false;
+		if (throttle_data.thermal_throttle) {
+			throttle_data.thermal_throttle = false;
 			LOG_INF("AP thermal recovered; deasserting throttle");
 		}
 	}
@@ -65,10 +68,27 @@ void chipset_throttle_cpu(int throttle)
 static void ap_throttle_chipset_pre_init(void)
 {
 	throttle_data.ac_only_boot = false;
+	throttle_data.boot_throttle = false;
 
+	/*
+	 * Assert "AP throttle" signal when booting from G3 to S5 if
+	 * g3s5-boot-throttle is enabled. This ensures the SoC is pre-throttled
+	 * before power_on_seq() runs for off-mode charging.
+	 */
+	if (throttle_cfg.g3s5_boot_throttle) {
+		LOG_INF("G3S5 boot detected; asserting AP throttle for off-mode charging");
+		throttle_data.boot_throttle = true;
+		gpio_pin_set_dt(&throttle_cfg.throttle_gpio, 1);
+	}
+
+	/*
+	 * If booting without a battery on an adapter that cannot support peak
+	 * power alone, latch ac_only_boot so the throttle remains asserted in
+	 * S0.
+	 */
 	if (throttle_cfg.ac_only_boot_throttle &&
 	    battery_is_present() != BP_YES) {
-		LOG_INF("AC-only boot detected; asserting AP throttle");
+		LOG_INF("AC-only boot detected; retaining AP throttle in S0");
 		gpio_pin_set_dt(&throttle_cfg.throttle_gpio, 1);
 		throttle_data.ac_only_boot = true;
 	}
@@ -76,15 +96,48 @@ static void ap_throttle_chipset_pre_init(void)
 DECLARE_HOOK(HOOK_CHIPSET_PRE_INIT, ap_throttle_chipset_pre_init,
 	     HOOK_PRIO_DEFAULT);
 
-static void ap_throttle_chipset_shutdown(void)
+static void ap_throttle_chipset_resume(void)
 {
-	throttle_data.throttle_active = false;
-	throttle_data.ac_only_boot = false;
+	/*
+	 * If AC-only boot was latched, retain "AP throttle" asserted in S0.
+	 */
+	if (throttle_data.ac_only_boot) {
+		gpio_pin_set_dt(&throttle_cfg.throttle_gpio, 1);
+		LOG_INF("AC-only boot; AP throttle retained in S0");
+		return;
+	}
 
-	/* Deassert throttle GPIO on shutdown */
+	/*
+	 * Transitioning to S0 (normal OS boot) with battery present:
+	 * Deassert the boot-time throttle, provided no thermal throttle is
+	 * active.
+	 */
+	if (throttle_data.boot_throttle) {
+		throttle_data.boot_throttle = false;
+		if (!throttle_data.thermal_throttle) {
+			gpio_pin_set_dt(&throttle_cfg.throttle_gpio, 0);
+			LOG_INF("Entered S0 with battery; deasserted AP throttle");
+		} else {
+			LOG_INF("Entered S0 with battery; throttle retained due to thermals");
+		}
+	}
+}
+DECLARE_HOOK(HOOK_CHIPSET_RESUME, ap_throttle_chipset_resume,
+	     HOOK_PRIO_DEFAULT);
+
+static void ap_throttle_chipset_hard_off(void)
+{
+	throttle_data.boot_throttle = false;
+	throttle_data.ac_only_boot = false;
+	throttle_data.thermal_throttle = false;
+	/*
+	 * Deassert "AP throttle" in G3 (hard off) so no leakage current is
+	 * drawn through pull-up resistors while all system rails are unpowered.
+	 */
+	LOG_INF("Entering G3; deasserting AP throttle");
 	gpio_pin_set_dt(&throttle_cfg.throttle_gpio, 0);
 }
-DECLARE_HOOK(HOOK_CHIPSET_SHUTDOWN, ap_throttle_chipset_shutdown,
+DECLARE_HOOK(HOOK_CHIPSET_HARD_OFF, ap_throttle_chipset_hard_off,
 	     HOOK_PRIO_DEFAULT);
 
 static int ap_throttle_init(const struct device *dev)

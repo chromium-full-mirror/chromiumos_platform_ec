@@ -9,6 +9,7 @@
 #include "throttle_ap.h"
 
 #include <zephyr/device.h>
+#include <zephyr/devicetree.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/gpio/gpio_emul.h>
 #include <zephyr/fff.h>
@@ -20,8 +21,9 @@
 /*
  * Because throttle-gpios is configured as GPIO_ACTIVE_LOW in
  * native_sim.overlay, gpio_emul_output_get() returns the raw physical pin
- * level: 0 = physical LOW  (logical 1, throttle asserted) 1 = physical HIGH
- * (logical 0, throttle deasserted)
+ * level:
+ *   0 = physical LOW  (logical 1, throttle asserted)
+ *   1 = physical HIGH (logical 0, throttle deasserted)
  */
 #define THROTTLE_RAW_ASSERTED 0
 #define THROTTLE_RAW_DEASSERTED 1
@@ -56,7 +58,7 @@ static void ap_throttle_before(void *fixture)
 	battery_is_present_fake.return_val = BP_YES;
 
 	/* Reset driver state and deassert GPIO before each test */
-	hook_notify(HOOK_CHIPSET_SHUTDOWN);
+	hook_notify(HOOK_CHIPSET_HARD_OFF);
 }
 
 ZTEST(ap_throttle, test_init)
@@ -90,7 +92,7 @@ ZTEST(ap_throttle, test_throttle_assert_and_deassert)
 					   throttle_gpio.pin),
 		      THROTTLE_RAW_ASSERTED);
 
-	/* Deassert throttle before timeout (and test idempotent second call) */
+	/* Deassert throttle (and test idempotent second call) */
 	chipset_throttle_cpu(0);
 	zassert_equal(gpio_emul_output_get(throttle_gpio.port,
 					   throttle_gpio.pin),
@@ -102,12 +104,107 @@ ZTEST(ap_throttle, test_throttle_assert_and_deassert)
 		      THROTTLE_RAW_DEASSERTED);
 }
 
+ZTEST(ap_throttle, test_hard_off_clears_thermal_throttle)
+{
+	chipset_throttle_cpu(1);
+	zassert_equal(gpio_emul_output_get(throttle_gpio.port,
+					   throttle_gpio.pin),
+		      THROTTLE_RAW_ASSERTED);
+
+	/* Entering G3 must clear thermal_throttle and deassert the pin */
+	hook_notify(HOOK_CHIPSET_HARD_OFF);
+	zassert_equal(gpio_emul_output_get(throttle_gpio.port,
+					   throttle_gpio.pin),
+		      THROTTLE_RAW_DEASSERTED);
+}
+
+#if DT_PROP(AP_THROTTLE_NODE, g3s5_boot_throttle)
+ZTEST(ap_throttle, test_g3s5_boot_throttle_deasserted_on_resume)
+{
+	battery_is_present_fake.return_val = BP_YES;
+	hook_notify(HOOK_CHIPSET_PRE_INIT);
+	zassert_equal(gpio_emul_output_get(throttle_gpio.port,
+					   throttle_gpio.pin),
+		      THROTTLE_RAW_ASSERTED);
+
+	/* Entering S0 with battery and no thermal throttle deasserts pin */
+	hook_notify(HOOK_CHIPSET_RESUME);
+	zassert_equal(gpio_emul_output_get(throttle_gpio.port,
+					   throttle_gpio.pin),
+		      THROTTLE_RAW_DEASSERTED);
+
+	/* Subsequent S3->S0 resume must not clear active thermal throttle */
+	chipset_throttle_cpu(1);
+	hook_notify(HOOK_CHIPSET_RESUME);
+	zassert_equal(gpio_emul_output_get(throttle_gpio.port,
+					   throttle_gpio.pin),
+		      THROTTLE_RAW_ASSERTED);
+}
+
+ZTEST(ap_throttle, test_g3s5_boot_throttle_retained_when_thermally_throttled)
+{
+	battery_is_present_fake.return_val = BP_YES;
+	hook_notify(HOOK_CHIPSET_PRE_INIT);
+	zassert_equal(gpio_emul_output_get(throttle_gpio.port,
+					   throttle_gpio.pin),
+		      THROTTLE_RAW_ASSERTED);
+
+	/* Thermal throttle activates before/during transition to S0 */
+	chipset_throttle_cpu(1);
+	hook_notify(HOOK_CHIPSET_RESUME);
+	zassert_equal(gpio_emul_output_get(throttle_gpio.port,
+					   throttle_gpio.pin),
+		      THROTTLE_RAW_ASSERTED);
+
+	/* Once thermal throttle recovers, pin deasserts */
+	chipset_throttle_cpu(0);
+	zassert_equal(gpio_emul_output_get(throttle_gpio.port,
+					   throttle_gpio.pin),
+		      THROTTLE_RAW_DEASSERTED);
+}
+
+ZTEST(ap_throttle, test_g3s5_boot_throttle_cleared_on_hard_off)
+{
+	battery_is_present_fake.return_val = BP_YES;
+	hook_notify(HOOK_CHIPSET_PRE_INIT);
+	zassert_equal(gpio_emul_output_get(throttle_gpio.port,
+					   throttle_gpio.pin),
+		      THROTTLE_RAW_ASSERTED);
+
+	/* Returning from S5 directly to G3 must deassert throttle */
+	hook_notify(HOOK_CHIPSET_HARD_OFF);
+	zassert_equal(gpio_emul_output_get(throttle_gpio.port,
+					   throttle_gpio.pin),
+		      THROTTLE_RAW_DEASSERTED);
+}
+#else /* !DT_PROP(AP_THROTTLE_NODE, g3s5_boot_throttle) */
+ZTEST(ap_throttle, test_g3s5_boot_throttle_disabled)
+{
+	battery_is_present_fake.return_val = BP_YES;
+	hook_notify(HOOK_CHIPSET_PRE_INIT);
+	zassert_equal(gpio_emul_output_get(throttle_gpio.port,
+					   throttle_gpio.pin),
+		      THROTTLE_RAW_DEASSERTED);
+
+	hook_notify(HOOK_CHIPSET_RESUME);
+	zassert_equal(gpio_emul_output_get(throttle_gpio.port,
+					   throttle_gpio.pin),
+		      THROTTLE_RAW_DEASSERTED);
+}
+#endif /* DT_PROP(AP_THROTTLE_NODE, g3s5_boot_throttle) */
+
+#if DT_PROP(AP_THROTTLE_NODE, ac_only_boot_throttle)
 ZTEST(ap_throttle, test_ac_only_boot_throttle)
 {
 	/* Simulate AC-only boot (no battery present) */
 	battery_is_present_fake.return_val = BP_NO;
 	hook_notify(HOOK_CHIPSET_PRE_INIT);
+	zassert_equal(gpio_emul_output_get(throttle_gpio.port,
+					   throttle_gpio.pin),
+		      THROTTLE_RAW_ASSERTED);
 
+	/* Entering S0 must retain throttle during AC-only boot */
+	hook_notify(HOOK_CHIPSET_RESUME);
 	zassert_equal(gpio_emul_output_get(throttle_gpio.port,
 					   throttle_gpio.pin),
 		      THROTTLE_RAW_ASSERTED);
@@ -119,18 +216,49 @@ ZTEST(ap_throttle, test_ac_only_boot_throttle)
 					   throttle_gpio.pin),
 		      THROTTLE_RAW_ASSERTED);
 
-	/* Shutdown must deassert throttle and clear AC-only lock */
-	hook_notify(HOOK_CHIPSET_SHUTDOWN);
+	/* Hard off (G3) must deassert throttle and clear AC-only lock */
+	hook_notify(HOOK_CHIPSET_HARD_OFF);
 	zassert_equal(gpio_emul_output_get(throttle_gpio.port,
 					   throttle_gpio.pin),
 		      THROTTLE_RAW_DEASSERTED);
 
-	/* Booting with battery present leaves throttle deasserted */
+	/* Subsequent boot to S0 with battery leaves throttle deasserted */
 	battery_is_present_fake.return_val = BP_YES;
 	hook_notify(HOOK_CHIPSET_PRE_INIT);
+	hook_notify(HOOK_CHIPSET_RESUME);
 	zassert_equal(gpio_emul_output_get(throttle_gpio.port,
 					   throttle_gpio.pin),
 		      THROTTLE_RAW_DEASSERTED);
 }
+#else /* !DT_PROP(AP_THROTTLE_NODE, ac_only_boot_throttle) */
+ZTEST(ap_throttle, test_ac_only_boot_throttle_disabled)
+{
+	battery_is_present_fake.return_val = BP_NO;
+	hook_notify(HOOK_CHIPSET_PRE_INIT);
+
+#if !DT_PROP(AP_THROTTLE_NODE, g3s5_boot_throttle)
+	zassert_equal(gpio_emul_output_get(throttle_gpio.port,
+					   throttle_gpio.pin),
+		      THROTTLE_RAW_DEASSERTED);
+#endif
+
+	/* Entering S0 without battery does not retain throttle when disabled */
+	hook_notify(HOOK_CHIPSET_RESUME);
+	zassert_equal(gpio_emul_output_get(throttle_gpio.port,
+					   throttle_gpio.pin),
+		      THROTTLE_RAW_DEASSERTED);
+
+	/* Normal thermal throttling still works in S0 without battery */
+	chipset_throttle_cpu(1);
+	zassert_equal(gpio_emul_output_get(throttle_gpio.port,
+					   throttle_gpio.pin),
+		      THROTTLE_RAW_ASSERTED);
+
+	chipset_throttle_cpu(0);
+	zassert_equal(gpio_emul_output_get(throttle_gpio.port,
+					   throttle_gpio.pin),
+		      THROTTLE_RAW_DEASSERTED);
+}
+#endif /* DT_PROP(AP_THROTTLE_NODE, ac_only_boot_throttle) */
 
 ZTEST_SUITE(ap_throttle, NULL, NULL, ap_throttle_before, NULL, NULL);

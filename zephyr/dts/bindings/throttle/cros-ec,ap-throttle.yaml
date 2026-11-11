@@ -21,3 +21,13 @@ properties:
     description: |
       Keep the throttle signal asserted throughout boot/S0 when booting on AC
       power without a battery present (battery_is_present() != BP_YES).
+  g3s5-boot-throttle:
+    type: boolean
+    description: |
+      Assert the AP throttle / PROCHOT signal during the G3 to S5 transition
+      (POWER_G3S5) before AP power sequencing commences. This pre-throttles the
+      SoC from its initial clock cycles during off-mode charging (e.g., on
+      Qualcomm platforms where the AP powers on in S5 to run charging firmware),
+      limiting inrush current and preventing VBUS resets or PMIC brownouts.
+      The throttle is deasserted once the system transitions to S0 for normal
+      OS operation.
