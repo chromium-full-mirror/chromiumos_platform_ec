@@ -1,0 +1,39 @@
+From 524683a47dded74456aaf33d44f97d2bbb1f14c4 Mon Sep 17 00:00:00 2001
+From: Rob Barnes <robbarnes@google.com>
+Date: Tue, 10 Nov 2026 16:49:38 -0700
+Subject: [PATCH] FROMPULL: soc: nuvoton: npcx: default ecst to ARM reset vector
+
+Commit 51f14edb9c63 ("soc: nuvoton: npck: add npck6 SoC support")
+exposed the -fwep and -usearmrst flags in ecst_args.py and changed
+use_arm_reset's default from True to None. When neither -fwep nor
+-usearmrst is supplied on the command line, ecst.py falls back to
+setting the firmware entry point in the image header to the firmware
+load address at the initial stack pointer instead of reading the ARM
+Cortex-M reset vector.
+
+Restore the default behavior by setting use_arm_reset to True when
+firmware_entry_point is None and use_arm_reset is None, preserving
+compatibility with build systems invoking ecst.py without explicit
+entry point flags.
+
+Fixes: 51f14edb9c63 ("soc: nuvoton: npck: add npck6 SoC support")
+Signed-off-by: Rob Barnes <robbarnes@google.com>
+---
+ zephyr/soc/nuvoton/npcx/common/ecst/ecst_args.py | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/zephyr/soc/nuvoton/npcx/common/ecst/ecst_args.py b/zephyr/soc/nuvoton/npcx/common/ecst/ecst_args.py
+index b0d32ce5d29..c61ab69263e 100755
+--- a/zephyr/soc/nuvoton/npcx/common/ecst/ecst_args.py
++++ b/zephyr/soc/nuvoton/npcx/common/ecst/ecst_args.py
+@@ -108,6 +108,8 @@ class EcstArgs:
+         self.error_args = invalid_arguments
+ 
+         _populate_args(self, valid_arguments)
++        if self.firmware_entry_point is None and self.use_arm_reset is None:
++            self.use_arm_reset = True
+         _populate_chip_fields(self)
+ 
+ def _populate_chip_fields(self):
+-- 
+2.56.0.567.gdb80ae8cd5-goog
