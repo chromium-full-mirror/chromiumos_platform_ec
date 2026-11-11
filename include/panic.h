@@ -123,13 +123,18 @@ void panic_data_write_esf(const struct arch_esf *esf);
 void panic_data_write_assert(const char *path, unsigned int line);
 
 /**
- * Write panic data for a watchdog warning event.
+ * Write panic data for a watchdog event.
  *
  * @param pc Program counter where execution was interrupted.
  * @param thread Thread pointer of the interrupted thread.
  */
-void panic_data_write_watchdog_warning(uintptr_t pc,
-				       const struct k_thread *thread);
+void panic_data_write_watchdog(uintptr_t pc, const struct k_thread *thread);
+
+/**
+ * Downgrade an unread PANIC_SW_WATCHDOG record in place to
+ * PANIC_SW_WATCHDOG_WARN upon watchdog recovery.
+ */
+void panic_data_downgrade_watchdog(void);
 
 /**
  * Write panic data for a Zephyr fatal error without an ESF.

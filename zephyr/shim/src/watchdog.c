@@ -18,6 +18,7 @@
 #include <zephyr/drivers/watchdog.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/sys/atomic.h>
 
 LOG_MODULE_REGISTER(watchdog_shim, LOG_LEVEL_ERR);
 
@@ -82,6 +83,7 @@ const struct watchdog_info wdt_info[] = {
 /* Array to keep channel used to implement watchdog */
 int wdt_chan[ARRAY_SIZE(wdt_info)];
 bool watchdog_initialized;
+static atomic_t wdt_warning_count;
 
 #ifdef TEST_BUILD
 bool wdt_warning_triggered;
@@ -181,11 +183,27 @@ void watchdog_reload(void)
 		}
 	}
 
+	atomic_val_t warnings = atomic_get(&wdt_warning_count);
+
 	for (int i = 0; i < ARRAY_SIZE(wdt_info); i++) {
 		if (wdt_chan[i] < 0)
 			continue;
 
 		wdt_feed(wdt_info[i].wdt_dev, wdt_chan[i]);
+	}
+
+	/*
+	 * If a watchdog warning fired before this reload and no new warning
+	 * arrived while feeding, downgrade the pre-written PANIC_SW_WATCHDOG
+	 * reason to PANIC_SW_WATCHDOG_WARN.
+	 */
+	if (warnings) {
+		unsigned int key = irq_lock();
+
+		if (atomic_cas(&wdt_warning_count, warnings, 0)) {
+			panic_data_downgrade_watchdog();
+		}
+		irq_unlock(key);
 	}
 }
 DECLARE_HOOK(HOOK_TICK, watchdog_reload, HOOK_PRIO_LAST);
@@ -250,10 +268,12 @@ __maybe_unused static void wdt_warning_handler(const struct device *wdt_dev,
 	/* Save the current task id in panic info before any printk or thread
 	 * dumping calls, ensuring panic info is recorded even if subsequent
 	 * logging or thread dumping fails or gets interrupted by reset.
-	 * The PANIC_SW_WATCHDOG_WARN reason will be changed to a regular
-	 * PANIC_SW_WATCHDOG in panic_data_init if a watchdog reset occurs.
+	 * PANIC_SW_WATCHDOG is written immediately so legacy RO leaves the
+	 * captured panic data intact across a watchdog reset; watchdog_reload()
+	 * downgrades it to PANIC_SW_WATCHDOG_WARN if execution recovers.
 	 */
-	panic_data_write_watchdog_warning(exception_address, thread);
+	panic_data_write_watchdog(exception_address, thread);
+	atomic_inc(&wdt_warning_count);
 
 	if (IS_ENABLED(CONFIG_THREAD_NAME)) {
 		thread_name = k_thread_name_get(thread);
@@ -403,3 +423,17 @@ SHELL_CMD_REGISTER(watchdoginfo, NULL, "Watchdog Info [reset_stats]",
 		   cmd_watchdoginfo);
 
 #endif /* CONFIG_PLATFORM_EC_CONSOLE_CMD_WATCHDOG_INFO */
+
+#if defined(CONFIG_ZTEST)
+#include <zephyr/ztest.h>
+
+static void
+watchdog_warning_reset_rule_before(const struct ztest_unit_test *test,
+				   void *data)
+{
+	ARG_UNUSED(test);
+	ARG_UNUSED(data);
+	atomic_clear(&wdt_warning_count);
+}
+ZTEST_RULE(watchdog_warning_reset, watchdog_warning_reset_rule_before, NULL);
+#endif

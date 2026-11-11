@@ -199,11 +199,11 @@ ZTEST(panic, test_panic_data_init__watch_dog_panic)
 	}
 }
 
-ZTEST(panic, test_panic_data_init__watch_dog_warn_panic)
+ZTEST(panic, test_panic_data_init__watch_dog_warn_panic_ro)
 {
-	/* Panic reason PANIC_SW_WATCHDOG_WARN should be switched
+	/* Panic reason PANIC_SW_WATCHDOG_WARN from RO should be switched
 	 * to PANIC_SW_WATCHDOG after a watchdog reset (if in RW).
-	 * Info and exception should be preserved.
+	 * Info, exception, and RO_IMAGE flag should be preserved.
 	 */
 	panic_data_write_sw(PANIC_SW_WATCHDOG_WARN, 0x12, 0x34);
 
@@ -223,6 +223,33 @@ ZTEST(panic, test_panic_data_init__watch_dog_warn_panic)
 		panic_set_reason_reg(&expected_pdata, PANIC_SW_WATCHDOG);
 		zassert_mem_equal(panic_get_data(), &expected_pdata,
 				  sizeof(expected_pdata), NULL);
+	} else {
+		/* In RO, existing panic data should remain unchanged */
+		zassert_mem_equal(panic_get_data(), &original_pdata,
+				  sizeof(original_pdata), NULL);
+	}
+}
+
+ZTEST(panic, test_panic_data_init__watch_dog_warn_panic_rw)
+{
+	/* Recovered RW watchdog warning (PANIC_SW_WATCHDOG_WARN with RW_IMAGE)
+	 * should be overwritten with PANIC_SW_WATCHDOG_HARD after a subsequent
+	 * unhandled watchdog reset in RW.
+	 */
+	panic_data_write_sw(PANIC_SW_WATCHDOG_WARN, 0x12, 0x34);
+
+	struct panic_data *pdata = get_panic_data_write();
+	pdata->flags &= ~PANIC_DATA_FLAG_RO_IMAGE;
+	pdata->flags |= PANIC_DATA_FLAG_RW_IMAGE;
+	const struct panic_data original_pdata = *pdata;
+
+	/* Simulate a watchdog reset cause */
+	system_set_reset_flags(EC_RESET_FLAG_WATCHDOG);
+	panic_data_init();
+
+	if (IS_ENABLED(CONFIG_CROS_EC_RW)) {
+		zassert_mem_equal(panic_get_data(), &hard_watchdog_panic,
+				  sizeof(hard_watchdog_panic), NULL);
 	} else {
 		/* In RO, existing panic data should remain unchanged */
 		zassert_mem_equal(panic_get_data(), &original_pdata,
@@ -547,21 +574,55 @@ ZTEST(panic, test_panic_data_write_assert_no_file)
 		      "Exception register must store current thread ID");
 }
 
-ZTEST(panic, test_panic_data_write_watchdog_warning)
+ZTEST(panic, test_panic_data_write_watchdog)
 {
-	panic_data_write_watchdog_warning(0x10080000, k_current_get());
+	panic_data_write_watchdog(0x10080000, k_current_get());
 
 	struct panic_data *pdata = panic_get_data();
 
 	zassert_not_null(pdata, "Panic data must not be NULL after write");
 	zassert_equal(pdata->magic, PANIC_DATA_MAGIC, "Magic must be valid");
-	zassert_equal(panic_get_reason_reg(pdata), PANIC_SW_WATCHDOG_WARN,
-		      "Reason must be PANIC_SW_WATCHDOG_WARN");
+	zassert_equal(panic_get_reason_reg(pdata), PANIC_SW_WATCHDOG,
+		      "Reason must be PANIC_SW_WATCHDOG");
 	zassert_equal(panic_get_info_reg(pdata), 0x10080000,
 		      "Info register must match PC");
 	zassert_equal(panic_get_exception_reg(pdata),
 		      (uint8_t)(uintptr_t)k_current_get(),
 		      "Exception register must store thread ID");
+}
+
+ZTEST(panic, test_panic_data_downgrade_watchdog)
+{
+	/* Empty panic data must remain NULL */
+	zassert_is_null(panic_get_data());
+	panic_data_downgrade_watchdog();
+	zassert_is_null(panic_get_data());
+
+	/* Non-watchdog panic data must remain unchanged */
+	panic_data_write_sw(PANIC_SW_DIV_ZERO, 0x12, 0x34);
+	const struct panic_data non_wdt_pdata = *panic_get_data();
+
+	panic_data_downgrade_watchdog();
+	zassert_mem_equal(panic_get_data(), &non_wdt_pdata,
+			  sizeof(non_wdt_pdata), NULL);
+
+	/* Active watchdog panic must be downgraded in place */
+	panic_data_write_watchdog(0x10080000, k_current_get());
+	struct panic_data expected_pdata = *panic_get_data();
+
+	panic_set_reason_reg(&expected_pdata, PANIC_SW_WATCHDOG_WARN);
+	panic_data_downgrade_watchdog();
+	zassert_mem_equal(panic_get_data(), &expected_pdata,
+			  sizeof(expected_pdata), NULL);
+
+	/* Already-read watchdog panic (OLD_HOSTCMD) must not be downgraded */
+	panic_data_write_watchdog(0x10080000, k_current_get());
+	panic_get_data()->flags |= PANIC_DATA_FLAG_OLD_HOSTCMD;
+	const struct panic_data read_wdt_pdata = *panic_get_data();
+
+	panic_data_downgrade_watchdog();
+	zassert_mem_equal(panic_get_data(), &read_wdt_pdata,
+			  sizeof(read_wdt_pdata), NULL);
 }
 
 ZTEST(panic, test_panic_data_write_fatal)

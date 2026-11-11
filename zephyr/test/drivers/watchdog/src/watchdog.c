@@ -52,7 +52,6 @@ static void watchdog_before(void *state)
 {
 	ARG_UNUSED(state);
 	set_test_runner_tid();
-	wdt_warning_triggered = false;
 
 	/* When shuffling need watchdog initialized and running
 	 * for other tests.
@@ -60,7 +59,12 @@ static void watchdog_before(void *state)
 	if (!wdt_initialized) {
 		(void)watchdog_init();
 		wdt_initialized = true;
+	} else {
+		/* wdt_counter stops its underlying counter on alarm expiry */
+		zassert_ok(wdt_setup(wdt, 0));
 	}
+
+	wdt_warning_triggered = false;
 }
 
 /**
@@ -134,14 +138,69 @@ ZTEST(watchdog, test_wdt_warning_handler)
 	struct panic_data *pdata = panic_get_data();
 
 	zassert_not_null(pdata);
-	zassert_equal(PANIC_SW_WATCHDOG_WARN, panic_get_reason_reg(pdata),
-		      "Watchdog warning panic reason was not set");
+	zassert_equal(PANIC_SW_WATCHDOG, panic_get_reason_reg(pdata),
+		      "Watchdog panic reason was not set");
 
 	zassert_equal((uint8_t)(uintptr_t)k_current_get(),
 		      panic_get_exception_reg(pdata),
 		      "Panic exception should match current thread id");
 	zassert_equal(0, panic_get_info_reg(pdata),
 		      "Panic info should match exception address (0 on posix)");
+}
+
+/**
+ * @brief TestPurpose: Verify watchdog recovery downgrades panic data.
+ *
+ * @details
+ * Trigger the watchdog warning handler, then feed the watchdog and verify
+ * PANIC_SW_WATCHDOG is downgraded in place to PANIC_SW_WATCHDOG_WARN while
+ * preserving captured context and leaving downgraded data unchanged on
+ * subsequent reloads.
+ *
+ * Expected Results
+ *  - PANIC_SW_WATCHDOG is written on warning expiry and downgraded to
+ *    PANIC_SW_WATCHDOG_WARN upon watchdog_reload().
+ */
+ZTEST(watchdog, test_wdt_warning_recovery)
+{
+	/* Feed the dog so timer is reset */
+	watchdog_reload();
+
+	zassert_false(wdt_warning_triggered, "Watchdog timer expired early.");
+
+	k_timer_start(&ktimer, K_MSEC(DEFAULT_WDT_EXPIRY_MS), K_NO_WAIT);
+	k_busy_wait(DEFAULT_WDT_EXPIRY_MS * 1000);
+	k_timer_stop(&ktimer);
+
+	zassert_true(wdt_warning_triggered, "Watchdog timer did not expire.");
+
+	struct panic_data *pdata = panic_get_data();
+
+	zassert_not_null(pdata);
+	zassert_equal(PANIC_SW_WATCHDOG, panic_get_reason_reg(pdata),
+		      "Watchdog panic reason was not set");
+
+	uint32_t saved_info = panic_get_info_reg(pdata);
+	uint8_t saved_exception = panic_get_exception_reg(pdata);
+	uint8_t saved_flags = pdata->flags;
+
+	/* Recovery feed downgrades the reason in place to WARN */
+	watchdog_reload();
+	zassert_equal(PANIC_SW_WATCHDOG_WARN, panic_get_reason_reg(pdata),
+		      "Watchdog warning panic reason was not downgraded");
+	zassert_equal(saved_info, panic_get_info_reg(pdata),
+		      "Panic info changed during downgrade");
+	zassert_equal(saved_exception, panic_get_exception_reg(pdata),
+		      "Panic exception changed during downgrade");
+	zassert_equal(saved_flags, pdata->flags,
+		      "Panic flags changed during downgrade");
+
+	/* Subsequent reload leaves downgraded panic data unchanged */
+	const struct panic_data downgraded_pdata = *pdata;
+
+	watchdog_reload();
+	zassert_mem_equal(panic_get_data(), &downgraded_pdata,
+			  sizeof(downgraded_pdata));
 }
 
 /**

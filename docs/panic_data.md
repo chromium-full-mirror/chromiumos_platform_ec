@@ -88,7 +88,7 @@ Since jump data alignment is derived from the panic data struct size, corruption
 ### False Positives
 The mechanism for storing and retrieving panic data across resets is complex and has historically resulted in false positives or duplicate reports.
 
-1.  **Watchdog Warning Stale Data**: A watchdog warning timer populates panic data before the hardware watchdog triggers. If the EC recovers before the hardware watchdog triggers, and the pre-populated panic data is not cleared, it may be incorrectly reported as a watchdog reset on the next reboot. `PANIC_SW_WATCHDOG_WARN` was added (commit [a58ecc0d44](https://chromium.googlesource.com/chromiumos/platform/ec/+/a58ecc0d44) (added watchdog warning)) to distinguish a watchdog warning from an actual watchdog reset.
+1.  **Watchdog Warning Stale Data**: A watchdog warning timer populates panic data with `PANIC_SW_WATCHDOG` before the hardware watchdog triggers. If the EC recovers before the hardware watchdog triggers, `watchdog_reload()` downgrades the reason in place to `PANIC_SW_WATCHDOG_WARN` (commit [a58ecc0d44](https://chromium.googlesource.com/chromiumos/platform/ec/+/a58ecc0d44)) so stale warnings are not misreported as actual watchdog resets.
 2.  **Firmware Updates**: A false positive attribution can occur after a firmware update. Since the panic data does not indicate which version of the EC firmware was running when the panic occurred, it is possible for a panic to occur in an older RW firmware but be attributed to the newly updated RW firmware after the reboot.
 3.  **BBRAM Flag Restore Bug**: On legacy systems using battery-backed RAM (BBRAM) for panic backup, a bug (prior to commit [256be11586](https://chromium.googlesource.com/chromiumos/platform/ec/+/256be11586da69da137518352d53b8011b0762e2) (fixed BBRAM restore)) existed where panic flags were not preserved properly across resets. This caused the panic to appear as new on every EC boot, leading to duplicate crash reports.
     *(Note: BBRAM backup of panic data is a legacy feature and is not supported in Zephyr-based EC firmware).*
@@ -154,12 +154,12 @@ Watchdog resets require special coordination between the watchdog timer, the pan
 
 There are three distinct software panic reasons associated with watchdogs:
 
-1.  **`PANIC_SW_WATCHDOG_WARN`** (`0xDEAD6668`, introduced in commit [a58ecc0d44](https://chromium.googlesource.com/chromiumos/platform/ec/+/a58ecc0d441eeb5613af383e8de757f5d79879b2) (introduced warning)):
-    Set when the software watchdog warning timer fires. It captures the active thread context (the truncated thread ID in `exception`) and the Program Counter (PC) where execution was interrupted.
-2.  **`PANIC_SW_WATCHDOG`** (`0xDEAD6664`):
-    The "promoted" watchdog reason. During boot, if the reset flags indicate a watchdog reset and the existing panic reason in RAM is `PANIC_SW_WATCHDOG_WARN`, the reason is promoted to `PANIC_SW_WATCHDOG`. This preserves the captured PC (info) and thread ID (exception) from the warning.
+1.  **`PANIC_SW_WATCHDOG`** (`0xDEAD6664`):
+    Set when the software watchdog warning timer fires. It captures the active thread context (the truncated thread ID in `exception`) and the Program Counter (PC) where execution was interrupted. Writing `PANIC_SW_WATCHDOG` immediately preserves all captured panic data across both current RW and legacy RO if the hardware watchdog resets the EC.
+2.  **`PANIC_SW_WATCHDOG_WARN`** (`0xDEAD6668`, introduced in commit [a58ecc0d44](https://chromium.googlesource.com/chromiumos/platform/ec/+/a58ecc0d441eeb5613af383e8de757f5d79879b2) (introduced warning)):
+    Set when a thread triggers the watchdog warning timer but recovers and feeds the watchdog before a hardware reset. `watchdog_reload()` downgrades an unread `PANIC_SW_WATCHDOG` in place to `PANIC_SW_WATCHDOG_WARN`, preserving captured context.
 3.  **`PANIC_SW_WATCHDOG_HARD`** (`0xDEAD666A`, introduced in commit [60c5c62f4c](https://chromium.googlesource.com/chromiumos/platform/ec/+/60c5c62f4c193b25cc3fc9f43adce9b3e1d1b6e9) (introduced hard watchdog)):
-    Set when a hardware watchdog reset occurs, but there was no prior `PANIC_SW_WATCHDOG_WARN` recorded. This typically happens during a hard lockup where interrupts are disabled (e.g., inside an interrupt handler or critical section), preventing the watchdog warning interrupt from firing. A `PANIC_SW_WATCHDOG_HARD` panic will always have blank or missing PC and task/thread ID fields.
+    Set when a hardware watchdog reset occurs, but there was no prior `PANIC_SW_WATCHDOG` recorded. This typically happens during a hard lockup where interrupts are disabled (e.g., inside an interrupt handler or critical section), preventing the watchdog warning interrupt from firing. A `PANIC_SW_WATCHDOG_HARD` panic will always have blank or missing PC and task/thread ID fields.
 
 *(Note: Prior to the introduction of `PANIC_SW_WATCHDOG_WARN` and `PANIC_SW_WATCHDOG_HARD`, all watchdog resets appeared simply as `PANIC_SW_WATCHDOG`).*
 
@@ -169,19 +169,21 @@ To capture the state of the EC before a watchdog reset occurs, a software watchd
 When this warning fires:
 1.  The truncated thread ID and the Program Counter (PC) of the active thread are captured into `exception` and `info`. (Console `printk` statements output the full un-truncated thread pointer address via `%p`).
 2.  These are stored in the `exception` and `info` fields of the panic data, respectively.
-3.  The panic reason is set to `PANIC_SW_WATCHDOG_WARN`.
-4.  If the hardware watchdog subsequently expires, the system resets with the reset reason flag `EC_RESET_FLAG_WATCHDOG` set.
+3.  The panic reason is set to `PANIC_SW_WATCHDOG`.
+4.  If the hardware watchdog subsequently expires, the system resets with the reset reason flag `EC_RESET_FLAG_WATCHDOG` set and `panic_data` containing `PANIC_SW_WATCHDOG`.
+5.  If execution recovers and feeds the watchdog before reset, `watchdog_reload()` downgrades the panic reason in place to `PANIC_SW_WATCHDOG_WARN` if present.
 
-### Watchdog Reset Promotion
-During early initialization, if the reset flags indicate a watchdog reset (`EC_RESET_FLAG_WATCHDOG`), the initialization logic checks the existing panic data in RAM:
-*   **If the existing panic reason is `PANIC_SW_WATCHDOG_WARN`**: The reason is "promoted" to `PANIC_SW_WATCHDOG`, preserving the captured `info` (PC) and `exception` (task ID) fields.
-*   **If the existing panic reason is NOT `PANIC_SW_WATCHDOG_WARN`**: The panic data is overwritten with the reason `PANIC_SW_WATCHDOG_HARD`, and all other registers are left blank.
+### Watchdog Reset Initialization
+During early RW initialization, if the reset flags indicate a watchdog reset (`EC_RESET_FLAG_WATCHDOG`), `panic_data_init()` checks the existing panic data in RAM:
+*   **If unread `PANIC_SW_WATCHDOG` or `PANIC_SW_WATCHDOG_HARD` is present**: The existing panic data is preserved.
+*   **If unread `PANIC_SW_WATCHDOG_WARN` with `PANIC_DATA_FLAG_RO_IMAGE` is present**: The reason is promoted in place to `PANIC_SW_WATCHDOG`, preserving captured context from older RO images that still write `PANIC_SW_WATCHDOG_WARN`.
+*   **Otherwise (including recovered RW `PANIC_SW_WATCHDOG_WARN` or old panic data)**: The panic data is overwritten with the reason `PANIC_SW_WATCHDOG_HARD`, and all other registers are left blank.
 
 Before commit [682f4c61f1](https://chromium.googlesource.com/chromiumos/platform/ec/+/682f4c61f142f622091dcf60ccac339a8d5ac8f2) (which restricted promotion to RW), the RO image would perform the watchdog promotion first during pre-init. This caused compatibility issues:
 
 If the RO image was unable to interpret the RW panic data (e.g., because the RO image expected a smaller `panic_data` layout), it would overwrite the panic data using its own layout. Even if it could interpret the data, RO's promotion would only preserve the `reason`, `info`, and `exception` fields, blanking out any new registers or fields that the newer RW image may have populated.
 
-To resolve this, commit [682f4c61f1](https://chromium.googlesource.com/chromiumos/platform/ec/+/682f4c61f142f622091dcf60ccac339a8d5ac8f2) restricted the watchdog promotion logic to run **only in the RW image**. The RO image preserves the reset flags and does not modify the panic data, allowing the RW image to safely perform the promotion after sysjump. *Note*: With this change, the watchdog warning reason (`PANIC_SW_WATCHDOG_WARN`) will not be promoted while executing the RO image, even if a watchdog reset occurred. This is typically not noticed since the EC immediately jumps to RW unless EC software sync is disabled for development.
+To resolve this, commit [682f4c61f1](https://chromium.googlesource.com/chromiumos/platform/ec/+/682f4c61f142f622091dcf60ccac339a8d5ac8f2) restricted boot-time watchdog handling to run **only in the RW image**, and the warning handler now writes `PANIC_SW_WATCHDOG` directly (downgrading to `PANIC_SW_WATCHDOG_WARN` on recovery) so older factory-locked RO images also leave the captured panic data untouched.
 
 ## Zephyr Integration
 
@@ -233,7 +235,7 @@ The `crash` command supports nested crashes if `CONFIG_CMD_CRASH_NESTED` is enab
 
 #### EC Console `panicinfo` Output (ARM Watchdog Example)
 
-Example output for a promoted watchdog reset (`PANIC_SW_WATCHDOG`):
+Example output for a watchdog reset (`PANIC_SW_WATCHDOG`):
 ```text
 Saved panic data: 0x48 (NEW)  # Panic Flags (RW_IMAGE | OLD_HOSTEVENT)
   a1       = 0x00000000

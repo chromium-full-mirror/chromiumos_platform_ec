@@ -244,16 +244,26 @@ void panic_data_write_assert(const char *path, unsigned int line)
 	panic_data_finalize(pdata);
 }
 
-void panic_data_write_watchdog_warning(uintptr_t pc,
-				       const struct k_thread *thread)
+void panic_data_write_watchdog(uintptr_t pc, const struct k_thread *thread)
 {
 	struct panic_data *const pdata = panic_data_reset(NULL);
 
-	panic_set_reason_reg(pdata, PANIC_SW_WATCHDOG_WARN);
+	panic_set_reason_reg(pdata, PANIC_SW_WATCHDOG);
 	panic_set_info_reg(pdata, (uint32_t)pc);
 	panic_set_exception_reg(pdata, (uint8_t)(uintptr_t)thread);
 
 	panic_data_finalize(pdata);
+}
+
+void panic_data_downgrade_watchdog(void)
+{
+	struct panic_data *const pdata = panic_get_data();
+
+	if (pdata && panic_get_reason_reg(pdata) == PANIC_SW_WATCHDOG &&
+	    !(pdata->flags & PANIC_DATA_FLAG_OLD_HOSTCMD)) {
+		panic_set_reason_reg(pdata, PANIC_SW_WATCHDOG_WARN);
+		panic_data_finalize(pdata);
+	}
 }
 
 void panic_data_write_fatal(unsigned int reason, const struct k_thread *thread)
@@ -460,21 +470,25 @@ test_export_static int panic_data_init(void)
 	 * image.
 	 */
 	if (is_watchdog_reset) {
-		/* If the panic reason is a watchdog warning, then change
-		 * the reason to a regular watchdog reason while preserving
-		 * the info and exception from the watchdog warning.
+		/*
+		 * Older RO images that skip boot-time watchdog handling still
+		 * write PANIC_SW_WATCHDOG_WARN with PANIC_DATA_FLAG_RO_IMAGE
+		 * and rely on RW to promote it. Recovered RW warnings carry
+		 * PANIC_DATA_FLAG_RW_IMAGE and fall through to hard watchdog.
 		 */
-		if (is_panic_new && reason == PANIC_SW_WATCHDOG_WARN) {
-			LOG_INF("Promoting watchdog warning to watchdog panic");
+		if (is_panic_new && reason == PANIC_SW_WATCHDOG_WARN &&
+		    (pdata->flags & PANIC_DATA_FLAG_RO_IMAGE)) {
+			LOG_INF("Promoting RO watchdog warning to watchdog panic");
 			panic_set_reason_reg(pdata, PANIC_SW_WATCHDOG);
 			panic_data_finalize(pdata);
 		} else if ((reason != PANIC_SW_WATCHDOG &&
 			    reason != PANIC_SW_WATCHDOG_HARD) ||
 			   !is_panic_new) {
-			/* The watchdog panic info may have already been
-			 * initialized by the watchdog handler, so only set it
-			 * here if the panic reason is not a watchdog or the
-			 * panic info has already been read, i.e. an old
+			/*
+			 * The watchdog panic info may have already been
+			 * initialized by the watchdog warning handler, so only
+			 * set it here if the panic reason is not a watchdog or
+			 * the panic info has already been read, i.e. an old
 			 * watchdog panic. Both RO and RW flags are unset
 			 * because source image is not known.
 			 */
