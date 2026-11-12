@@ -58,6 +58,7 @@
 #include "usb_pd.h"
 #include "usb_pd_tcpm.h"
 #include "util.h"
+#include "watchdog.h"
 
 #define CPRINTS(format, args...) cprints(CC_USBCHARGE, format, ##args)
 #define CPRINTF(format, args...) cprintf(CC_USBCHARGE, format, ##args)
@@ -325,7 +326,7 @@ void board_reset_pd_mcu(void)
 	gpio_set_level(GPIO_USB_C1_PD_RST_L, 1);
 }
 
-void board_tcpc_init(void)
+static void board_tcpc_init(void)
 {
 	int count = 0;
 	int port;
@@ -333,6 +334,7 @@ void board_tcpc_init(void)
 	/* Wait for disconnected battery to wake up */
 	while (battery_hw_present() == BP_YES &&
 	       battery_is_present() == BP_NO) {
+		watchdog_reload();
 		crec_usleep(100 * MSEC);
 		/* Give up waiting after 2 seconds */
 		if (++count > 20)
@@ -361,6 +363,7 @@ void board_tcpc_init(void)
 		usb_mux_hpd_update(port, USB_PD_MUX_HPD_LVL_DEASSERTED |
 						 USB_PD_MUX_HPD_IRQ_DEASSERTED);
 }
+DECLARE_HOOK(HOOK_INIT, board_tcpc_init, HOOK_PRIO_INIT_I2C + 1);
 
 uint16_t tcpc_get_alert_status(void)
 {
