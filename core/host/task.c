@@ -153,7 +153,7 @@ test_mockable void interrupt_enable(void)
 	set_interrupt_enabled(true);
 }
 
-inline bool is_interrupt_enabled(void)
+test_mockable bool is_interrupt_enabled(void)
 {
 	return !interrupt_disabled;
 }

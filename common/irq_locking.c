@@ -8,24 +8,17 @@
  */
 
 #include "task.h"
-#include "util.h"
-
-static uint32_t lock_count;
 
 uint32_t irq_lock(void)
 {
+	uint32_t key = is_interrupt_enabled();
+
 	interrupt_disable();
-	return lock_count++;
+	return key;
 }
 
 void irq_unlock(uint32_t key)
 {
-	lock_count = key;
-
-	/*
-	 * Since we're allowing nesting locks, we only actually want to release
-	 * the lock if the lock count reached 0.
-	 */
-	if (lock_count == 0)
+	if (key)
 		interrupt_enable();
 }
