@@ -4,6 +4,7 @@
  */
 
 #include "charge_manager.h"
+#include "charge_state.h"
 #include "charger_test.h"
 #include "drivers/ucsi_v3.h"
 #include "ec_commands.h"
@@ -13,13 +14,36 @@
 
 #include <string.h>
 
+#include <zephyr/kernel.h>
 #include <zephyr/ztest.h>
 
 #define RTS5453P_NODE DT_NODELABEL(pdc_emul1)
 static const struct emul *emul = EMUL_DT_GET(RTS5453P_NODE);
 
-ZTEST_SUITE(charge_manager, charger_predicate_post_main, NULL, NULL, NULL,
-	    NULL);
+static bool mock_battery_disconnected;
+
+const struct batt_params *charger_current_battery_params(void)
+{
+	static const struct batt_params disconnected_batt = {
+		.is_present = BP_NO,
+	};
+
+	if (mock_battery_disconnected)
+		return &disconnected_batt;
+
+	return &charge_get_status()->batt;
+}
+
+static void charge_manager_after(void *fixture)
+{
+	ARG_UNUSED(fixture);
+
+	mock_battery_disconnected = false;
+	charge_manager_set_override(OVERRIDE_OFF);
+}
+
+ZTEST_SUITE(charge_manager, charger_predicate_post_main, NULL, NULL,
+	    charge_manager_after, NULL);
 
 /**
  * Test the default implementation of board_fill_source_power_info(). The fill
@@ -205,4 +229,57 @@ ZTEST_USER(charge_manager, test_charge_manager_refresh_mutex_retry)
 	emul_pdc_disconnect(emul);
 	pdc_power_mgmt_wait_for_sync(0, -1);
 	zassert_false(charge_manager_has_active_charge_port());
+}
+
+ZTEST(charge_manager, test_get_selected_charge_port_battery_disconnected)
+{
+	const struct charge_port_info charge_5v = {
+		.current = 500,
+		.voltage = 5000,
+	};
+	const struct charge_port_info charge_zero_cur = {
+		.current = 0,
+		.voltage = 5000,
+	};
+	const struct charge_port_info charge_20v = {
+		.current = 3000,
+		.voltage = 20000,
+	};
+
+	charge_manager_leave_safe_mode();
+
+	charge_manager_update_dualrole(0, CAP_DEDICATED);
+	charge_manager_update_charge(CHARGE_SUPPLIER_PD, 0, &charge_5v);
+	zassert_true(WAIT_FOR(charge_manager_get_active_charge_port() == 0,
+			      1000000, k_msleep(10)));
+
+	mock_battery_disconnected = true;
+	charge_manager_update_dualrole(1, CAP_DEDICATED);
+	charge_manager_update_charge(CHARGE_SUPPLIER_PD, 1, &charge_20v);
+	zassert_equal(charge_manager_get_selected_charge_port(), 0);
+	k_msleep(20);
+	zassert_equal(charge_manager_get_active_charge_port(), 0);
+	zassert_equal(charge_manager_get_supplier(), CHARGE_SUPPLIER_PD);
+
+	charge_manager_update_charge(CHARGE_SUPPLIER_PD, 1, NULL);
+	charge_manager_update_dualrole(1, CAP_UNKNOWN);
+	charge_manager_update_charge(CHARGE_SUPPLIER_PD, 0, &charge_zero_cur);
+	k_msleep(20);
+	zassert_equal(charge_manager_get_selected_charge_port(), 0);
+	zassert_equal(charge_manager_get_supplier(), CHARGE_SUPPLIER_PD);
+
+	charge_manager_update_charge(CHARGE_SUPPLIER_PD, 0, NULL);
+	zassert_true(
+		WAIT_FOR(charge_manager_get_supplier() == CHARGE_SUPPLIER_NONE,
+			 1000000, k_msleep(10)));
+	zassert_equal(charge_manager_get_active_charge_port(), 0);
+	zassert_equal(charge_manager_get_selected_charge_port(), 0);
+
+	mock_battery_disconnected = false;
+	charge_manager_update_dualrole(0, CAP_UNKNOWN);
+	zassert_ok(charge_manager_set_override(OVERRIDE_DONT_CHARGE));
+	zassert_true(WAIT_FOR(charge_manager_get_active_charge_port() ==
+				      CHARGE_PORT_NONE,
+			      1000000, k_msleep(10)));
+	zassert_ok(charge_manager_set_override(OVERRIDE_OFF));
 }

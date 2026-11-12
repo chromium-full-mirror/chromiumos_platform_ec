@@ -974,8 +974,10 @@ static void charge_manager_get_best_port(int *new_port, int *new_supplier,
 		 * Since PDC will reset PDOs when receive new SRC Caps.
 		 * Only keep current charge_supplier when the PDO is non zero.
 		 */
-		if (available_charge[charge_supplier][best_port].current != 0 ||
-		    available_charge[charge_supplier][best_port].voltage != 0)
+		if (is_valid_supplier(charge_supplier) &&
+		    (available_charge[charge_supplier][best_port].current !=
+			     0 ||
+		     available_charge[charge_supplier][best_port].voltage != 0))
 			best_supplier = charge_supplier;
 	}
 
