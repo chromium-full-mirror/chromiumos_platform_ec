@@ -79,10 +79,14 @@ static void *thermal_setup(void)
 	return &fixture;
 }
 
+void set_thermal_control_enabled(int fan, int enable);
+
 static void reset_thermal_state(struct thermal_fixture *fix)
 {
-	test_set_chipset_to_s0();
 	fan_set_count(CONFIG_FANS);
+	for (int fan = 0; fan < CONFIG_FANS; fan++) {
+		set_thermal_control_enabled(fan, 1);
+	}
 	seed_temp_sensors();
 
 	zassert_ok(gpio_emul_input_set(fix->pg_dsw_dev,
@@ -93,6 +97,8 @@ static void reset_thermal_state(struct thermal_fixture *fix)
 
 	memcpy(thermal_params, fix->initial_thermal_params,
 	       THERMAL_PARAMS_SIZE);
+
+	test_set_chipset_to_s0();
 
 #ifdef CONFIG_HOSTCMD_X86
 	host_events_restore(&fix->host_events_ctx);
