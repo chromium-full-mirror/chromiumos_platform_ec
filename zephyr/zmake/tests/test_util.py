@@ -95,3 +95,11 @@ def test_locate_cros_checkout_from_file(tmp_path, monkeypatch):
     monkeypatch.setattr(util, "__file__", str(checkout / "ec/util.py"))
 
     assert util.locate_cros_checkout() == checkout
+
+
+def test_get_default_build_dir(tmp_path):
+    """Test get_default_build_dir returns <ec_dir>/build/zephyr."""
+    ec_dir = tmp_path / "src/platform/ec"
+    expected = tmp_path / "src/platform/ec/build/zephyr"
+    assert util.get_default_build_dir(ec_dir) == expected
+    assert util.get_default_build_dir(str(ec_dir)) == expected

@@ -4,6 +4,7 @@
 
 """Do a run of 'zmake build' and check the output"""
 
+import json
 import logging
 import os
 import pathlib
@@ -53,9 +54,9 @@ class FakeProject:
         yield "rw", zmake.build_config.BuildConfig()
 
     @staticmethod
-    def prune_modules(_):
+    def prune_modules(module_paths):
         """Fake implementation of prune_modules."""
-        return {}  # pathlib.Path('path')]
+        return module_paths
 
     @staticmethod
     def find_dts_overlays(_):
@@ -484,3 +485,17 @@ def test_failed_builds_sorting(monkeypatch):
         "Failed projects by diff in config: bear, cat, dog",
         "All failed projects: apple bear cat dog monkey zebra",
     ]
+
+
+def test_configure_default_build_dir(
+    zmake_factory_from_dir, tmp_path, monkeypatch
+):
+    """Test configure defaults to get_default_build_dir and sets USER_CACHE_DIR."""
+    build_dir = tmp_path / "custom_build"
+    monkeypatch.setattr(zm.util, "get_default_build_dir", lambda _: build_dir)
+    do_test_with_log_level(zmake_factory_from_dir, logging.ERROR)
+
+    cfg = json.loads(
+        (build_dir / "fakeproject/cfg-ro.json").read_text(encoding="utf-8")
+    )
+    assert cfg["cmake_defs"]["USER_CACHE_DIR"] == str(build_dir / "user-cache")

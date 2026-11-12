@@ -319,7 +319,7 @@ class Zmake:
         """Locate and configure the specified projects."""
         # Resolve build_dir if needed.
         if not build_dir:
-            build_dir = self.module_paths["ec"] / "build" / "zephyr"
+            build_dir = util.get_default_build_dir(self.module_paths["ec"])
 
         projects = self._resolve_projects(
             project_names,
@@ -637,7 +637,8 @@ class Zmake:
                         module_paths["ec"] / "zephyr" / "include" / "drivers"
                     )
                     default_cmake_defs["USER_CACHE_DIR"] = str(
-                        module_paths["ec"] / "build" / "zephyr" / "user-cache"
+                        util.get_default_build_dir(module_paths["ec"])
+                        / "user-cache"
                     )
                 if "pigweed" in module_paths:
                     default_cmake_defs["PW_ROOT"] = str(module_paths["pigweed"])

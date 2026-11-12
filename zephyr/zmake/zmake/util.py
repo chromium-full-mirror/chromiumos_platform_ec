@@ -71,6 +71,11 @@ def locate_cros_checkout():
     raise FileNotFoundError("Unable to locate a ChromiumOS checkout")
 
 
+def get_default_build_dir(ec_dir):
+    """Return the default Zephyr build directory for ec_dir."""
+    return pathlib.Path(ec_dir) / "build" / "zephyr"
+
+
 def read_kconfig_file(path):
     """Parse a Kconfig file.
 
