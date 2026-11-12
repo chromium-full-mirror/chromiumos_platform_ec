@@ -7,6 +7,10 @@
 #include <zephyr/dt-bindings/pwm/it8xxx2_pwm.h>
 
 /* Project-specific overrides */
+&cros_rtc {
+	status = "okay";
+};
+
 &sha0 {
 	status = "okay";
 };
