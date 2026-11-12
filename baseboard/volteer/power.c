@@ -3,6 +3,7 @@
  * found in the LICENSE file.
  */
 
+#include "chipset.h"
 #include "gpio.h"
 #include "hooks.h"
 #include "power/icelake.h"
@@ -57,11 +58,36 @@ static const struct prochot_cfg volteer_prochot_cfg = {
 #endif
 };
 
+static void prochot_resume(void)
+{
+	if (!gpio_is_implemented(GPIO_EC_PROCHOT_IN_L))
+		return;
+
+	gpio_clear_pending_interrupt(GPIO_EC_PROCHOT_IN_L);
+	gpio_enable_interrupt(GPIO_EC_PROCHOT_IN_L);
+	throttle_ap_prochot_input_interrupt(GPIO_EC_PROCHOT_IN_L);
+}
+DECLARE_HOOK(HOOK_CHIPSET_RESUME, prochot_resume, HOOK_PRIO_DEFAULT);
+
+static void prochot_suspend(void)
+{
+	if (!gpio_is_implemented(GPIO_EC_PROCHOT_IN_L))
+		return;
+
+	gpio_disable_interrupt(GPIO_EC_PROCHOT_IN_L);
+}
+DECLARE_HOOK(HOOK_CHIPSET_SUSPEND, prochot_suspend, HOOK_PRIO_FIRST);
+DECLARE_HOOK(HOOK_CHIPSET_SHUTDOWN, prochot_suspend, HOOK_PRIO_FIRST);
+
 static void baseboard_init(void)
 {
+	if (!gpio_is_implemented(GPIO_EC_PROCHOT_IN_L))
+		return;
+
 	/* Enable monitoring of the PROCHOT input to the EC */
 	throttle_ap_config_prochot(&volteer_prochot_cfg);
-	gpio_enable_interrupt(GPIO_EC_PROCHOT_IN_L);
+	if (chipset_in_state(CHIPSET_STATE_ON))
+		prochot_resume();
 
 #ifdef CONFIG_CPU_PROCHOT_GATE_ON_C10
 	gpio_enable_interrupt(GPIO_CPU_C10_GATE_L);
