@@ -15,4 +15,17 @@ target_sources_ifdef(CONFIG_TEST_OCELOT_RVP_BOARD_ID app PRIVATE
 	src/rvp_board_id_test.c
 )
 
+if(CONFIG_TEST_OCELOT_BLANC_BOARD)
+	# CHARGER_SOLO and CONFIG_PLATFORM_EC_CHARGER_BQ25720 are defined here
+	# rather than through Kconfig so the charger driver is not built: the
+	# test provides its own chg_chips[] table.
+	target_compile_definitions(app PRIVATE
+		CHARGER_SOLO=0
+		CONFIG_PLATFORM_EC_CHARGER_BQ25720=1)
+
+	target_sources(app PRIVATE
+		${PLATFORM_EC_PROGRAM_DIR}/ocelot/blanc/src/board.c
+		src/blanc_board_test.c)
+endif()
+
 set_compiler_property(APPEND PROPERTY coverage -O0)

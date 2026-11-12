@@ -1,0 +1,62 @@
+/* Copyright 2026 The ChromiumOS Authors
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file.
+ */
+
+/* Minimal devicetree for the blanc board.c unit test. */
+
+#include <npcx_emul.dts>
+#include <dt-bindings/gpio_defines.h>
+
+/ {
+	named-gpios {
+		compatible = "named-gpios";
+
+		/* Unimplemented on blanc as well, but common/system.c needs the
+		 * enum to exist.
+		 */
+		entering-rw {
+			enum-name = "GPIO_ENTERING_RW";
+		};
+
+		gpio_ec_en_edp_bl: ec_en_edp_bl {
+			gpios = <&gpio1 3 (GPIO_OUTPUT | GPIO_OUTPUT_INIT_LOW)>;
+			enum-name = "GPIO_ENABLE_BACKLIGHT";
+		};
+
+		gpio_batt_temp_r: batt_temp_r {
+			gpios = <&gpio3 3 GPIO_INPUT>;
+			enum-name = "GPIO_BATT_PRES_ODL";
+		};
+	};
+
+	gpio-interrupts {
+		compatible = "cros-ec,gpio-interrupts";
+
+		int_batt_pres_en: batt_pres_int {
+			irq-pin = <&gpio_batt_temp_r>;
+			flags = <GPIO_INT_EDGE_BOTH>;
+			handler = "batt_pres_interrupt";
+		};
+	};
+
+	named-i2c-ports {
+		compatible = "named-i2c-ports";
+
+		i2c_ec_i2c_charger: ec_i2c_charger {
+			/* Same controller the charger sits on in the real
+			 * devicetree (i2c5_0).
+			 */
+			i2c-port = <&i2c_ctrl5>;
+			enum-names = "I2C_PORT_CHARGER";
+		};
+	};
+};
+
+&i2c_ctrl5 {
+	charger_bq25720: bq25720@9 {
+		compatible = "zephyr,rt9490-emul";
+		status = "okay";
+		reg = <0x9>;
+	};
+};

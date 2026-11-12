@@ -8,4 +8,15 @@ config TEST_OCELOT_RVP_BOARD_ID
 	  Enable tests for Ocelot RVP SKU-to-board-ID mapping in
 	  rvp_board_id.c.
 
+config TEST_OCELOT_BLANC_BOARD
+	bool "Blanc board tests"
+	help
+	  Enable tests for ocelot/blanc/src/board.c.
+
+config TEST_DISABLE_INLINE_CHIPSET_IN_STATE
+	bool "Disable chipset_in_state inline method"
+	help
+	  This is used to not define chipset_in_state method as inline
+	  function.
+
 source "Kconfig.zephyr"
