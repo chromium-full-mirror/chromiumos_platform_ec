@@ -80,7 +80,6 @@ ZTEST(corsola_usbc, test_xhci_interrupt_0_src_attached)
 	gpio_emul_input_set(xhci->port, xhci->pin, 0);
 	tc_is_attached_src_fake.return_val = true;
 	xhci_interrupt(GPIO_SIGNAL(DT_NODELABEL(gpio_ap_xhci_init_done)));
-	k_msleep(5);
 
 	for (int i = 0; i < USB_PORT_COUNT; i++) {
 		zassert_equal(usb_charge_set_mode_fake.arg0_history[i], i);
@@ -90,7 +89,8 @@ ZTEST(corsola_usbc, test_xhci_interrupt_0_src_attached)
 			      USB_ALLOW_SUSPEND_CHARGE);
 	}
 	for (int i = 0; i < CONFIG_USB_PD_PORT_MAX_COUNT; i++) {
-		zassert_equal(pd_get_dual_role(i), PD_DRP_FORCE_SINK);
+		zassert_true(WAIT_FOR(pd_get_dual_role(i) == PD_DRP_FORCE_SINK,
+				      100 * USEC_PER_MSEC, k_msleep(5)));
 	}
 }
 
@@ -102,7 +102,9 @@ ZTEST(corsola_usbc, test_xhci_interrupt_0)
 	gpio_emul_input_set(xhci->port, xhci->pin, 0);
 	tc_is_attached_src_fake.return_val = false;
 	xhci_interrupt(GPIO_SIGNAL(DT_NODELABEL(gpio_ap_xhci_init_done)));
-	k_msleep(5);
+	zassert_true(WAIT_FOR(tc_is_attached_src_fake.call_count ==
+				      CONFIG_USB_PD_PORT_MAX_COUNT,
+			      100 * USEC_PER_MSEC, k_msleep(5)));
 
 	for (int i = 0; i < USB_PORT_COUNT; i++) {
 		zassert_equal(usb_charge_set_mode_fake.arg0_history[i], i);
@@ -120,7 +122,6 @@ ZTEST(corsola_usbc, test_xhci_interrupt_1)
 
 	gpio_emul_input_set(xhci->port, xhci->pin, 1);
 	xhci_interrupt(GPIO_SIGNAL(DT_NODELABEL(gpio_ap_xhci_init_done)));
-	k_msleep(5);
 
 	for (int i = 0; i < USB_PORT_COUNT; i++) {
 		zassert_equal(usb_charge_set_mode_fake.arg0_history[i], i);
@@ -130,7 +131,8 @@ ZTEST(corsola_usbc, test_xhci_interrupt_1)
 			      USB_ALLOW_SUSPEND_CHARGE);
 	}
 	for (int i = 0; i < CONFIG_USB_PD_PORT_MAX_COUNT; i++) {
-		zassert_equal(pd_get_dual_role(i), PD_DRP_TOGGLE_ON);
+		zassert_true(WAIT_FOR(pd_get_dual_role(i) == PD_DRP_TOGGLE_ON,
+				      100 * USEC_PER_MSEC, k_msleep(5)));
 	}
 }
 
@@ -329,6 +331,10 @@ static void corsola_reset(void *fixture)
 	/* Reset fakes */
 	FFF_FAKES_LIST(RESET_FAKE);
 	FFF_RESET_HISTORY();
+
+	for (int i = 0; i < CONFIG_USB_PD_PORT_MAX_COUNT; i++) {
+		pd_set_dual_role(i, PD_DRP_TOGGLE_OFF);
+	}
 }
 
 ZTEST_SUITE(corsola_usbc, NULL, NULL, corsola_reset, corsola_reset, NULL);
