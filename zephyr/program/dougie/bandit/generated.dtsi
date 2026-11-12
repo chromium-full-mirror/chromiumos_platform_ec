@@ -65,9 +65,6 @@
 			gpios = <&gpiod 7 (GPIO_OUTPUT | GPIO_ACTIVE_HIGH | GPIO_OUTPUT_INIT_LOW)>;
 			enum-name = "GPIO_PACKET_MODE_EN";
 		};
-		gpio_ec_kso_02_inv: ec_kso_02_inv {
-			gpios = <&gpioksol 2 (GPIO_OUTPUT | GPIO_ACTIVE_HIGH | GPIO_OUTPUT_INIT_HIGH)>;
-		};
 		gpio_ec_l18b_pwr_detect: ec_l18b_pwr_detect {
 			gpios = <&gpiof 0 (GPIO_INPUT | GPIO_VOLTAGE_1P8)>;
 		};
@@ -289,7 +286,6 @@
 		&kso16_default
 		&kso17_default
 		&kso1_default
-		&kso2_default
 		&kso3_default
 		&kso4_default
 		&kso5_default
