@@ -18,6 +18,7 @@
 #include <zephyr/ztest.h>
 
 FAKE_VALUE_FUNC(int, system_run_image_copy_with_flags, enum ec_image, int);
+FAKE_VALUE_FUNC(enum ec_image, system_get_image_copy);
 FAKE_VOID_FUNC(system_disable_jump);
 FAKE_VOID_FUNC(jump_to_image, uintptr_t);
 
@@ -33,7 +34,8 @@ ZTEST_USER(system, test_hostcmd_sysinfo)
 	zassert_equal(args.response_size, sizeof(response), NULL);
 	zassert_equal(response.reset_flags, 0, "response.reset_flags = %d",
 		      response.reset_flags);
-	zassert_equal(response.current_image, EC_IMAGE_RO,
+	zassert_equal(response.current_image,
+		      IS_ENABLED(CONFIG_CROS_EC_RW) ? EC_IMAGE_RW : EC_IMAGE_RO,
 		      "response.current_image = %d", response.current_image);
 	zassert_equal(response.flags, 0, "response.flags = %d", response.flags);
 }
@@ -46,6 +48,9 @@ static void system_before_after(void *data)
 	system_clear_reset_flags(-1);
 
 	RESET_FAKE(system_run_image_copy_with_flags);
+	RESET_FAKE(system_get_image_copy);
+	system_get_image_copy_fake.return_val =
+		IS_ENABLED(CONFIG_CROS_EC_RW) ? EC_IMAGE_RW : EC_IMAGE_RO;
 	RESET_FAKE(system_disable_jump);
 	RESET_FAKE(jump_to_image);
 }

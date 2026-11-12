@@ -1635,6 +1635,7 @@ tests:
     - system
     - host_cmd
     extra_configs:
+    - CONFIG_CROS_EC_RO=y
     - CONFIG_LINK_TEST_SUITE_SYSTEM=y
     - CONFIG_POWER_SEQUENCE_MOCK=y
   drivers.system.rw:
