@@ -10,12 +10,6 @@
 
 .rom_unpadded (NOLOAD) :
 {
-	/* Calculate the padding needed for rom mpu alignment */
-	__rom_mpu_padding = ABSOLUTE(__rom_region_end) - ABSOLUTE(__rodata_region_end);
-
-	ASSERT(__rom_mpu_padding >= 0, "rom_mpu_padding is negative");
-	ASSERT(__rom_mpu_padding <  __rom_region_size, "rom_mpu_padding is larger than ROM region");
-
 	/* TODO: Calculate the padding needed for the start of the ILM flash region */
 
 	/* Calculate the padding needed for end of ILM flash alignment */
@@ -25,7 +19,7 @@
 	ASSERT(__ilm_flash_end_padding <  __rom_region_size, "ilm_flash_end_padding is larger than ROM region");
 
 	/* Calculate the unpadded size of the ROM region */
-	. = __rom_region_size - __rom_mpu_padding - __ilm_flash_end_padding;
+	. = __rom_region_size - __ilm_flash_end_padding;
 } > ROM_UNPADDED
 
 .ram_unpadded (NOLOAD) :
