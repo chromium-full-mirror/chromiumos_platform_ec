@@ -111,7 +111,9 @@ static const struct power_seq_op s3s5_power_seq[] = {
 };
 
 static int forcing_shutdown;
+#ifdef CONFIG_BATTERY_SMART
 static int boot_from_cutoff;
+#endif
 
 void chipset_reset_request_interrupt(enum gpio_signal signal)
 {
@@ -226,8 +228,10 @@ enum power_state power_chipset_init(void)
 		/* Auto-power on */
 		chipset_exit_hard_off();
 
+#ifdef CONFIG_BATTERY_SMART
 		if (system_get_reset_flags() == EC_RESET_FLAG_RESET_PIN)
 			boot_from_cutoff = 1;
+#endif
 	}
 
 	/* Start from S5 if the PMIC is already up. */
@@ -307,7 +311,9 @@ enum power_state power_handle_state(enum power_state state)
 		break;
 
 	case POWER_S5:
+#ifdef CONFIG_BATTERY_SMART
 		boot_from_cutoff = 0;
+#endif
 
 		/*
 		 * If AP initiated shutdown, PMIC is off, and we can transition
