@@ -1717,7 +1717,7 @@ function run_iteflash() {
 	fi
 
 	local ATTEMPT ERR_LOG RC
-	ERR_LOG="$(mktemp --suffix="${TEMP_SUFFIX}")"
+	ERR_LOG="$(mktemp --tmpdir="${TEMP_DIR:-/tmp}" --suffix="${TEMP_SUFFIX}")"
 	for (( ATTEMPT = 1; ATTEMPT <= ITE_DFU_MAX_ATTEMPTS; ATTEMPT++ )); do
 		RC=0
 		{

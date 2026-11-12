@@ -4,6 +4,7 @@
 
 """ITE (it83xx / it8xxx2) I2C and UART EC flasher implementations."""
 
+from collections.abc import Sequence
 import logging
 import os
 import shutil
@@ -11,7 +12,6 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Sequence
 
 from flash.flasher_base import BaseEcFlasher
 from flash.helpers import get_preserve_ranges
@@ -22,6 +22,32 @@ from flash.servo_utils import ServoError
 
 
 logger = logging.getLogger(__name__)
+
+
+def _stream_iteflash(cmd: Sequence[str]) -> tuple[int, str]:
+    """Runs iteflash and forwards unbuffered stderr chunks to sys.stderr.
+
+    Args:
+        cmd: Command and arguments to execute iteflash.
+
+    Returns:
+        A `(returncode, stderr_text)` tuple.
+    """
+    chunks: list[str] = []
+    with subprocess.Popen(cmd, stderr=subprocess.PIPE, bufsize=0) as proc:
+        try:
+            while proc.stderr is not None:
+                chunk = proc.stderr.read(256)
+                if not chunk:
+                    break
+                text = chunk.decode("utf-8", errors="replace")
+                sys.stderr.write(text)
+                sys.stderr.flush()
+                chunks.append(text)
+            return proc.wait(), "".join(chunks)
+        except BaseException:
+            proc.kill()
+            raise
 
 
 class _IteBaseFlasher(BaseEcFlasher):
@@ -110,6 +136,7 @@ class IteI2cFlasher(_IteBaseFlasher):
         controller = self._get_controller()
 
         if controller == "c2d2":
+            self.servo.save_state("gsc_ec_reset", "off")
             self.servo.set("gsc_ec_reset", "on")
             self.servo.save_state("i2c_ec_bus_speed")
             self.servo.set("i2c_ec_bus_speed", "400")
@@ -163,32 +190,24 @@ class IteI2cFlasher(_IteBaseFlasher):
                 error or still fails after `MAX_DFU_ATTEMPTS` attempts.
         """
         for attempt in range(1, self.MAX_DFU_ATTEMPTS + 1):
-            try:
-                res = subprocess.run(
-                    cmd, check=True, stderr=subprocess.PIPE, text=True
-                )
-                if isinstance(res.stderr, str) and res.stderr:
-                    sys.stderr.write(res.stderr)
+            rc, err_text = _stream_iteflash(cmd)
+            if rc == 0:
                 return
-            except subprocess.CalledProcessError as err:
-                err_text = err.stderr if isinstance(err.stderr, str) else ""
-                if err_text:
-                    sys.stderr.write(err_text)
-                if (
-                    not self.servo
-                    or self._CHIP_ID_ERR not in err_text
-                    or attempt >= self.MAX_DFU_ATTEMPTS
-                ):
-                    raise
-                logger.warning(
-                    "ITE chip ID check failed (attempt %d/%d); "
-                    "re-entering DFU mode...",
-                    attempt,
-                    self.MAX_DFU_ATTEMPTS,
-                )
-                if self._get_controller() == "c2d2":
-                    self.servo.set("gsc_ec_reset", "on")
-                self._enter_dfu_mode()
+            if (
+                not self.servo
+                or self._CHIP_ID_ERR not in err_text
+                or attempt >= self.MAX_DFU_ATTEMPTS
+            ):
+                raise subprocess.CalledProcessError(rc, cmd, stderr=err_text)
+            logger.warning(
+                "ITE chip ID check failed (attempt %d/%d); "
+                "re-entering DFU mode...",
+                attempt,
+                self.MAX_DFU_ATTEMPTS,
+            )
+            if self._get_controller() == "c2d2":
+                self.servo.set("gsc_ec_reset", "on")
+            self._enter_dfu_mode()
 
     def execute_flash(self) -> None:
         """Read or write the ITE EC flash using iteflash."""
