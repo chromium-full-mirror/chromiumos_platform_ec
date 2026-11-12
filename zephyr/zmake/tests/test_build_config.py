@@ -180,14 +180,12 @@ def test_popen_cmake_kconfig(conf: BuildConfig, project_dir, build_dir):
 
         _, cmake_defs = parse_cmake_args(job_client.captured_argv)
 
-        expected_kconfig_files = set(str(f) for f in conf.kconfig_files)
-        expected_kconfig_files.add(temp_path)
+        expected_kconfig_files = [
+            *(str(f.resolve()) for f in conf.kconfig_files),
+            str(pathlib.Path(temp_path).resolve()),
+        ]
 
-        if expected_kconfig_files:
-            kconfig_files = set(cmake_defs.pop("CONF_FILE").split(";"))
-        else:
-            assert "CONF_FILE" not in cmake_defs
-            kconfig_files = set()
+        kconfig_files = cmake_defs.pop("CONF_FILE").split(";")
 
         assert cmake_defs == conf.cmake_defs
         assert kconfig_files == expected_kconfig_files

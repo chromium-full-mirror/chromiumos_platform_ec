@@ -681,7 +681,10 @@ class Zmake:
                     )
                 if coverage:
                     base_config |= zmake.build_config.BuildConfig(
-                        kconfig_defs={"CONFIG_COVERAGE": "y"}
+                        kconfig_defs={
+                            "CONFIG_COVERAGE": "y",
+                            "CONFIG_NO_OPTIMIZATIONS": "y",
+                        }
                     )
                 if save_temps:
                     base_config |= zmake.build_config.BuildConfig(
