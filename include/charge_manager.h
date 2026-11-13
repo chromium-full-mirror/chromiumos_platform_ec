@@ -278,6 +278,9 @@ bool charge_manager_has_insufficient_adapter(void);
  * This is the charge port that is either active or that we may be
  * transitioning to because a better choice has been given as an option
  * but that transition has not completed.
+ *  ** WARNING **
+ *    This API does not use mutex locking,
+ *    make sure your code can handle a stale charge port.
  *
  * @return	Current selected charge port.
  */

@@ -159,9 +159,11 @@ void charge_manager_dump_mutex_history()
 #define CM_MUTEX_TRY_LOCK(m) k_mutex_lock(m, K_NO_WAIT)
 #endif /* CM_MUTEX_DEBUG */
 
-/* Store current state of port enable / charge current. */
-/* During charge_manager_refresh, the following data is considered stale. Make
- * sure any read/writes are protected with cm_refresh mutex */
+/*
+ * Store current state of port enable / charge current. Writes and consistent
+ * multi-field reads are serialized by the cm_refresh lock; lock-free readers
+ * snapshot charge_port and charge_supplier and tolerate transient staleness.
+ */
 test_export_static int charge_port = CHARGE_PORT_NONE;
 static int charge_current = CHARGE_CURRENT_UNINITIALIZED;
 static int charge_current_uncapped = CHARGE_CURRENT_UNINITIALIZED;
@@ -837,6 +839,9 @@ static inline bool is_voltage_sufficient(const struct charge_port_info *info,
  * Select the best charge port or the override port, as defined by the supplier
  * hierarchy and the available power.
  *
+ * @note May be called with or without the cm_refresh lock held; must not
+ *       mutate shared state.
+ *
  * @param new_port		Pointer to the selected port.
  * @param new_supplier		Pointer to the selected supplier.
  * @param insufficient_voltage	Optional output flag set when an eligible
@@ -849,6 +854,8 @@ static void charge_manager_get_best_port(int *new_port, int *new_supplier,
 	int best_port = CHARGE_PORT_NONE;
 	int best_port_power = -1, candidate_port_power;
 	int sup_idx, port_idx;
+	int curr_port = charge_manager_get_active_charge_port_no_lock();
+	int curr_supplier = charge_supplier;
 	uint32_t min_required_mv = 0;
 	bool verify_min_required_mv = false;
 
@@ -955,7 +962,7 @@ static void charge_manager_get_best_port(int *new_port, int *new_supplier,
 				      * amount of power.
 				      */
 				     (candidate_port_power == best_port_power &&
-				      charge_port == port_idx)))) {
+				      curr_port == port_idx)))) {
 				best_supplier = sup_idx;
 				best_port = port_idx;
 				best_port_power = candidate_port_power;
@@ -967,18 +974,17 @@ static void charge_manager_get_best_port(int *new_port, int *new_supplier,
 	 * if no battery present then retain same charge port
 	 * and charge supplier to avoid the port switching
 	 */
-	if (charge_port != CHARGE_PORT_NONE && charge_port != best_port &&
+	if (is_valid_port(curr_port) && curr_port != best_port &&
 	    is_battery_disconnected()) {
-		best_port = charge_port;
+		best_port = curr_port;
 		/*
 		 * Since PDC will reset PDOs when receive new SRC Caps.
 		 * Only keep current charge_supplier when the PDO is non zero.
 		 */
-		if (is_valid_supplier(charge_supplier) &&
-		    (available_charge[charge_supplier][best_port].current !=
-			     0 ||
-		     available_charge[charge_supplier][best_port].voltage != 0))
-			best_supplier = charge_supplier;
+		if (is_valid_supplier(curr_supplier) &&
+		    (available_charge[curr_supplier][best_port].current != 0 ||
+		     available_charge[curr_supplier][best_port].voltage != 0))
+			best_supplier = curr_supplier;
 	}
 
 	*new_port = best_port;

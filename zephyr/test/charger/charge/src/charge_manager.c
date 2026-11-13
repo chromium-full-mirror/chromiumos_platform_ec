@@ -253,8 +253,11 @@ ZTEST(charge_manager, test_get_selected_charge_port_battery_disconnected)
 	zassert_true(WAIT_FOR(charge_manager_get_active_charge_port() == 0,
 			      1000000, k_msleep(10)));
 
-	mock_battery_disconnected = true;
 	charge_manager_update_dualrole(1, CAP_DEDICATED);
+	charge_manager_update_charge(CHARGE_SUPPLIER_PD, 1, &charge_5v);
+	zassert_equal(charge_manager_get_selected_charge_port(), 0);
+
+	mock_battery_disconnected = true;
 	charge_manager_update_charge(CHARGE_SUPPLIER_PD, 1, &charge_20v);
 	zassert_equal(charge_manager_get_selected_charge_port(), 0);
 	k_msleep(20);
