@@ -60,6 +60,14 @@ ZTEST_SUITE(console_cmd_charge_manager, drivers_predicate_post_main,
 ZTEST_USER(console_cmd_charge_manager, test_chgsup)
 {
 	zassert_ok(shell_execute_cmd(get_ec_shell(), "chgsup"));
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "vbus"));
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "vbus 0"));
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "chglim"));
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "chglim 1000"));
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "chglim 1000 5000"));
+	zassert_equal(shell_execute_cmd(get_ec_shell(), "chglim abc"), -EINVAL);
+	zassert_equal(shell_execute_cmd(get_ec_shell(), "chglim 1000 abc"),
+		      -EINVAL);
 }
 
 /**
@@ -104,7 +112,7 @@ ZTEST_USER_F(console_cmd_charge_manager, test_chgoverride_0_from_sink)
 	connect_sink_to_port(&fixture->sink_5v_3a, fixture->tcpci_emul,
 			     fixture->charger_emul);
 	zassert_equal(shell_execute_cmd(get_ec_shell(), "chgoverride 0"),
-		      EC_ERROR_INVAL, NULL);
+		      -EINVAL, NULL);
 }
 
 ZTEST_USER(console_cmd_charge_manager, test_chgoverride_invalid_port)
@@ -113,6 +121,5 @@ ZTEST_USER(console_cmd_charge_manager, test_chgoverride_invalid_port)
 
 	zassert_true(sprintf(cmd, "chgoverride %d", CHARGE_PORT_COUNT) > 0,
 		     NULL);
-	zassert_equal(shell_execute_cmd(get_ec_shell(), cmd), EC_ERROR_PARAM1,
-		      NULL);
+	zassert_equal(shell_execute_cmd(get_ec_shell(), cmd), -EINVAL, NULL);
 }

@@ -1297,12 +1297,12 @@ static void dump_reg_range(int chgnum, int low, int high)
 	int rv;
 
 	for (reg = low; reg <= high; reg++) {
-		ccprintf("[%Xh] = ", reg);
+		cprintf(CC_CHARGER, "[%Xh] = ", reg);
 		rv = isl9241_read(chgnum, reg, &regval);
 		if (!rv)
-			ccprintf("0x%04x\n", regval);
+			cprintf(CC_CHARGER, "0x%04x\n", regval);
 		else
-			ccprintf("ERR (%d)\n", rv);
+			cprintf(CC_CHARGER, "ERR (%d)\n", rv);
 		cflush();
 	}
 }

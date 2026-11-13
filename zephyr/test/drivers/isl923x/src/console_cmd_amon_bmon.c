@@ -38,7 +38,7 @@ ZTEST(console_cmd_amon_bmon, test_isl923x_amonbmon_shell_cmd)
 	zassert_ok(shell_execute_cmd(get_ec_shell(), "amonbmon bd 0"));
 
 	/* Check error returned for malformed shell command */
-	zassert_equal(EC_ERROR_PARAM2,
+	zassert_equal(-EINVAL,
 		      shell_execute_cmd(get_ec_shell(), "amonbmon a x"), NULL);
 }
 
@@ -72,7 +72,7 @@ ZTEST(console_cmd_amon_bmon,
 		      isl923x_drv.get_input_current(CHARGER_NUM,
 						    &current_milli_amps),
 		      NULL);
-	zassert_equal(EC_ERROR_INVAL,
+	zassert_equal(-EINVAL,
 		      shell_execute_cmd(get_ec_shell(), "amonbmon a 0"), NULL);
 }
 

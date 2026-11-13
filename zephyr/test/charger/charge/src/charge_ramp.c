@@ -173,6 +173,7 @@ ZTEST(charge_ramp, test_no_ramp)
 	zassert_equal(charge_limit_ma, 500);
 
 	zassert_true(unplug_charger_and_check());
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "chgramp"));
 }
 
 ZTEST(charge_ramp, test_full_ramp)
@@ -185,6 +186,7 @@ ZTEST(charge_ramp, test_full_ramp)
 	zassert_equal(charge_limit_ma, 3000);
 
 	zassert_true(unplug_charger_and_check());
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "chgramp"));
 }
 
 ZTEST(charge_ramp, test_vbus_dip)
@@ -196,6 +198,7 @@ ZTEST(charge_ramp, test_vbus_dip)
 	zassert_true(is_in_range(charge_limit_ma, 1300, 1500));
 
 	zassert_true(unplug_charger_and_check());
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "chgramp"));
 }
 
 ZTEST(charge_ramp, test_overcurrent)
@@ -216,6 +219,7 @@ ZTEST(charge_ramp, test_overcurrent)
 	zassert_true(is_in_range(charge_limit_ma, 1300, 1500));
 
 	zassert_true(unplug_charger_and_check());
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "chgramp"));
 }
 
 ZTEST(charge_ramp, test_switch_outlet)
@@ -238,6 +242,7 @@ ZTEST(charge_ramp, test_switch_outlet)
 	zassert_equal(charge_limit_ma, 3000);
 
 	zassert_true(unplug_charger_and_check());
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "chgramp"));
 }
 
 ZTEST(charge_ramp, test_fast_switch)
@@ -260,6 +265,7 @@ ZTEST(charge_ramp, test_fast_switch)
 	zassert_equal(charge_limit_ma, 3000);
 
 	zassert_true(unplug_charger_and_check());
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "chgramp"));
 }
 
 ZTEST(charge_ramp, test_overcurrent_after_switch_outlet)
@@ -283,6 +289,7 @@ ZTEST(charge_ramp, test_overcurrent_after_switch_outlet)
 	zassert_true(is_in_range(charge_limit_ma, 1300, 1500));
 
 	zassert_true(unplug_charger_and_check());
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "chgramp"));
 }
 
 ZTEST(charge_ramp, test_partial_load)
@@ -309,6 +316,7 @@ ZTEST(charge_ramp, test_partial_load)
 	zassert_true(is_in_range(charge_limit_ma, 2300, 2500));
 
 	zassert_true(unplug_charger_and_check());
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "chgramp"));
 }
 
 ZTEST(charge_ramp, test_charge_supplier_stable)
@@ -321,6 +329,7 @@ ZTEST(charge_ramp, test_charge_supplier_stable)
 	zassert_equal(charge_limit_ma, 3000);
 
 	zassert_true(unplug_charger_and_check());
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "chgramp"));
 }
 
 ZTEST(charge_ramp, test_charge_supplier_stable_ramp)
@@ -333,6 +342,7 @@ ZTEST(charge_ramp, test_charge_supplier_stable_ramp)
 	zassert_true(is_in_range(charge_limit_ma, 1200, 1400));
 
 	zassert_true(unplug_charger_and_check());
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "chgramp"));
 }
 
 ZTEST(charge_ramp, test_charge_supplier_change)
@@ -349,6 +359,7 @@ ZTEST(charge_ramp, test_charge_supplier_change)
 	zassert_equal(charge_limit_ma, 1500);
 
 	zassert_true(unplug_charger_and_check());
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "chgramp"));
 }
 
 ZTEST(charge_ramp, test_charge_port_change)
@@ -373,6 +384,7 @@ ZTEST(charge_ramp, test_charge_port_change)
 	zassert_true(is_in_range(charge_limit_ma, 1800, 2000));
 
 	zassert_true(unplug_charger_and_check());
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "chgramp"));
 }
 
 ZTEST(charge_ramp, test_vbus_shift)
@@ -387,6 +399,7 @@ ZTEST(charge_ramp, test_vbus_shift)
 	zassert_true(is_in_range(charge_limit_ma, 1600, 1800));
 
 	zassert_true(unplug_charger_and_check());
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "chgramp"));
 }
 
 ZTEST(charge_ramp, test_equal_priority_overcurrent)
@@ -416,6 +429,7 @@ ZTEST(charge_ramp, test_equal_priority_overcurrent)
 	}
 
 	zassert_true(unplug_charger_and_check());
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "chgramp"));
 }
 
 ZTEST(charge_ramp, test_ramp_limit)
@@ -441,6 +455,7 @@ ZTEST(charge_ramp, test_ramp_limit)
 	zassert_true(is_in_range(charge_limit_ma, 1000, 1200));
 
 	zassert_true(unplug_charger_and_check());
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "chgramp"));
 }
 
 ZTEST_SUITE(charge_ramp, charger_predicate_post_main, NULL, charge_ramp_before,

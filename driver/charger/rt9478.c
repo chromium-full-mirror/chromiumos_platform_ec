@@ -949,7 +949,8 @@ static void console_rt9478_dump_regs(int chgnum)
 	for (i = 0; i < ARRAY_SIZE(regs); ++i) {
 		if (raw_read16(chgnum, regs[i], &val))
 			continue;
-		ccprintf("RT9478 REG 0x%02x:  0x%04x\n", regs[i], val);
+		cprintf(CC_CHARGER, "RT9478 REG 0x%02x:  0x%04x\n", regs[i],
+			val);
 	}
 }
 #endif /* CONFIG_CMD_CHARGER_DUMP */

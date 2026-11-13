@@ -15,6 +15,7 @@
 /* Tests which need no fixture */
 ZTEST_USER(console_cmd_charger, test_default_dump)
 {
+	print_charger_debug(0);
 	zassert_ok(shell_execute_cmd(get_ec_shell(), "charger"),
 		   "Failed default print");
 }
@@ -30,48 +31,54 @@ ZTEST_USER(console_cmd_charger, test_bad_index)
 {
 	int rv = shell_execute_cmd(get_ec_shell(), "charger 55");
 
-	zassert_equal(rv, EC_ERROR_PARAM1, "Expected %d, but got %d",
-		      EC_ERROR_PARAM1, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
+}
+
+ZTEST_USER(console_cmd_charger, test_missing_args)
+{
+	zassert_equal(shell_execute_cmd(get_ec_shell(), "charger input"),
+		      -EINVAL);
+	zassert_equal(shell_execute_cmd(get_ec_shell(), "charger current"),
+		      -EINVAL);
+	zassert_equal(shell_execute_cmd(get_ec_shell(), "charger voltage"),
+		      -EINVAL);
+	zassert_equal(shell_execute_cmd(get_ec_shell(), "charger dptf"),
+		      -EINVAL);
 }
 
 ZTEST_USER(console_cmd_charger, test_bad_command)
 {
 	int rv = shell_execute_cmd(get_ec_shell(), "charger fish");
 
-	zassert_equal(rv, EC_ERROR_PARAM1, "Expected %d, but got %d",
-		      EC_ERROR_PARAM1, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_USER(console_cmd_charger, test_bad_input_current)
 {
 	int rv = shell_execute_cmd(get_ec_shell(), "charger input fish");
 
-	zassert_equal(rv, EC_ERROR_PARAM2, "Expected %d, but got %d",
-		      EC_ERROR_PARAM1, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_USER(console_cmd_charger, test_bad_current)
 {
 	int rv = shell_execute_cmd(get_ec_shell(), "charger current fish");
 
-	zassert_equal(rv, EC_ERROR_PARAM2, "Expected %d, but got %d",
-		      EC_ERROR_PARAM1, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_USER(console_cmd_charger, test_bad_voltage)
 {
 	int rv = shell_execute_cmd(get_ec_shell(), "charger voltage fish");
 
-	zassert_equal(rv, EC_ERROR_PARAM2, "Expected %d, but got %d",
-		      EC_ERROR_PARAM1, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_USER(console_cmd_charger, test_bad_dptf_current)
 {
 	int rv = shell_execute_cmd(get_ec_shell(), "charger dptf fish");
 
-	zassert_equal(rv, EC_ERROR_PARAM2, "Expected %d, but got %d",
-		      EC_ERROR_PARAM1, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 /* Good parameter sub-command tests */
@@ -100,8 +107,7 @@ ZTEST_USER(console_cmd_charger, test_unsupported_dump)
 	/* Must define CONFIG_CMD_CHARGER_DUMP for this sub-command */
 	int rv = shell_execute_cmd(get_ec_shell(), "charger dump");
 
-	zassert_equal(rv, EC_ERROR_PARAM1, "Expected %d, but got %d",
-		      EC_ERROR_PARAM1, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 /* Fixture needed to supply AC for manual current/voltage set */

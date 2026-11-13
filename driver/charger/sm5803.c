@@ -2093,10 +2093,10 @@ static void command_sm5803_dump(int chgnum)
 	int regval;
 
 	/* Dump base regs */
-	ccprintf("BASE regs\n");
+	CPRINTF("BASE regs\n");
 	for (reg = 0x01; reg <= 0x30; reg++) {
 		if (!main_read8(chgnum, reg, &regval))
-			ccprintf("[0x%02X] = 0x%02x\n", reg, regval);
+			CPRINTF("[0x%02X] = 0x%02x\n", reg, regval);
 		if (reg & 0xf) {
 			cflush(); /* Flush periodically */
 			watchdog_reload();
@@ -2104,10 +2104,10 @@ static void command_sm5803_dump(int chgnum)
 	}
 
 	/* Dump measure regs */
-	ccprintf("MEAS regs\n");
+	CPRINTF("MEAS regs\n");
 	for (reg = 0x01; reg <= 0xED; reg++) {
 		if (!meas_read8(chgnum, reg, &regval))
-			ccprintf("[0x%02X] = 0x%02x\n", reg, regval);
+			CPRINTF("[0x%02X] = 0x%02x\n", reg, regval);
 		if (reg & 0xf) {
 			cflush(); /* Flush periodically */
 			watchdog_reload();
@@ -2115,10 +2115,10 @@ static void command_sm5803_dump(int chgnum)
 	}
 
 	/* Dump Charger regs from 0x1C to 0x7F */
-	ccprintf("CHG regs\n");
+	CPRINTF("CHG regs\n");
 	for (reg = 0x1C; reg <= 0x7F; reg++) {
 		if (!chg_read8(chgnum, reg, &regval))
-			ccprintf("[0x%02X] = 0x%02x\n", reg, regval);
+			CPRINTF("[0x%02X] = 0x%02x\n", reg, regval);
 		if (reg & 0xf) {
 			cflush(); /* Flush periodically */
 			watchdog_reload();

@@ -19,8 +19,7 @@ ZTEST_SUITE(console_cmd_pwr_avg, drivers_predicate_post_main, NULL, NULL, NULL,
 
 ZTEST_USER(console_cmd_pwr_avg, test_too_many_args)
 {
-	zassert_equal(EC_ERROR_PARAM_COUNT,
-		      shell_execute_cmd(get_ec_shell(), "pwr_avg 5"));
+	zassert_equal(-EINVAL, shell_execute_cmd(get_ec_shell(), "pwr_avg 5"));
 }
 
 ZTEST_USER(console_cmd_pwr_avg, test_printout)

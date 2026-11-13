@@ -16,6 +16,8 @@
 #include "usb_pd.h"
 #include "util.h"
 
+#include <zephyr/shell/shell.h>
+
 #define CPRINTS(format, args...) cprints(CC_USBCHARGE, format, ##args)
 
 /* Number of times to ramp current searching for limit before stable charging */
@@ -357,27 +359,28 @@ void chg_ramp_task(void *u)
 }
 
 #ifdef CONFIG_CMD_CHGRAMP
-static int command_chgramp(int argc, const char **argv)
+static int command_chgramp(const struct shell *sh, size_t argc,
+			   const char **argv)
 {
 	int i;
 	int port;
 
-	ccprintf("Chg Ramp:\nState: %d\nMin ICL: %d\nActive ICL: %d\n", ramp_st,
-		 min_icl, active_icl);
+	shell_print(sh, "Chg Ramp:\nState: %d\nMin ICL: %d\nActive ICL: %d",
+		    ramp_st, min_icl, active_icl);
 
 	for (port = 0; port < board_get_usb_pd_port_count(); port++) {
-		ccprintf("Port %d:\n", port);
-		ccprintf("  OC idx:%d\n", oc_info_idx[port]);
+		shell_print(sh, "Port %d:", port);
+		shell_print(sh, "  OC idx:%d", oc_info_idx[port]);
 		for (i = 0; i < RAMP_COUNT; i++) {
-			ccprintf("  OC %d: s%d oc_det%d icl%d\n", i,
-				 oc_info[port][i].sup,
-				 oc_info[port][i].oc_detected,
-				 oc_info[port][i].icl);
+			shell_print(sh, "  OC %d: s%d oc_det%d icl%d", i,
+				    oc_info[port][i].sup,
+				    oc_info[port][i].oc_detected,
+				    oc_info[port][i].icl);
 		}
 	}
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(chgramp, command_chgramp, "",
-			"Dump charge ramp state info");
+SHELL_CMD_ARG_REGISTER(chgramp, NULL, "Dump charge ramp state info",
+		       command_chgramp, 1, 0);
 #endif

@@ -24,6 +24,8 @@
 #include "usb_pd_tcpm.h"
 #include "util.h"
 
+#include <zephyr/shell/shell.h>
+
 #ifndef CONFIG_CHARGER_NARROW_VDC
 #error "ISL9237/8 is a NVDC charger, please enable CONFIG_CHARGER_NARROW_VDC."
 #endif
@@ -1305,18 +1307,23 @@ int charger_get_system_power(void)
 	return adc;
 }
 
-static int console_command_psys(int argc, const char **argv)
+static int console_command_psys(const struct shell *sh, size_t argc,
+				char **argv)
 {
-	ccprintf("PSYS = %d uW\n", charger_get_system_power());
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	shell_print(sh, "PSYS = %d uW", charger_get_system_power());
 	return 0;
 }
-DECLARE_CONSOLE_COMMAND(psys, console_command_psys, NULL,
-			"Get the system power in mW");
+SHELL_CMD_REGISTER(psys, NULL, "Get the system power in mW",
+		   console_command_psys);
 #endif /* CONFIG_CHARGER_PSYS_READ */
 #endif /* CONFIG_CHARGER_PSYS */
 
 #ifdef CONFIG_CMD_CHARGER_ADC_AMON_BMON
-static int print_amon_bmon(int chgnum, enum isl923x_amon_bmon amon,
+static int print_amon_bmon(const struct shell *sh, int chgnum,
+			   enum isl923x_amon_bmon amon,
 			   enum isl923x_mon_dir direction, int resistor)
 {
 	int ret, adc, curr;
@@ -1326,8 +1333,9 @@ static int print_amon_bmon(int chgnum, enum isl923x_amon_bmon amon,
 		return ret;
 
 	curr = adc / resistor;
-	ccprintf("%cMON(%sharging): %d uV, %d mA\n", amon == AMON ? 'A' : 'B',
-		 direction == MON_DISCHARGE ? "Disc" : "C", adc, curr);
+	shell_print(sh, "%cMON(%sharging): %d uV, %d mA",
+		    amon == AMON ? 'A' : 'B',
+		    direction == MON_DISCHARGE ? "Disc" : "C", adc, curr);
 
 	return ret;
 }
@@ -1335,7 +1343,8 @@ static int print_amon_bmon(int chgnum, enum isl923x_amon_bmon amon,
 /**
  * Get charger AMON and BMON current.
  */
-static int console_command_amon_bmon(int argc, const char **argv)
+static int console_command_amon_bmon(const struct shell *sh, size_t argc,
+				     char **argv)
 {
 	int ret = EC_SUCCESS;
 	int print_ac = 1;
@@ -1355,44 +1364,46 @@ static int console_command_amon_bmon(int argc, const char **argv)
 		if (argc >= 3) {
 			chgnum = strtoi(argv[2], &e, 10);
 			if (*e)
-				return EC_ERROR_PARAM2;
+				return -EINVAL;
 		}
 	}
 
 	if (print_ac) {
 		if (print_charge)
 			ret |= print_amon_bmon(
-				chgnum, AMON, MON_CHARGE,
+				sh, chgnum, AMON, MON_CHARGE,
 				CONFIG_CHARGER_SENSE_RESISTOR_AC);
 		if (IS_ENABLED(CHARGER_ISL9238X) && print_discharge)
 			ret |= print_amon_bmon(
-				chgnum, AMON, MON_DISCHARGE,
+				sh, chgnum, AMON, MON_DISCHARGE,
 				CONFIG_CHARGER_SENSE_RESISTOR_AC);
 	}
 
 	if (print_battery) {
 		if (IS_ENABLED(CHARGER_ISL9238X) && print_charge)
 			ret |= print_amon_bmon(
-				chgnum, BMON, MON_CHARGE,
+				sh, chgnum, BMON, MON_CHARGE,
 				/*
 				 * charging current monitor has
 				 * 2x amplification factor
 				 */
 				2 * CONFIG_CHARGER_SENSE_RESISTOR);
 		if (print_discharge)
-			ret |= print_amon_bmon(chgnum, BMON, MON_DISCHARGE,
+			ret |= print_amon_bmon(sh, chgnum, BMON, MON_DISCHARGE,
 					       CONFIG_CHARGER_SENSE_RESISTOR);
 	}
 
-	return ret;
+	return ret ? -EINVAL : 0;
 }
-DECLARE_CONSOLE_COMMAND(amonbmon, console_command_amon_bmon,
+SHELL_CMD_ARG_REGISTER(amonbmon, NULL,
+		       SHELL_HELP("Get charger AMON/BMON voltage diff, current",
 #ifdef CONFIG_CHARGER_ISL9237
-			"amonbmon [a|b] <chgnum>",
+				  "[a|b] <chgnum>"
 #else
-			"amonbmon [a[c|d]|b[c|d]] <chgnum>",
+				  "[a[c|d]|b[c|d]] <chgnum>"
 #endif
-			"Get charger AMON/BMON voltage diff, current");
+				  ),
+		       console_command_amon_bmon, 1, 2);
 #endif /* CONFIG_CMD_CHARGER_ADC_AMON_BMON */
 
 #ifdef CONFIG_CMD_CHARGER_DUMP

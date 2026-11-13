@@ -34,6 +34,8 @@
 #include "usb_pd.h"
 #include "util.h"
 
+#include <zephyr/shell/shell.h>
+
 /* Console output macros */
 #define CPUTS(outstr) cputs(CC_CHARGER, outstr)
 #define CPRINTS(format, args...) cprints(CC_CHARGER, format, ##args)
@@ -253,19 +255,26 @@ static const char *const batt_pres[] = {
 const char *mode_text[] = EC_CHARGE_MODE_TEXT;
 BUILD_ASSERT(ARRAY_SIZE(mode_text) == CHARGE_CONTROL_COUNT);
 
-static void dump_charge_state(void)
+#define chgstate_print(sh, fmt, ...) shell_print(sh, fmt, ##__VA_ARGS__)
+
+static void dump_charge_state(const struct shell *sh)
 {
-#define DUMP(FLD, FMT) ccprintf(#FLD " = " FMT "\n", curr.FLD)
-#define DUMP_CHG(FLD, FMT) ccprintf("\t" #FLD " = " FMT "\n", curr.chg.FLD)
-#define DUMP_BATT(FLD, FMT) ccprintf("\t" #FLD " = " FMT "\n", curr.batt.FLD)
-#define DUMP_OCPC(FLD, FMT) ccprintf("\t" #FLD " = " FMT "\n", curr.ocpc.FLD)
+#define DUMP(FLD, FMT) chgstate_print(sh, #FLD " = " FMT, curr.FLD)
+#define DUMP_CHG(FLD, FMT) chgstate_print(sh, "\t" #FLD " = " FMT, curr.chg.FLD)
+#define DUMP_BATT(FLD, FMT) \
+	chgstate_print(sh, "\t" #FLD " = " FMT, curr.batt.FLD)
+#define DUMP_OCPC(FLD, FMT) \
+	chgstate_print(sh, "\t" #FLD " = " FMT, curr.ocpc.FLD)
 
 	enum ec_charge_control_mode cmode = get_chg_ctrl_mode();
 
-	ccprintf("state = %s\n", state_list[curr.state]);
+	if (!sh)
+		sh = get_ec_shell();
+
+	chgstate_print(sh, "state = %s", state_list[curr.state]);
 	DUMP(ac, "%d");
 	DUMP(batt_is_charging, "%d");
-	ccprintf("chg.*:\n");
+	chgstate_print(sh, "chg.*:");
 	DUMP_CHG(voltage, "%dmV");
 	DUMP_CHG(current, "%dmA");
 	DUMP_CHG(input_current, "%dmA");
@@ -273,9 +282,9 @@ static void dump_charge_state(void)
 	DUMP_CHG(option, "0x%x");
 	DUMP_CHG(flags, "0x%x");
 	cflush();
-	ccprintf("batt.*:\n");
-	ccprintf("\ttemperature = %dC\n",
-		 DECI_KELVIN_TO_CELSIUS(curr.batt.temperature));
+	chgstate_print(sh, "batt.*:");
+	chgstate_print(sh, "\ttemperature = %dC",
+		       DECI_KELVIN_TO_CELSIUS(curr.batt.temperature));
 	DUMP_BATT(state_of_charge, "%d%%");
 	DUMP_BATT(voltage, "%dmV");
 	DUMP_BATT(current, "%dmA");
@@ -284,10 +293,11 @@ static void dump_charge_state(void)
 	DUMP_BATT(flags, "0x%x");
 	DUMP_BATT(remaining_capacity, "%dmAh");
 	DUMP_BATT(full_capacity, "%dmAh");
-	ccprintf("\tis_present = %s\n", batt_pres[curr.batt.is_present]);
+	chgstate_print(sh, "\tis_present = %s",
+		       batt_pres[curr.batt.is_present]);
 	cflush();
 #ifdef CONFIG_OCPC
-	ccprintf("ocpc.*:\n");
+	chgstate_print(sh, "ocpc.*:");
 	DUMP_OCPC(active_chg_chip, "%d");
 	DUMP_OCPC(combined_rsys_rbatt_mo, "%dmOhm");
 	if ((curr.ocpc.active_chg_chip != -1) &&
@@ -314,22 +324,23 @@ static void dump_charge_state(void)
 	DUMP(output_current, "%dmA");
 #endif
 	if (IS_ENABLED(CONFIG_EC_EC_COMM_BATTERY_CLIENT)) {
-		ccprintf("input_voltage = %dmV\n",
-			 charger_base_get_input_voltage(&curr));
+		chgstate_print(sh, "input_voltage = %dmV",
+			       charger_base_get_input_voltage(&curr));
 	}
-	ccprintf("chg_ctl_mode = %s (%d)\n",
-		 cmode < CHARGE_CONTROL_COUNT ? mode_text[cmode] : "UNDEF",
-		 cmode);
-	ccprintf("manual_voltage = %d\n", local_state.manual_voltage);
-	ccprintf("manual_current = %d\n", local_state.manual_current);
-	ccprintf("user_current_limit = %dmA\n", user_current_limit);
-	ccprintf("battery_seems_dead = %d\n", battery_seems_dead);
-	ccprintf("battery_seems_disconnected = %d\n",
-		 battery_seems_disconnected);
-	ccprintf("debug output = %s\n", debugging() ? "on" : "off");
-	ccprintf("Battery sustainer = %s (%d%% ~ %d%%)\n",
-		 battery_sustainer_enabled() ? "on" : "off", sustain_soc.lower,
-		 sustain_soc.upper);
+	chgstate_print(sh, "chg_ctl_mode = %s (%d)",
+		       cmode < CHARGE_CONTROL_COUNT ? mode_text[cmode] :
+						      "UNDEF",
+		       cmode);
+	chgstate_print(sh, "manual_voltage = %d", local_state.manual_voltage);
+	chgstate_print(sh, "manual_current = %d", local_state.manual_current);
+	chgstate_print(sh, "user_current_limit = %dmA", user_current_limit);
+	chgstate_print(sh, "battery_seems_dead = %d", battery_seems_dead);
+	chgstate_print(sh, "battery_seems_disconnected = %d",
+		       battery_seems_disconnected);
+	chgstate_print(sh, "debug output = %s", debugging() ? "on" : "off");
+	chgstate_print(sh, "Battery sustainer = %s (%d%% ~ %d%%)",
+		       battery_sustainer_enabled() ? "on" : "off",
+		       sustain_soc.lower, sustain_soc.upper);
 #undef DUMP
 }
 
@@ -398,14 +409,14 @@ static void show_charging_progress(bool is_full)
 		charger_base_show_charge();
 
 	if (debugging()) {
-		ccprintf("battery:\n");
+		CPRINTF("battery:\n");
 		print_battery_debug();
-		ccprintf("charger:\n");
+		CPRINTF("charger:\n");
 		if (IS_ENABLED(CONFIG_OCPC))
 			chgnum = charge_get_active_chg_chip();
 		print_charger_debug(chgnum);
-		ccprintf("chg:\n");
-		dump_charge_state();
+		CPRINTF("chg:\n");
+		dump_charge_state(NULL);
 	}
 }
 
@@ -2310,97 +2321,116 @@ EC_HOST_CMD_HANDLER_UNBOUND(EC_CMD_CHARGE_STATE, charge_command_charge_state,
 
 #ifdef CONFIG_CMD_PWR_AVG
 
-static int command_pwr_avg(int argc, const char **argv)
+static int command_pwr_avg(const struct shell *sh, size_t argc,
+			   const char **argv)
 {
 	int avg_mv;
 	int avg_ma;
 	int avg_mw;
 
-	if (argc != 1)
-		return EC_ERROR_PARAM_COUNT;
-
 	avg_mv = battery_get_avg_voltage();
 	if (avg_mv < 0)
-		return EC_ERROR_UNKNOWN;
+		return -EIO;
 	avg_ma = battery_get_avg_current();
 	avg_mw = avg_mv * avg_ma / 1000;
 
-	ccprintf("mv = %d\nma = %d\nmw = %d\n", avg_mv, avg_ma, avg_mw);
-	return EC_SUCCESS;
+	shell_print(sh, "mv = %d\nma = %d\nmw = %d", avg_mv, avg_ma, avg_mw);
+	return 0;
 }
 
-DECLARE_CONSOLE_COMMAND(pwr_avg, command_pwr_avg, NULL,
-			"Get 1 min power average");
+SHELL_CMD_ARG_REGISTER(pwr_avg, NULL, "Get 1 min power average",
+		       command_pwr_avg, 1, 0);
 
 #endif /* CONFIG_CMD_PWR_AVG */
 
-static int command_chgstate(int argc, const char **argv)
+static int cmd_chgstate_idle(const struct shell *sh, size_t argc,
+			     const char **argv)
 {
-	int rv;
+	int val, rv;
+
+	if (!parse_bool(argv[1], &val))
+		return -EINVAL;
+	rv = set_chg_ctrl_mode(val ? CHARGE_CONTROL_IDLE :
+				     CHARGE_CONTROL_NORMAL);
+	if (rv)
+		return -EINVAL;
+
+	dump_charge_state(sh);
+	return 0;
+}
+
+static int cmd_chgstate_discharge(const struct shell *sh, size_t argc,
+				  const char **argv)
+{
+	int val, rv;
+
+	if (!parse_bool(argv[1], &val))
+		return -EINVAL;
+	rv = set_chg_ctrl_mode(val ? CHARGE_CONTROL_DISCHARGE :
+				     CHARGE_CONTROL_NORMAL);
+	if (rv)
+		return -EINVAL;
+
+	dump_charge_state(sh);
+	return 0;
+}
+
+static int cmd_chgstate_debug(const struct shell *sh, size_t argc,
+			      const char **argv)
+{
 	int val;
+
+	if (!parse_bool(argv[1], &val))
+		return -EINVAL;
+	set_debugging(val);
+
+	dump_charge_state(sh);
+	return 0;
+}
+
+static int cmd_chgstate_sustain(const struct shell *sh, size_t argc,
+				const char **argv)
+{
+	int lower, upper, rv;
 	char *e;
 
-	if (argc > 1) {
-		if (!strcasecmp(argv[1], "idle")) {
-			if (argc <= 2)
-				return EC_ERROR_PARAM_COUNT;
-			if (!parse_bool(argv[2], &val))
-				return EC_ERROR_PARAM2;
-			rv = set_chg_ctrl_mode(val ? CHARGE_CONTROL_IDLE :
-						     CHARGE_CONTROL_NORMAL);
-			if (rv)
-				return rv;
-		} else if (!strcasecmp(argv[1], "discharge")) {
-			if (argc <= 2)
-				return EC_ERROR_PARAM_COUNT;
-			if (!parse_bool(argv[2], &val))
-				return EC_ERROR_PARAM2;
-			rv = set_chg_ctrl_mode(val ? CHARGE_CONTROL_DISCHARGE :
-						     CHARGE_CONTROL_NORMAL);
-			if (rv)
-				return rv;
-		} else if (IS_ENABLED(CONFIG_CHARGE_DEBUG) &&
-			   !strcasecmp(argv[1], "debug")) {
-			int val;
-
-			if (argc <= 2)
-				return EC_ERROR_PARAM_COUNT;
-			if (!parse_bool(argv[2], &val))
-				return EC_ERROR_PARAM2;
-			set_debugging(val);
-		} else if (!strcasecmp(argv[1], "sustain")) {
-			int lower, upper;
-
-			if (argc <= 3)
-				return EC_ERROR_PARAM_COUNT;
-			lower = strtoi(argv[2], &e, 0);
-			if (*e)
-				return EC_ERROR_PARAM2;
-			upper = strtoi(argv[3], &e, 0);
-			if (*e)
-				return EC_ERROR_PARAM3;
-			rv = battery_sustainer_set(lower, upper, 0);
-			if (rv)
-				return EC_ERROR_INVAL;
+	lower = strtoi(argv[1], &e, 0);
+	if (*e)
+		return -EINVAL;
+	upper = strtoi(argv[2], &e, 0);
+	if (*e)
+		return -EINVAL;
+	rv = battery_sustainer_set(lower, upper, 0);
+	if (rv)
+		return -EINVAL;
 #if defined(CONFIG_CHARGE_CONTROL_PERSIST_TO_BBRAM)
-			charge_control_save_to_bbram(sustain_soc.lower,
-						     sustain_soc.upper,
-						     sustain_soc.flags);
+	charge_control_save_to_bbram(sustain_soc.lower, sustain_soc.upper,
+				     sustain_soc.flags);
 #endif
-		} else {
-			return EC_ERROR_PARAM1;
-		}
-	}
 
-	dump_charge_state();
-	return EC_SUCCESS;
+	dump_charge_state(sh);
+	return 0;
 }
-#ifdef CONFIG_CHARGE_DEBUG
-#define CHGSTATE_DEBUG_HELP "|debug on|off"
-#else
-#define CHGSTATE_DEBUG_HELP ""
-#endif
-DECLARE_CONSOLE_COMMAND(chgstate, command_chgstate,
-			"[idle|discharge" CHGSTATE_DEBUG_HELP "]"
-			"\n[sustain <lower> <upper>]",
-			"Get/set charge state machine status");
+
+static int cmd_chgstate(const struct shell *sh, size_t argc, const char **argv)
+{
+	if (argc > 1)
+		return -EINVAL;
+
+	dump_charge_state(sh);
+	return 0;
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(
+	sub_chgstate_cmds,
+	SHELL_CMD_ARG(idle, NULL, "<on|off>", cmd_chgstate_idle, 2, 0),
+	SHELL_CMD_ARG(discharge, NULL, "<on|off>", cmd_chgstate_discharge, 2,
+		      0),
+	SHELL_COND_CMD_ARG(IS_ENABLED(CONFIG_CHARGE_DEBUG), debug, NULL,
+			   "<on|off>", cmd_chgstate_debug, 2, 0),
+	SHELL_CMD_ARG(sustain, NULL, "<lower> <upper>", cmd_chgstate_sustain, 3,
+		      0),
+	SHELL_SUBCMD_SET_END);
+
+SHELL_CMD_REGISTER(chgstate, &sub_chgstate_cmds,
+		   "Get/set charge state machine status", cmd_chgstate);

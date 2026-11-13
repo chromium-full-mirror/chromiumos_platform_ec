@@ -30,6 +30,7 @@
 #include "zephyr/include/usbc/pdc_dpm.h"
 #include "zephyr/include/usbc/pdc_power_mgmt.h"
 
+#include <zephyr/shell/shell.h>
 #include <zephyr/sys/atomic.h>
 
 #ifdef HAS_MOCK_CHARGE_MANAGER
@@ -533,7 +534,7 @@ int charge_manager_get_vbus_voltage(int port)
 }
 
 #ifdef CONFIG_CMD_VBUS
-static int command_vbus(int argc, const char **argv)
+static int command_vbus(const struct shell *sh, size_t argc, const char **argv)
 {
 	/* port = -1 to print all the ports */
 	int port = -1;
@@ -542,24 +543,27 @@ static int command_vbus(int argc, const char **argv)
 	if (argc == 2)
 		port = atoi(argv[1]);
 
-	ccprintf("       VBUS     VSYS\n");
+	shell_print(sh, "       VBUS     VSYS");
 	for (int i = 0; i < CHARGE_PORT_COUNT; i++) {
 		if (port < 0 || i == port) {
 			vbus = charge_manager_get_vbus_voltage(i);
 			if (charger_get_vsys_voltage(i, &vsys))
 				vsys = -1;
-			ccprintf("  P%d %6dmV ", i, vbus);
 			if (vsys >= 0)
-				ccprintf("%6dmV\n", vsys);
+				shell_print(sh, "  P%d %6dmV %6dmV", i, vbus,
+					    vsys);
 			else
-				ccprintf("(unknown)\n");
+				shell_print(sh, "  P%d %6dmV (unknown)", i,
+					    vbus);
 		}
 	}
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(vbus, command_vbus, "[port]",
-			"Print VBUS & VSYS of the given port");
+SHELL_CMD_ARG_REGISTER(vbus, NULL,
+		       SHELL_HELP("Print VBUS & VSYS of the given port",
+				  "[port]"),
+		       command_vbus, 1, 1);
 #endif
 
 /**
@@ -1835,7 +1839,8 @@ EC_HOST_CMD_HANDLER_REQ_ONLY(EC_CMD_OVERRIDE_DEDICATED_CHARGER_LIMIT,
 			     struct ec_params_dedicated_charger_limit);
 #endif
 
-static int command_charge_port_override(int argc, const char **argv)
+static int command_charge_port_override(const struct shell *sh, size_t argc,
+					const char **argv)
 {
 	int port = OVERRIDE_OFF;
 	int ret = EC_SUCCESS;
@@ -1844,17 +1849,20 @@ static int command_charge_port_override(int argc, const char **argv)
 	if (argc >= 2) {
 		port = strtoi(argv[1], &e, 0);
 		if (*e || !is_valid_override_port(port))
-			return EC_ERROR_PARAM1;
+			return -EINVAL;
 		ret = charge_manager_set_override(port);
 	}
 
-	ccprintf("Override: %d\n",
-		 (argc >= 2 && ret == EC_SUCCESS) ? port : override_port);
-	return ret;
+	shell_print(sh, "Override: %d",
+		    (argc >= 2 && ret == EC_SUCCESS) ? port : override_port);
+	return ret ? -EINVAL : 0;
 }
-DECLARE_CONSOLE_COMMAND(
-	chgoverride, command_charge_port_override, "[port | -1 | -2]",
-	"Force charging from a given port (-1 = off, -2 = disable charging)");
+SHELL_CMD_ARG_REGISTER(
+	chgoverride, NULL,
+	SHELL_HELP(
+		"Force charging from a given port (-1 = off, -2 = disable charging)",
+		"[port | -1 | -2]"),
+	command_charge_port_override, 1, 1);
 
 #ifdef CONFIG_CHARGE_MANAGER_EXTERNAL_POWER_LIMIT
 static void charge_manager_set_external_power_limit(int current_lim,
@@ -1898,7 +1906,8 @@ EC_HOST_CMD_HANDLER_REQ_ONLY(EC_CMD_EXTERNAL_POWER_LIMIT,
 			     hc_external_power_limit, EC_VER_MASK(1),
 			     struct ec_params_external_power_limit_v1);
 
-static int command_external_power_limit(int argc, const char **argv)
+static int command_external_power_limit(const struct shell *sh, size_t argc,
+					const char **argv)
 {
 	int max_current;
 	int max_voltage;
@@ -1907,66 +1916,75 @@ static int command_external_power_limit(int argc, const char **argv)
 	if (argc >= 2) {
 		max_current = strtoi(argv[1], &e, 10);
 		if (*e)
-			return EC_ERROR_PARAM1;
+			return -EINVAL;
 	} else
 		max_current = EC_POWER_LIMIT_NONE;
 
 	if (argc >= 3) {
 		max_voltage = strtoi(argv[2], &e, 10);
 		if (*e)
-			return EC_ERROR_PARAM1;
+			return -EINVAL;
 	} else
 		max_voltage = EC_POWER_LIMIT_NONE;
 
 	charge_manager_set_external_power_limit(max_current, max_voltage);
-	ccprintf("max req: %dmA %dmV\n", max_current, max_voltage);
+	shell_print(sh, "max req: %dmA %dmV", max_current, max_voltage);
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(chglim, command_external_power_limit,
-			"[max_current (mA)] [max_voltage (mV)]",
-			"Set max charger current / voltage");
+SHELL_CMD_ARG_REGISTER(chglim, NULL,
+		       SHELL_HELP("Set max charger current / voltage",
+				  "[max_current (mA)] [max_voltage (mV)]"),
+		       command_external_power_limit, 1, 2);
 #endif /* CONFIG_CHARGE_MANAGER_EXTERNAL_POWER_LIMIT */
 
 #ifdef CONFIG_CMD_CHARGE_SUPPLIER_INFO
-static int charge_supplier_info(int argc, const char **argv)
+static int charge_supplier_info(const struct shell *sh, size_t argc,
+				const char **argv)
 {
 	int p, s;
 	int port_printed;
 
-	ccprintf("\n");
-	ccprintf("Port --Supplier-- Prio -Available Power-\n");
+	shell_print(sh, "");
+	shell_print(sh, "Port --Supplier-- Prio -Available Power-");
 	for (p = 0; p < CHARGE_PORT_COUNT; p++) {
 		port_printed = 0;
 		for (s = 0; s < CHARGE_SUPPLIER_COUNT; s++) {
+			char active;
+
 			if (available_charge[s][p].current == 0 &&
 			    available_charge[s][p].voltage == 0)
 				continue;
-			if (charge_manager_get_active_charge_port() == p &&
-			    charge_manager_get_supplier() == s)
-				ccprintf("*");
-			else
-				ccprintf(" ");
+			active =
+				(charge_manager_get_active_charge_port() == p &&
+				 charge_manager_get_supplier() == s) ?
+					'*' :
+					' ';
 			if (!port_printed) {
-				ccprintf("P%d  ", p);
+				shell_print(sh,
+					    "%cP%d  %-10s  %4d  %5dmA %5dmV",
+					    active, p, charge_supplier_name[s],
+					    supplier_priority[s],
+					    available_charge[s][p].current,
+					    available_charge[s][p].voltage);
 				port_printed = 1;
 			} else {
-				ccprintf("    ");
+				shell_print(sh, "%c    %-10s  %4d  %5dmA %5dmV",
+					    active, charge_supplier_name[s],
+					    supplier_priority[s],
+					    available_charge[s][p].current,
+					    available_charge[s][p].voltage);
 			}
-			ccprintf("%-10s  %4d  %5dmA %5dmV\n",
-				 charge_supplier_name[s], supplier_priority[s],
-				 available_charge[s][p].current,
-				 available_charge[s][p].voltage);
 		}
 	}
-	ccprintf("\n");
-	ccprintf("  %s safe mode\n", left_safe_mode ? "Left" : "In");
-	ccprintf("  Override port = P%d\n", charge_manager_get_override());
-	ccprintf("\n");
+	shell_print(sh, "");
+	shell_print(sh, "  %s safe mode", left_safe_mode ? "Left" : "In");
+	shell_print(sh, "  Override port = P%d", charge_manager_get_override());
+	shell_print(sh, "");
 	return 0;
 }
-DECLARE_CONSOLE_COMMAND(chgsup, charge_supplier_info, NULL,
-			"print chg supplier info");
+SHELL_CMD_ARG_REGISTER(chgsup, NULL, "print chg supplier info",
+		       charge_supplier_info, 1, 0);
 #endif
 
 __overridable int board_charge_port_is_sink(int port)

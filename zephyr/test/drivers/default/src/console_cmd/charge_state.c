@@ -17,8 +17,7 @@ ZTEST_USER(console_cmd_charge_state, test_idle_too_few_args)
 	int rv;
 
 	rv = shell_execute_cmd(get_ec_shell(), "chgstate idle");
-	zassert_equal(rv, EC_ERROR_PARAM_COUNT, "Expected %d, but got %d",
-		      EC_ERROR_PARAM_COUNT, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_USER(console_cmd_charge_state, test_idle_arg_not_a_bool)
@@ -31,8 +30,7 @@ ZTEST_USER(console_cmd_charge_state, test_idle_arg_not_a_bool)
 	 * done in the respective unit test.
 	 */
 	rv = shell_execute_cmd(get_ec_shell(), "chgstate idle g");
-	zassert_equal(rv, EC_ERROR_PARAM2, "Expected %d, but got %d",
-		      EC_ERROR_PARAM2, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_USER(console_cmd_charge_state, test_idle_on__no_ac)
@@ -40,8 +38,7 @@ ZTEST_USER(console_cmd_charge_state, test_idle_on__no_ac)
 	int rv;
 
 	rv = shell_execute_cmd(get_ec_shell(), "chgstate idle on");
-	zassert_equal(rv, EC_ERROR_NOT_POWERED, "Expected %d, but got %d",
-		      EC_ERROR_NOT_POWERED, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_USER(console_cmd_charge_state, test_discharge_on__no_ac)
@@ -49,8 +46,7 @@ ZTEST_USER(console_cmd_charge_state, test_discharge_on__no_ac)
 	int rv;
 
 	rv = shell_execute_cmd(get_ec_shell(), "chgstate discharge on");
-	zassert_equal(rv, EC_ERROR_NOT_POWERED, "Expected %d, but got %d",
-		      EC_ERROR_NOT_POWERED, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_USER(console_cmd_charge_state, test_discharge_too_few_args)
@@ -58,8 +54,7 @@ ZTEST_USER(console_cmd_charge_state, test_discharge_too_few_args)
 	int rv;
 
 	rv = shell_execute_cmd(get_ec_shell(), "chgstate discharge");
-	zassert_equal(rv, EC_ERROR_PARAM_COUNT, "Expected %d, but got %d",
-		      EC_ERROR_PARAM_COUNT, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_USER(console_cmd_charge_state, test_discharge_arg_not_a_bool)
@@ -72,8 +67,7 @@ ZTEST_USER(console_cmd_charge_state, test_discharge_arg_not_a_bool)
 	 * done in the respective unit test.
 	 */
 	rv = shell_execute_cmd(get_ec_shell(), "chgstate discharge g");
-	zassert_equal(rv, EC_ERROR_PARAM2, "Expected %d, but got %d",
-		      EC_ERROR_PARAM2, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_USER(console_cmd_charge_state, test_debug_too_few_args)
@@ -81,8 +75,7 @@ ZTEST_USER(console_cmd_charge_state, test_debug_too_few_args)
 	int rv;
 
 	rv = shell_execute_cmd(get_ec_shell(), "chgstate debug");
-	zassert_equal(rv, EC_ERROR_PARAM_COUNT, "Expected %d, but got %d",
-		      EC_ERROR_PARAM_COUNT, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_USER(console_cmd_charge_state, test_debug_arg_not_bool)
@@ -95,8 +88,7 @@ ZTEST_USER(console_cmd_charge_state, test_debug_arg_not_bool)
 	 * done in the respective unit test.
 	 */
 	rv = shell_execute_cmd(get_ec_shell(), "chgstate debug g");
-	zassert_equal(rv, EC_ERROR_PARAM2, "Expected %d, but got %d",
-		      EC_ERROR_PARAM2, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_USER(console_cmd_charge_state, test_debug_on)
@@ -129,8 +121,7 @@ ZTEST_USER(console_cmd_charge_state, test_sustain_too_few_args__2_args)
 	int rv;
 
 	rv = shell_execute_cmd(get_ec_shell(), "chgstate sustain");
-	zassert_equal(rv, EC_ERROR_PARAM_COUNT, "Expected %d, but got %d",
-		      EC_ERROR_PARAM_COUNT, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_USER(console_cmd_charge_state, test_sustain_too_few_args__3_args)
@@ -138,8 +129,7 @@ ZTEST_USER(console_cmd_charge_state, test_sustain_too_few_args__3_args)
 	int rv;
 
 	rv = shell_execute_cmd(get_ec_shell(), "chgstate sustain 5");
-	zassert_equal(rv, EC_ERROR_PARAM_COUNT, "Expected %d, but got %d",
-		      EC_ERROR_PARAM_COUNT, rv);
+	zassert_equal(rv, -EINVAL, "Expected %d, but got %d", -EINVAL, rv);
 }
 
 ZTEST_USER(console_cmd_charge_state, test_sustain_invalid_params)
@@ -147,27 +137,27 @@ ZTEST_USER(console_cmd_charge_state, test_sustain_invalid_params)
 	/* Verify that lower bound is less than upper bound */
 	zassert_equal(shell_execute_cmd(get_ec_shell(),
 					"chgstate sustain 50 30"),
-		      EC_ERROR_INVAL, NULL);
+		      -EINVAL, NULL);
 
 	/* Verify that lower bound is at least 0 (when upper bound is given) */
 	zassert_equal(shell_execute_cmd(get_ec_shell(),
 					"chgstate sustain -5 30"),
-		      EC_ERROR_INVAL, NULL);
+		      -EINVAL, NULL);
 
 	/* Verify that upper bound is at most 100 */
 	zassert_equal(shell_execute_cmd(get_ec_shell(),
 					"chgstate sustain 50 101"),
-		      EC_ERROR_INVAL, NULL);
+		      -EINVAL, NULL);
 
 	/* Verify invalid lower bound (not a number) */
 	zassert_equal(shell_execute_cmd(get_ec_shell(),
 					"chgstate sustain a 50"),
-		      EC_ERROR_PARAM2);
+		      -EINVAL);
 
 	/* Verify invalid uppoer bound (not a number) */
 	zassert_equal(shell_execute_cmd(get_ec_shell(),
 					"chgstate sustain 30 a"),
-		      EC_ERROR_PARAM3);
+		      -EINVAL);
 }
 
 struct console_cmd_charge_state_fixture {
@@ -279,6 +269,10 @@ ZTEST_USER_F(console_cmd_charge_state, test_discharge_off)
 ZTEST_USER(console_cmd_charge_state, test_sustain)
 {
 	struct ec_response_charge_control charge_control_values;
+
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "chgstate"));
+	zassert_equal(shell_execute_cmd(get_ec_shell(), "chgstate invalid"),
+		      -EINVAL);
 
 	/* Verify that lower bound is less than upper bound */
 	zassert_ok(shell_execute_cmd(get_ec_shell(), "chgstate sustain 30 50"),

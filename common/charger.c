@@ -17,6 +17,8 @@
 #include "printf.h"
 #include "util.h"
 
+#include <zephyr/shell/shell.h>
+
 /* Console output macros */
 #define CPUTS(outstr) cputs(CC_CHARGER, outstr)
 #define CPRINTS(format, args...) cprints(CC_CHARGER, format, ##args)
@@ -126,76 +128,86 @@ void charger_get_params(struct charger_params *chg)
 		chg->flags |= CHG_FLAG_BAD_OPTION;
 }
 
-static void print_item_name(const char *name)
+#define charger_printf(sh, fmt, ...) \
+	shell_fprintf(sh, SHELL_NORMAL, fmt, ##__VA_ARGS__)
+
+static void print_item_name(const struct shell *sh, const char *name)
 {
-	ccprintf("  %-8s", name);
+	charger_printf(sh, "  %-8s", name);
 }
 
-static int check_print_error(int rv)
+static int check_print_error(const struct shell *sh, int rv)
 {
 	if (rv == EC_SUCCESS)
 		return 1;
 	if (rv == EC_ERROR_UNIMPLEMENTED) {
-		ccputs("(unsupported)\n");
+		charger_printf(sh, "(unsupported)\n");
 
 	} else {
-		ccputs("(error)\n");
+		charger_printf(sh, "(error)\n");
 	}
 	return 0;
 }
 
-void print_charger_debug(int chgnum)
+static void print_charger_debug_sh(const struct shell *sh, int chgnum)
 {
 	int d;
 	const struct charger_info *info = charger_get_info();
 
 	/* info */
-	print_item_name("Name:");
-	ccprintf("%s\n", info->name);
+	print_item_name(sh, "Name:");
+	charger_printf(sh, "%s\n", info->name);
 
 	/* option */
-	print_item_name("Option:");
-	if (check_print_error(charger_get_option(&d)))
-		ccprintf("(0x%04x)\n", d);
+	print_item_name(sh, "Option:");
+	if (check_print_error(sh, charger_get_option(&d)))
+		charger_printf(sh, "(0x%04x)\n", d);
 
 	/* manufacturer id */
-	print_item_name("Man id:");
-	if (check_print_error(charger_manufacturer_id(&d)))
-		ccprintf("0x%04x\n", d);
+	print_item_name(sh, "Man id:");
+	if (check_print_error(sh, charger_manufacturer_id(&d)))
+		charger_printf(sh, "0x%04x\n", d);
 
 	/* device id */
-	print_item_name("Dev id:");
-	if (check_print_error(charger_device_id(&d)))
-		ccprintf("0x%04x\n", d);
+	print_item_name(sh, "Dev id:");
+	if (check_print_error(sh, charger_device_id(&d)))
+		charger_printf(sh, "0x%04x\n", d);
 
 	/* dptf current limit */
-	print_item_name("I_dptf:");
+	print_item_name(sh, "I_dptf:");
 	if (dptf_limit_ma >= 0)
-		ccprintf("%5d\n", dptf_limit_ma);
+		charger_printf(sh, "%5d\n", dptf_limit_ma);
 	else
-		ccputs("disabled\n");
+		charger_printf(sh, "disabled\n");
 
 	/* Limits */
-	ccprintf("Limits\t\t\t ( min     max step)\n");
+	charger_printf(sh, "Limits\t\t\t ( min     max step)\n");
 
 	/* charge voltage limit */
-	print_item_name("chg_voltage:");
-	if (check_print_error(charger_get_voltage(chgnum, &d)))
-		ccprintf("%7d mV (%4d - %5d, %3d)\n", d, info->voltage_min,
-			 info->voltage_max, info->voltage_step);
+	print_item_name(sh, "chg_voltage:");
+	if (check_print_error(sh, charger_get_voltage(chgnum, &d)))
+		charger_printf(sh, "%7d mV (%4d - %5d, %3d)\n", d,
+			       info->voltage_min, info->voltage_max,
+			       info->voltage_step);
 
 	/* charge current limit */
-	print_item_name("chg_current:");
-	if (check_print_error(charger_get_current(chgnum, &d)))
-		ccprintf("%7d mA (%4d - %5d, %3d)\n", d, info->current_min,
-			 info->current_max, info->current_step);
+	print_item_name(sh, "chg_current:");
+	if (check_print_error(sh, charger_get_current(chgnum, &d)))
+		charger_printf(sh, "%7d mA (%4d - %5d, %3d)\n", d,
+			       info->current_min, info->current_max,
+			       info->current_step);
 
 	/* input current limit */
-	print_item_name("input_current:");
-	if (check_print_error(charger_get_input_current_limit(chgnum, &d)))
-		ccprintf("%5d mA (%4d - %5d, %3d)\n", d,
-			 info->input_current_min, info->input_current_max,
-			 info->input_current_step);
+	print_item_name(sh, "input_current:");
+	if (check_print_error(sh, charger_get_input_current_limit(chgnum, &d)))
+		charger_printf(sh, "%5d mA (%4d - %5d, %3d)\n", d,
+			       info->input_current_min, info->input_current_max,
+			       info->input_current_step);
+}
+
+void print_charger_debug(int chgnum)
+{
+	print_charger_debug_sh(get_ec_shell(), chgnum);
 }
 
 void print_charger_prochot(int chgnum)
@@ -207,7 +219,8 @@ void print_charger_prochot(int chgnum)
 		chg_chips[chgnum].drv->dump_prochot(chgnum);
 }
 
-static int command_charger(int argc, const char **argv)
+static int command_charger(const struct shell *sh, size_t argc,
+			   const char **argv)
 {
 	int d;
 	char *e;
@@ -215,75 +228,85 @@ static int command_charger(int argc, const char **argv)
 	int chgnum;
 
 	if (argc == 1) {
-		print_charger_debug(0);
-		return EC_SUCCESS;
+		print_charger_debug_sh(sh, 0);
+		return 0;
 	}
 
 	idx_provided = isdigit((unsigned char)argv[1][0]);
 	if (idx_provided) {
 		chgnum = atoi(argv[1]);
 		if ((chgnum < 0) || (chgnum >= board_get_charger_chip_count()))
-			return EC_ERROR_PARAM1;
+			return -EINVAL;
 	} else {
 		chgnum = 0;
 	}
 
 	if ((argc == 2) && idx_provided) {
-		print_charger_debug(chgnum);
-		return EC_SUCCESS;
+		print_charger_debug_sh(sh, chgnum);
+		return 0;
 	}
 
 	if (strcasecmp(argv[1 + idx_provided], "input") == 0) {
+		if (argc < 3 + idx_provided)
+			return -EINVAL;
 		d = strtoi(argv[2 + idx_provided], &e, 0);
 		if (*e)
-			return EC_ERROR_PARAM2 + idx_provided;
-		return charger_set_input_current_limit(chgnum, d);
+			return -EINVAL;
+		return charger_set_input_current_limit(chgnum, d) ? -EINVAL : 0;
 	} else if (IS_ENABLED(CONFIG_BATTERY) &&
 		   strcasecmp(argv[1 + idx_provided], "current") == 0) {
+		if (argc < 3 + idx_provided)
+			return -EINVAL;
 		d = strtoi(argv[2 + idx_provided], &e, 0);
 		if (*e)
-			return EC_ERROR_PARAM2 + idx_provided;
+			return -EINVAL;
 		chgstate_set_manual_current(d);
-		return charger_set_current(chgnum, d);
+		return charger_set_current(chgnum, d) ? -EINVAL : 0;
 	} else if (IS_ENABLED(CONFIG_BATTERY) &&
 		   strcasecmp(argv[1 + idx_provided], "voltage") == 0) {
+		if (argc < 3 + idx_provided)
+			return -EINVAL;
 		d = strtoi(argv[2 + idx_provided], &e, 0);
 		if (*e)
-			return EC_ERROR_PARAM2 + idx_provided;
+			return -EINVAL;
 		chgstate_set_manual_voltage(d);
-		return charger_set_voltage(chgnum, d);
+		return charger_set_voltage(chgnum, d) ? -EINVAL : 0;
 	} else if (strcasecmp(argv[1 + idx_provided], "dptf") == 0) {
+		if (argc < 3 + idx_provided)
+			return -EINVAL;
 		d = strtoi(argv[2 + idx_provided], &e, 0);
 		if (*e)
-			return EC_ERROR_PARAM2 + idx_provided;
+			return -EINVAL;
 		dptf_limit_ma = d;
-		return EC_SUCCESS;
+		return 0;
 	} else if (strcasecmp(argv[1 + idx_provided], "dump") == 0) {
 		if (!IS_ENABLED(CONFIG_CMD_CHARGER_DUMP) ||
 		    !chg_chips[chgnum].drv->dump_registers) {
-			ccprintf("dump not supported\n");
-			return EC_ERROR_PARAM1 + idx_provided;
+			shell_print(sh, "dump not supported");
+			return -EINVAL;
 		}
-		ccprintf("Dump %s registers\n",
-			 chg_chips[chgnum].drv->get_info(chgnum)->name);
+		shell_print(sh, "Dump %s registers",
+			    chg_chips[chgnum].drv->get_info(chgnum)->name);
 		chg_chips[chgnum].drv->dump_registers(chgnum);
-		return EC_SUCCESS;
+		return 0;
 	} else {
-		return EC_ERROR_PARAM1 + idx_provided;
+		return -EINVAL;
 	}
 }
 
-DECLARE_CONSOLE_COMMAND(charger, command_charger,
-			"[chgnum] [input | current | voltage | dptf] [newval]"
+SHELL_CMD_ARG_REGISTER(
+	charger, NULL,
+	SHELL_HELP("Get or set charger param(s)"
 #ifdef CONFIG_CMD_CHARGER_DUMP
-			"\n\t[chgnum] dump"
+		   ". Dump registers."
 #endif
-			,
-			"Get or set charger param(s)"
+		   ,
+		   "[chgnum] [input | current | voltage | dptf] [newval]"
 #ifdef CONFIG_CMD_CHARGER_DUMP
-			". Dump registers."
+		   "\n\t[chgnum] dump"
 #endif
-);
+		   ),
+	command_charger, 1, 3);
 
 /* Driver wrapper functions */
 
