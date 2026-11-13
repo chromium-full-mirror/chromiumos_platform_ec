@@ -233,6 +233,8 @@ ZTEST_USER(chargesplash, test_manual_lockout_via_console)
 	 */
 	zassert_ok(shell_execute_cmd(get_ec_shell(), "chargesplash request"),
 		   NULL);
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "chargesplash state"),
+		   NULL);
 	zassert_true(is_chargesplash_requested(),
 		     "chargesplash should be requested");
 	wait_for_chipset_startup();
@@ -252,6 +254,8 @@ ZTEST_USER(chargesplash, test_manual_lockout_via_console)
 	zassert_true(is_chargesplash_requested(),
 		     "lockout should have cleared");
 	wait_for_chipset_startup();
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "chargesplash reset"),
+		   NULL);
 }
 
 /* Manually lockout the feature via host command */

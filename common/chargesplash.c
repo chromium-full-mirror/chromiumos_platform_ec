@@ -18,6 +18,8 @@
 #include <stdbool.h>
 #include <string.h>
 
+#include <zephyr/shell/shell.h>
+
 #define CPRINTS(format, args...) \
 	cprints(CC_USBCHARGE, "chargesplash: " format, ##args)
 
@@ -175,44 +177,55 @@ static void handle_chipset_shutdown(void)
 }
 DECLARE_HOOK(HOOK_CHIPSET_SHUTDOWN, handle_chipset_shutdown, HOOK_PRIO_DEFAULT);
 
-static int command_chargesplash(int argc, const char **argv)
+static int cmd_chargesplash_state(const struct shell *sh, size_t argc,
+				  const char **argv)
 {
-	if (argc != 2) {
-		return EC_ERROR_PARAM_COUNT;
+	shell_print(sh, "requested = %d", power_on_for_chargesplash);
+	shell_print(sh, "display_initialized = %d", display_initialized);
+	shell_print(sh, "locked_out = %d", locked_out);
+
+	shell_print(sh, "\nRequest log (raw data):");
+	for (int i = 0; i < ARRAY_SIZE(request_log); i++) {
+		shell_print(sh, "  %d", request_log[i]);
 	}
-
-	if (!strcasecmp(argv[1], "state")) {
-		ccprintf("requested = %d\n", power_on_for_chargesplash);
-		ccprintf("display_initialized = %d\n", display_initialized);
-		ccprintf("locked_out = %d\n", locked_out);
-
-		ccprintf("\nRequest log (raw data):\n");
-		for (int i = 0; i < ARRAY_SIZE(request_log); i++) {
-			ccprintf("  %d\n", request_log[i]);
-		}
-		return EC_SUCCESS;
-	}
-
-	if (!strcasecmp(argv[1], "request")) {
-		request_chargesplash();
-		return EC_SUCCESS;
-	}
-
-	if (!strcasecmp(argv[1], "reset")) {
-		reset_state();
-		return EC_SUCCESS;
-	}
-
-	if (!strcasecmp(argv[1], "lockout")) {
-		locked_out = true;
-		return EC_SUCCESS;
-	}
-
-	return EC_ERROR_PARAM1;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(chargesplash, command_chargesplash,
-			"[state|request|reset|lockout]",
-			"Charge splash controls");
+
+static int cmd_chargesplash_request(const struct shell *sh, size_t argc,
+				    const char **argv)
+{
+	request_chargesplash();
+	return 0;
+}
+
+static int cmd_chargesplash_reset(const struct shell *sh, size_t argc,
+				  const char **argv)
+{
+	reset_state();
+	return 0;
+}
+
+static int cmd_chargesplash_lockout(const struct shell *sh, size_t argc,
+				    const char **argv)
+{
+	locked_out = true;
+	return 0;
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(
+	sub_chargesplash_cmds,
+	SHELL_CMD_ARG(state, NULL, "Get charge splash state",
+		      cmd_chargesplash_state, 1, 0),
+	SHELL_CMD_ARG(request, NULL, "Request charge splash",
+		      cmd_chargesplash_request, 1, 0),
+	SHELL_CMD_ARG(reset, NULL, "Reset charge splash state",
+		      cmd_chargesplash_reset, 1, 0),
+	SHELL_CMD_ARG(lockout, NULL, "Lockout charge splash",
+		      cmd_chargesplash_lockout, 1, 0),
+	SHELL_SUBCMD_SET_END);
+
+SHELL_CMD_REGISTER(chargesplash, &sub_chargesplash_cmds,
+		   "Charge splash controls", NULL);
 
 static enum ec_host_cmd_status
 chargesplash_host_cmd(struct ec_host_cmd_handler_args *args)
