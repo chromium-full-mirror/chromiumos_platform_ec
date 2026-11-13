@@ -30,6 +30,9 @@
 		lges_ap23a8l {
 			compatible = "lges,ap23a8l", "battery-smart";
 		};
+		cosmx_ap23abl-2 {
+			compatible = "cosmx,ap23abl-2", "battery-smart";
+		};
 	};
 
 	named-gpios {
