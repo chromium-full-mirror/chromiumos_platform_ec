@@ -837,10 +837,13 @@ static inline bool is_voltage_sufficient(const struct charge_port_info *info,
  * Select the best charge port or the override port, as defined by the supplier
  * hierarchy and the available power.
  *
- * @param new_port	Pointer to the selected port.
- * @param new_supplier	Pointer to the selected supplier.
+ * @param new_port		Pointer to the selected port.
+ * @param new_supplier		Pointer to the selected supplier.
+ * @param insufficient_voltage	Optional output flag set when an eligible
+ *				adapter is below the minimum required voltage.
  */
-static void charge_manager_get_best_port(int *new_port, int *new_supplier)
+static void charge_manager_get_best_port(int *new_port, int *new_supplier,
+					 bool *insufficient_voltage)
 {
 	int best_supplier = CHARGE_SUPPLIER_NONE;
 	int best_port = CHARGE_PORT_NONE;
@@ -848,6 +851,9 @@ static void charge_manager_get_best_port(int *new_port, int *new_supplier)
 	int sup_idx, port_idx;
 	uint32_t min_required_mv = 0;
 	bool verify_min_required_mv = false;
+
+	if (insufficient_voltage)
+		*insufficient_voltage = false;
 
 	if (override_port == OVERRIDE_DONT_CHARGE) {
 		*new_port = CHARGE_PORT_NONE;
@@ -863,7 +869,6 @@ static void charge_manager_get_best_port(int *new_port, int *new_supplier)
 					 EC_SUCCESS;
 	}
 
-	charger_insufficient_adapter_found = false;
 	/*
 	 * Charge supplier selection logic:
 	 * 1. Prefer DPS charge port.
@@ -889,18 +894,6 @@ static void charge_manager_get_best_port(int *new_port, int *new_supplier)
 				continue;
 
 			/*
-			 * If supported, skip supplier that doesn't meet minimum
-			 * required voltage of charger IC.
-			 */
-			if (verify_min_required_mv &&
-			    !is_voltage_sufficient(
-				    &available_charge[sup_idx][port_idx],
-				    min_required_mv)) {
-				charger_insufficient_adapter_found = true;
-				continue;
-			}
-
-			/*
 			 * Don't select this port if we have a
 			 * charge on another override port.
 			 */
@@ -915,6 +908,19 @@ static void charge_manager_get_best_port(int *new_port, int *new_supplier)
 			 */
 			if (!is_dualrole_charging_capable(port_idx))
 				continue;
+
+			/*
+			 * If supported, skip supplier that doesn't meet minimum
+			 * required voltage of charger IC.
+			 */
+			if (verify_min_required_mv &&
+			    !is_voltage_sufficient(
+				    &available_charge[sup_idx][port_idx],
+				    min_required_mv)) {
+				if (insufficient_voltage)
+					*insufficient_voltage = true;
+				continue;
+			}
 
 			candidate_port_power =
 				get_candidate_port_power(sup_idx, port_idx);
@@ -1004,7 +1010,9 @@ static void charge_manager_refresh(void)
 
 	/* Hunt for an acceptable charge port */
 	while (1) {
-		charge_manager_get_best_port(&new_port, &new_supplier);
+		charge_manager_get_best_port(
+			&new_port, &new_supplier,
+			&charger_insufficient_adapter_found);
 
 		if (!left_safe_mode && new_port == CHARGE_PORT_NONE) {
 			CM_MUTEX_UNLOCK(&cm_refresh);
@@ -1642,7 +1650,7 @@ int charge_manager_get_selected_charge_port(void)
 {
 	int port, supplier;
 
-	charge_manager_get_best_port(&port, &supplier);
+	charge_manager_get_best_port(&port, &supplier, NULL);
 	return port;
 }
 

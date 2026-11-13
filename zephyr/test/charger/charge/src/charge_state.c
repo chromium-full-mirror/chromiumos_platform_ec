@@ -54,6 +54,10 @@ ZTEST(charge_state, test_sufficient_adapter)
 
 ZTEST(charge_state, test_insufficient_adapter)
 {
+	const struct charge_port_info undervolt = {
+		.current = 1500,
+		.voltage = 5000,
+	};
 	union connector_status_t connector_status = {};
 	enum led_pwr_state led;
 
@@ -76,6 +80,27 @@ ZTEST(charge_state, test_insufficient_adapter)
 	zassert_equal(led, LED_PWRS_INSUFFICIENT_ADAPTER,
 		      "Returned led=%d, expected=%d", led,
 		      LED_PWRS_INSUFFICIENT_ADAPTER);
+
+	charge_manager_update_charge(CHARGE_SUPPLIER_PD, 0, NULL);
+	zassert_equal(charge_manager_get_selected_charge_port(),
+		      CHARGE_PORT_NONE);
+	zassert_true(charge_manager_has_insufficient_adapter());
+
+	charge_manager_update_dualrole(0, CAP_DUALROLE);
+	charge_manager_update_charge(CHARGE_SUPPLIER_PD, 0, &undervolt);
+	zassert_true(WAIT_FOR(!charge_manager_has_insufficient_adapter(),
+			      1000000, k_msleep(10)));
+
+	charge_manager_update_dualrole(0, CAP_DEDICATED);
+	zassert_true(WAIT_FOR(charge_manager_has_insufficient_adapter(),
+			      1000000, k_msleep(10)));
+
+	zassert_ok(charge_manager_set_override(OVERRIDE_DONT_CHARGE));
+	zassert_true(WAIT_FOR(!charge_manager_has_insufficient_adapter(),
+			      1000000, k_msleep(10)));
+	charge_manager_update_charge(CHARGE_SUPPLIER_PD, 0, NULL);
+	charge_manager_update_dualrole(0, CAP_UNKNOWN);
+	zassert_ok(charge_manager_set_override(OVERRIDE_OFF));
 }
 
 #define CHARGER_NODE DT_NODELABEL(charger)
