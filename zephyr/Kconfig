@@ -668,7 +668,7 @@ config PLATFORM_EC_NOINIT_END_OF_RAM_SECTION_OFFSET
 	   RO ram overlaps with RW noinit_end_of_ram section.
 
 config PLATFORM_EC_PANIC
-	bool "Panic output"
+	bool "Panic output" if TEST
 	default y
 	help
 	  Enable support for collecting and reporting panic information,
