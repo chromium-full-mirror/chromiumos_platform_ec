@@ -78,8 +78,14 @@ ZTEST_USER(ocpc, test_consolecmd_ocpcpid__write)
 
 ZTEST_USER(ocpc, test_consolecmd_ocpcpid__bad_param)
 {
-	zassert_equal(EC_ERROR_PARAM1,
+	zassert_equal(-EINVAL,
 		      shell_execute_cmd(get_ec_shell(), "ocpcpid y 0 0"));
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "ocpcdebug ena"));
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "ocpcdebug viz"));
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "ocpcdebug all"));
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "ocpcdebug dis"));
+	zassert_equal(-EINVAL,
+		      shell_execute_cmd(get_ec_shell(), "ocpcdebug bad"));
 }
 
 ZTEST_USER(ocpc, test_consolecmd_ocpcdrvlmt)
@@ -120,12 +126,11 @@ ZTEST_USER(ocpc, test_consolecmd_ocpcdebug)
 	zassert_true(test_ocpc_get_viz_output());
 
 	/* Bad param */
-	zassert_equal(EC_ERROR_PARAM1,
+	zassert_equal(-EINVAL,
 		      shell_execute_cmd(get_ec_shell(), "ocpcdebug foo"));
 
 	/* Missing param */
-	zassert_equal(EC_ERROR_PARAM_COUNT,
-		      shell_execute_cmd(get_ec_shell(), "ocpcdebug"));
+	zassert_equal(-EINVAL, shell_execute_cmd(get_ec_shell(), "ocpcdebug"));
 }
 
 ZTEST(ocpc, test_ocpc_config_secondary_charger__with_primary_charger)

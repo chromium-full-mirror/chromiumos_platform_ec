@@ -19,6 +19,8 @@
 #include "usb_pd.h"
 #include "util.h"
 
+#include <zephyr/shell/shell.h>
+
 /*
  * These constants were chosen by tuning the PID loop to reduce oscillations and
  * minimize overshoot.
@@ -731,11 +733,9 @@ void ocpc_init(struct ocpc_data *ocpc)
 	board_ocpc_init(ocpc);
 }
 
-static int command_ocpcdebug(int argc, const char **argv)
+static int command_ocpcdebug(const struct shell *sh, size_t argc,
+			     const char **argv)
 {
-	if (argc < 2)
-		return EC_ERROR_PARAM_COUNT;
-
 	if (!strncmp(argv[1], "ena", 3)) {
 		debug_output = true;
 		viz_output = false;
@@ -749,19 +749,22 @@ static int command_ocpcdebug(int argc, const char **argv)
 		debug_output = true;
 		viz_output = true;
 	} else {
-		return EC_ERROR_PARAM1;
+		return -EINVAL;
 	}
 
-	return EC_SUCCESS;
+	return 0;
 }
-DECLARE_SAFE_CONSOLE_COMMAND(ocpcdebug, command_ocpcdebug,
-			     "<enable/viz/all/disable",
-			     "Enable/disable debug prints for OCPC data. "
-			     "Enable turns on text debug, viz shows a graph."
-			     "Each segment is 5% of current target. All shows"
-			     " both. Disable shows no debug output.");
+SHELL_CMD_ARG_REGISTER(
+	ocpcdebug, NULL,
+	SHELL_HELP("Enable/disable debug prints for OCPC data. "
+		   "Enable turns on text debug, viz shows a graph."
+		   "Each segment is 5% of current target. All shows"
+		   " both. Disable shows no debug output.",
+		   "<enable/viz/all/disable"),
+	command_ocpcdebug, 2, 0);
 
-static int command_ocpcpid(int argc, const char **argv)
+static int command_ocpcpid(const struct shell *sh, size_t argc,
+			   const char **argv)
 {
 	int *num, *denom;
 
@@ -782,7 +785,7 @@ static int command_ocpcpid(int argc, const char **argv)
 			denom = &k_d_div;
 			break;
 		default:
-			return EC_ERROR_PARAM1;
+			return -EINVAL;
 		}
 
 		*num = atoi(argv[2]);
@@ -790,27 +793,31 @@ static int command_ocpcpid(int argc, const char **argv)
 	}
 
 	/* Print the current constants */
-	ccprintf("Kp = %d / %d\n", k_p, k_p_div);
-	ccprintf("Ki = %d / %d\n", k_i, k_i_div);
-	ccprintf("Kd = %d / %d\n", k_d, k_d_div);
-	return EC_SUCCESS;
+	shell_print(sh, "Kp = %d / %d", k_p, k_p_div);
+	shell_print(sh, "Ki = %d / %d", k_i, k_i_div);
+	shell_print(sh, "Kd = %d / %d", k_d, k_d_div);
+	return 0;
 }
-DECLARE_SAFE_CONSOLE_COMMAND(ocpcpid, command_ocpcpid,
-			     "[<k/p/d> <numerator> <denominator>]",
-			     "Show/Set PID constants for OCPC PID loop");
+SHELL_CMD_ARG_REGISTER(ocpcpid, NULL,
+		       SHELL_HELP("Show/Set PID constants for OCPC PID loop",
+				  "[<k/p/d> <numerator> <denominator>]"),
+		       command_ocpcpid, 1, 3);
 
-static int command_ocpcdrvlmt(int argc, const char **argv)
+static int command_ocpcdrvlmt(const struct shell *sh, size_t argc,
+			      const char **argv)
 {
 	if (argc == 2) {
 		drive_limit = atoi(argv[1]);
 	}
 
 	/* Print the current constants */
-	ccprintf("Drive Limit = %d\n", drive_limit);
-	return EC_SUCCESS;
+	shell_print(sh, "Drive Limit = %d", drive_limit);
+	return 0;
 }
-DECLARE_SAFE_CONSOLE_COMMAND(ocpcdrvlmt, command_ocpcdrvlmt, "[<drive_limit>]",
-			     "Show/Set drive limit for OCPC PID loop");
+SHELL_CMD_ARG_REGISTER(ocpcdrvlmt, NULL,
+		       SHELL_HELP("Show/Set drive limit for OCPC PID loop",
+				  "[<drive_limit>]"),
+		       command_ocpcdrvlmt, 1, 1);
 
 #ifdef TEST_BUILD
 int test_ocpc_get_viz_output(void)
