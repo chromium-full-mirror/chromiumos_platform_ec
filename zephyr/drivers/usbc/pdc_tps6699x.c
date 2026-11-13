@@ -17,6 +17,7 @@
 #include <zephyr/drivers/smbus.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/shell/shell.h>
 #include <zephyr/smf.h>
 #include <zephyr/sys/minmax.h>
 LOG_MODULE_REGISTER(tps6699x, CONFIG_USBC_LOG_LEVEL);
@@ -3701,6 +3702,132 @@ static struct pdc_data_t *const pdc_data[] = { DT_INST_FOREACH_STATUS_OKAY(
  */
 CHECK_ONE_CCD_PORT_COUNT_FOR_DRIVER();
 #endif /* CONFIG_USBC_PDC_DRIVEN_CCD */
+
+#ifdef CONFIG_USBC_PDC_TPS6699X_CONSOLE_CMD
+/* LCOV_EXCL_START - non-shipping code */
+static int tps_console_get_dev(const struct shell *sh, const char *dev_name,
+			       const struct device **dev_out)
+{
+	const struct device *dev;
+
+	dev = shell_device_get_binding(dev_name);
+	if (dev == NULL) {
+		shell_error(sh, "Cannot find device '%s'", dev_name);
+		return -ENODEV;
+	}
+
+	if (dev->api != &pdc_driver_api) {
+		shell_error(sh, "Device '%s' is not a PDC", dev_name);
+		return -EINVAL;
+	}
+
+	*dev_out = dev;
+	return 0;
+}
+
+static int cmd_tps6699x_gaid(const struct shell *sh, size_t argc, char **argv)
+{
+	const struct device *dev;
+	const struct pdc_config_t *cfg;
+	int rv;
+
+	rv = tps_console_get_dev(sh, argv[1], &dev);
+	if (rv) {
+		return rv;
+	}
+
+	cfg = dev->config;
+	rv = write_task_cmd(cfg, COMMAND_TASK_GAID, NULL);
+	if (rv) {
+		shell_error(sh, "Failed to send GAID to '%s' (%d)", argv[1],
+			    rv);
+		return rv;
+	}
+
+	shell_info(sh, "Sent GAID to '%s'", argv[1]);
+	return 0;
+}
+
+static int cmd_tps6699x_tfus(const struct shell *sh, size_t argc, char **argv)
+{
+	const struct device *dev;
+	const struct pdc_config_t *cfg;
+	int rv;
+
+	rv = tps_console_get_dev(sh, argv[1], &dev);
+	if (rv) {
+		return rv;
+	}
+
+	cfg = dev->config;
+	rv = write_task_cmd(cfg, COMMAND_TASK_TFUS, NULL);
+	if (rv) {
+		shell_error(sh, "Failed to send TFUs to '%s' (%d)", argv[1],
+			    rv);
+		return rv;
+	}
+
+	shell_info(sh, "Sent TFUs to '%s'", argv[1]);
+	return 0;
+}
+
+static int cmd_tps6699x_mode(const struct shell *sh, size_t argc, char **argv)
+{
+	const struct device *dev;
+	const struct pdc_config_t *cfg;
+	union reg_mode mode;
+	int rv;
+
+	rv = tps_console_get_dev(sh, argv[1], &dev);
+	if (rv) {
+		return rv;
+	}
+
+	cfg = dev->config;
+	rv = tps_rd_mode(&cfg->i2c, &mode);
+	if (rv) {
+		shell_error(sh, "Failed to read mode from '%s' (%d)", argv[1],
+			    rv);
+		return rv;
+	}
+
+	shell_info(sh, "Mode register for '%s':", argv[1]);
+	shell_hexdump(sh, mode.data, sizeof(mode.data));
+	return 0;
+}
+
+static void device_name_get(size_t idx, struct shell_static_entry *entry)
+{
+	const struct device *dev = shell_device_lookup(idx, NULL);
+
+	entry->syntax = (dev != NULL) ? dev->name : NULL;
+	entry->handler = NULL;
+	entry->help = NULL;
+	entry->subcmd = NULL;
+}
+
+SHELL_DYNAMIC_CMD_CREATE(dsub_device_name, device_name_get);
+
+SHELL_STATIC_SUBCMD_SET_CREATE(
+	sub_tps6699x_cmds,
+	SHELL_CMD_ARG(gaid, &dsub_device_name,
+		      SHELL_HELP("Send GAID 4CC command to cold-reset the PDC",
+				 "<device>"),
+		      cmd_tps6699x_gaid, 2, 0),
+	SHELL_CMD_ARG(
+		tfus, &dsub_device_name,
+		SHELL_HELP("Send TFUs 4CC command to enter bootloader mode",
+			   "<device>"),
+		cmd_tps6699x_tfus, 2, 0),
+	SHELL_CMD_ARG(mode, &dsub_device_name,
+		      SHELL_HELP("Read the PDC mode register", "<device>"),
+		      cmd_tps6699x_mode, 2, 0),
+	SHELL_SUBCMD_SET_END);
+
+SHELL_CMD_REGISTER(tps6699x, &sub_tps6699x_cmds, "TI TPS6699x debug commands",
+		   NULL);
+/* LCOV_EXCL_STOP - non-shipping code */
+#endif /* CONFIG_USBC_PDC_TPS6699X_CONSOLE_CMD */
 
 #ifdef CONFIG_ZTEST
 /*
