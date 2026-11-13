@@ -94,6 +94,7 @@ ZTEST(dps_config, test_console_cmd__disable)
 	zassert_ok(shell_execute_cmd(get_ec_shell(), "dps dis"), NULL);
 
 	zassert_false(dps_is_enabled(), NULL);
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "dps"), NULL);
 }
 
 ZTEST(dps_config, test_console_cmd__fakepwr_print)

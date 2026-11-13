@@ -256,6 +256,7 @@ ZTEST_USER_F(dps_selection, test_host_cmd)
 	connect_partner_to_port(common->tcpci_emul, common->charger_emul,
 				&common->partner, &common->src_ext);
 	k_sleep(K_SECONDS(1));
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "dps"));
 	args = (struct host_cmd_handler_args)BUILD_HOST_COMMAND_RESPONSE(
 		EC_CMD_USB_PD_DPS_STATUS, 0, r);
 	zassert_ok(host_command_process(&args));

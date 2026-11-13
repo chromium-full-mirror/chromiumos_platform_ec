@@ -23,6 +23,7 @@
 
 #include <stdint.h>
 
+#include <zephyr/shell/shell.h>
 #include <zephyr/sys/atomic.h>
 
 #define K_MORE_PWR 96
@@ -566,135 +567,186 @@ void check_battery_present(void)
 }
 DECLARE_HOOK(HOOK_BATTERY_SOC_CHANGE, check_battery_present, HOOK_PRIO_DEFAULT);
 
-static int command_dps(int argc, const char **argv)
+static int cmd_dps_en(const struct shell *sh, size_t argc, const char **argv)
 {
-	int port = charge_manager_get_active_charge_port();
-	int input_pwr, vbus, input_curr;
+	dps_enable(true);
+	return 0;
+}
+
+static int cmd_dps_dis(const struct shell *sh, size_t argc, const char **argv)
+{
+	dps_enable(false);
+	return 0;
+}
+
+static int cmd_dps_fakepwr_dis(const struct shell *sh, size_t argc,
+			       const char **argv)
+{
+	fake_enabled = false;
+	return 0;
+}
+
+static int cmd_dps_fakepwr(const struct shell *sh, size_t argc,
+			   const char **argv)
+{
 	int holder;
 
 	if (argc == 1) {
-		uint32_t last_ma = 0, last_mv = 0;
-		int batt_mv;
-
-		ccprintf("flag=0x%x k_more=%d k_less=%d k_sample=%d k_win=%d\n",
-			 (int)flag, dps_config.k_more_pwr,
-			 dps_config.k_less_pwr, dps_config.k_sample,
-			 dps_config.k_window);
-		ccprintf("t_stable=%d t_check=%d\n",
-			 dps_config.t_stable / SECOND,
-			 dps_config.t_check / SECOND);
-		if (!is_enabled) {
-			ccprintf("DPS Disabled\n");
-			return EC_SUCCESS;
-		}
-
-		if (port == CHARGE_PORT_NONE) {
-			ccprintf("No charger attached\n");
-			return EC_SUCCESS;
-		}
-
-		get_battery_target_voltage(&batt_mv);
-		input_pwr = get_desired_input_power(&vbus, &input_curr);
-		if (!(flag & DPS_FLAG_NO_SRCCAP)) {
-			last_mv = pd_get_requested_voltage(port);
-			last_ma = pd_get_requested_current(port);
-		}
-		ccprintf("C%d DPS Enabled\n"
-			 "Requested: %dmV/%dmA\n"
-			 "Measured:  %dmV/%dmA/%dmW\n"
-			 "Efficient: %dmV\n"
-			 "Batt:      %dmv\n"
-			 "PDMaxMV:   %dmV\n",
-			 port, last_mv, last_ma, vbus, input_curr, input_pwr,
-			 get_efficient_voltage(), batt_mv,
-			 pd_get_max_voltage());
-		return EC_SUCCESS;
+		shell_print(sh, "%sabled %dmV/%dmA",
+			    fake_enabled ? "en" : "dis", fake_mv, fake_ma);
+		return 0;
 	}
 
-	if (!strcasecmp(argv[1], "en")) {
-		dps_enable(true);
-		return EC_SUCCESS;
-	} else if (!strcasecmp(argv[1], "dis")) {
-		dps_enable(false);
-		return EC_SUCCESS;
-	} else if (!strcasecmp(argv[1], "fakepwr")) {
-		if (argc == 2) {
-			ccprintf("%sabled %dmV/%dmA\n",
-				 fake_enabled ? "en" : "dis", fake_mv, fake_ma);
-			return EC_SUCCESS;
-		}
+	if (argc < 3)
+		return -EINVAL;
 
-		if (!strcasecmp(argv[2], "dis")) {
-			fake_enabled = false;
-			return EC_SUCCESS;
-		}
+	holder = atoi(argv[1]);
+	if (holder <= 0)
+		return -EINVAL;
+	fake_mv = holder;
 
-		if (argc < 4)
-			return EC_ERROR_PARAM_COUNT;
+	holder = atoi(argv[2]);
+	if (holder <= 0)
+		return -EINVAL;
+	fake_ma = holder;
 
-		holder = atoi(argv[2]);
-		if (holder <= 0)
-			return EC_ERROR_PARAM2;
-		fake_mv = holder;
-
-		holder = atoi(argv[3]);
-		if (holder <= 0)
-			return EC_ERROR_PARAM3;
-		fake_ma = holder;
-
-		fake_enabled = true;
-		return EC_SUCCESS;
-	}
-
-	if (argc != 3)
-		return EC_ERROR_PARAM2;
-
-	if (!strcasecmp(argv[1], "debug")) {
-		debug_level = atoi(argv[2]);
-	} else if (!strcasecmp(argv[1], "setkmore")) {
-		holder = atoi(argv[2]);
-		if (holder > 100 || holder <= 0 ||
-		    holder < dps_config.k_less_pwr)
-			return EC_ERROR_PARAM2;
-		dps_config.k_more_pwr = holder;
-	} else if (!strcasecmp(argv[1], "setkless")) {
-		holder = atoi(argv[2]);
-		if (holder > 100 || holder <= 0 ||
-		    holder > dps_config.k_more_pwr)
-			return EC_ERROR_PARAM2;
-		dps_config.k_less_pwr = holder;
-	} else if (!strcasecmp(argv[1], "setksample")) {
-		holder = atoi(argv[2]);
-		if (holder <= 0)
-			return EC_ERROR_PARAM2;
-		dps_config.k_sample = holder;
-	} else if (!strcasecmp(argv[1], "setkwin")) {
-		holder = atoi(argv[2]);
-		if (holder <= 0 || holder > MAX_MOVING_AVG_WINDOW)
-			return EC_ERROR_PARAM2;
-		dps_config.k_window = holder;
-	} else if (!strcasecmp(argv[1], "settcheck")) {
-		holder = atoi(argv[2]);
-		if (holder <= 0)
-			return EC_ERROR_PARAM2;
-		dps_config.t_check = holder * SECOND;
-	} else if (!strcasecmp(argv[1], "settstable")) {
-		holder = atoi(argv[2]);
-		if (holder <= 0)
-			return EC_ERROR_PARAM2;
-		dps_config.t_stable = holder * SECOND;
-	} else {
-		return EC_ERROR_PARAM1;
-	}
-
-	return EC_SUCCESS;
+	fake_enabled = true;
+	return 0;
 }
-DECLARE_CONSOLE_COMMAND(dps, command_dps,
-			"en|dis|debug <int>\n"
-			"\t\t set(kmore|kless|ksample|kwindow) <int>\n"
-			"\t\t set(tstable|tcheck) <int>\n"
-			"\t\t fakepwr [dis|<mV> <mA>]",
-			"Print/set Dynamic PDO Selection state.");
+
+static int cmd_dps_debug(const struct shell *sh, size_t argc, const char **argv)
+{
+	debug_level = atoi(argv[1]);
+	return 0;
+}
+
+static int cmd_dps_setkmore(const struct shell *sh, size_t argc,
+			    const char **argv)
+{
+	int holder = atoi(argv[1]);
+
+	if (holder > 100 || holder <= 0 || holder < dps_config.k_less_pwr)
+		return -EINVAL;
+	dps_config.k_more_pwr = holder;
+	return 0;
+}
+
+static int cmd_dps_setkless(const struct shell *sh, size_t argc,
+			    const char **argv)
+{
+	int holder = atoi(argv[1]);
+
+	if (holder > 100 || holder <= 0 || holder > dps_config.k_more_pwr)
+		return -EINVAL;
+	dps_config.k_less_pwr = holder;
+	return 0;
+}
+
+static int cmd_dps_setksample(const struct shell *sh, size_t argc,
+			      const char **argv)
+{
+	int holder = atoi(argv[1]);
+
+	if (holder <= 0)
+		return -EINVAL;
+	dps_config.k_sample = holder;
+	return 0;
+}
+
+static int cmd_dps_setkwin(const struct shell *sh, size_t argc,
+			   const char **argv)
+{
+	int holder = atoi(argv[1]);
+
+	if (holder <= 0 || holder > MAX_MOVING_AVG_WINDOW)
+		return -EINVAL;
+	dps_config.k_window = holder;
+	return 0;
+}
+
+static int cmd_dps_settcheck(const struct shell *sh, size_t argc,
+			     const char **argv)
+{
+	int holder = atoi(argv[1]);
+
+	if (holder <= 0)
+		return -EINVAL;
+	dps_config.t_check = holder * SECOND;
+	return 0;
+}
+
+static int cmd_dps_settstable(const struct shell *sh, size_t argc,
+			      const char **argv)
+{
+	int holder = atoi(argv[1]);
+
+	if (holder <= 0)
+		return -EINVAL;
+	dps_config.t_stable = holder * SECOND;
+	return 0;
+}
+
+static int cmd_dps(const struct shell *sh, size_t argc, const char **argv)
+{
+	int port = charge_manager_get_active_charge_port();
+	int input_pwr, vbus, input_curr;
+	uint32_t last_ma = 0, last_mv = 0;
+	int batt_mv;
+
+	shell_print(sh, "flag=0x%x k_more=%d k_less=%d k_sample=%d k_win=%d",
+		    (int)flag, dps_config.k_more_pwr, dps_config.k_less_pwr,
+		    dps_config.k_sample, dps_config.k_window);
+	shell_print(sh, "t_stable=%d t_check=%d", dps_config.t_stable / SECOND,
+		    dps_config.t_check / SECOND);
+	if (!is_enabled) {
+		shell_print(sh, "DPS Disabled");
+		return 0;
+	}
+
+	if (port == CHARGE_PORT_NONE) {
+		shell_print(sh, "No charger attached");
+		return 0;
+	}
+
+	get_battery_target_voltage(&batt_mv);
+	input_pwr = get_desired_input_power(&vbus, &input_curr);
+	if (!(flag & DPS_FLAG_NO_SRCCAP)) {
+		last_mv = pd_get_requested_voltage(port);
+		last_ma = pd_get_requested_current(port);
+	}
+	shell_print(sh,
+		    "C%d DPS Enabled\n"
+		    "Requested: %dmV/%dmA\n"
+		    "Measured:  %dmV/%dmA/%dmW\n"
+		    "Efficient: %dmV\n"
+		    "Batt:      %dmv\n"
+		    "PDMaxMV:   %dmV",
+		    port, last_mv, last_ma, vbus, input_curr, input_pwr,
+		    get_efficient_voltage(), batt_mv, pd_get_max_voltage());
+	return 0;
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(sub_dps_fakepwr_cmds,
+			       SHELL_CMD_ARG(dis, NULL, "Disable fake power",
+					     cmd_dps_fakepwr_dis, 1, 0),
+			       SHELL_SUBCMD_SET_END);
+
+SHELL_STATIC_SUBCMD_SET_CREATE(
+	sub_dps_cmds, SHELL_CMD_ARG(en, NULL, "Enable DPS", cmd_dps_en, 1, 0),
+	SHELL_CMD_ARG(dis, NULL, "Disable DPS", cmd_dps_dis, 1, 0),
+	SHELL_CMD_ARG(fakepwr, &sub_dps_fakepwr_cmds, "[dis|<mV> <mA>]",
+		      cmd_dps_fakepwr, 1, 2),
+	SHELL_CMD_ARG(debug, NULL, "<int>", cmd_dps_debug, 2, 0),
+	SHELL_CMD_ARG(setkmore, NULL, "<int>", cmd_dps_setkmore, 2, 0),
+	SHELL_CMD_ARG(setkless, NULL, "<int>", cmd_dps_setkless, 2, 0),
+	SHELL_CMD_ARG(setksample, NULL, "<int>", cmd_dps_setksample, 2, 0),
+	SHELL_CMD_ARG(setkwin, NULL, "<int>", cmd_dps_setkwin, 2, 0),
+	SHELL_CMD_ARG(settcheck, NULL, "<int>", cmd_dps_settcheck, 2, 0),
+	SHELL_CMD_ARG(settstable, NULL, "<int>", cmd_dps_settstable, 2, 0),
+	SHELL_SUBCMD_SET_END);
+
+SHELL_CMD_ARG_REGISTER(dps, &sub_dps_cmds,
+		       "Print/set Dynamic PDO Selection state.", cmd_dps, 1, 0);
 
 static enum ec_host_cmd_status
 hc_usb_pd_dps_control(struct ec_host_cmd_handler_args *args)
