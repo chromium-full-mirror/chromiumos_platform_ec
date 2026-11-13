@@ -128,7 +128,7 @@ config PLATFORM_EC_FP_VENDOR_DATA
 	# provides CONFIG_FLASH_ERASE_SIZE).
 	depends on FLASH && PLATFORM_EC_FLASH_CROS
 	# The cache is implemented in C++20 (std::bitset, std::ranges).
-	depends on CPP && STD_CPP20
+	depends on CPP && STD_CPP_VERSION >= 202002
 	depends on FULL_LIBCPP_SUPPORTED
 	help
 	  Enables a write-back RAM cache for vendor specific fingerprint sensor
