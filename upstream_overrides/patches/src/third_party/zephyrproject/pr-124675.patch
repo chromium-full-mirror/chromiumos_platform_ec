@@ -1,0 +1,14 @@
+Upstream-PR: https://github.com/zephyrproject-rtos/zephyr/pull/124675
+
+diff --git a/zephyr/drivers/timer/ite_it8xxx2_timer.c b/zephyr/drivers/timer/ite_it8xxx2_timer.c
+index 04fc996192ca..c6434be822e5 100644
+--- a/zephyr/drivers/timer/ite_it8xxx2_timer.c
++++ b/zephyr/drivers/timer/ite_it8xxx2_timer.c
+@@ -168,6 +168,7 @@ static void evt_timer_enable(void)
+ #define TIMER_CORE_BACKEND_RELOAD
+ #define TIMER_CORE_COUNTER_WIDTH 32
+ #define TIMER_CORE_ALARM_MAX_CYCLES EVENT_TIMER_MAX_CNT
++#define TIMER_CORE_ALARM_MIN_CYCLES IDLE_BLOCK_TIMER_TICKS
+ 
+ static inline uint32_t timer_driver_cycle_get(void)
+ {
