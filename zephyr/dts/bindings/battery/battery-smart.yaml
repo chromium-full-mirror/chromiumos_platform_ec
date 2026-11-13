@@ -56,6 +56,7 @@ properties:
       - "cosmx,ap20cbl-3"
       - "cosmx,ap20cbl-4"
       - "cosmx,ap23abl"
+      - "cosmx,ap23abl-2"
       - "cosmx,ap23cbp"
       - "cosmx,ap25cbk"
       - "cosmx,c22n2505"
