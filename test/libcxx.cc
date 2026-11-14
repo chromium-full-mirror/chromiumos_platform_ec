@@ -13,6 +13,8 @@
 
 #include <chrono>
 
+static_assert(__cplusplus >= 202302L, "C++23 is required");
+
 static int test_system_clock()
 {
 	auto start = std::chrono::system_clock::now();
