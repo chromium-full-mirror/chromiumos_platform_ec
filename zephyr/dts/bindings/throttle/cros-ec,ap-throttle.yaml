@@ -31,3 +31,14 @@ properties:
       limiting inrush current and preventing VBUS resets or PMIC brownouts.
       The throttle is deasserted once the system transitions to S0 for normal
       OS operation.
+  low-battery-boot-throttle:
+    type: boolean
+    description: |
+      Keep the AP throttle / PROCHOT signal asserted throughout boot and S0
+      when booting with a battery present whose state of charge is insufficient
+      for normal OS operation (battery_state_of_charge_abs() <
+      CONFIG_BATT_HOST_SHUTDOWN_PERCENTAGE or query failure).
+      In this condition, the AP powers up strictly for off-mode charging or
+      displaying the low-battery charging screen rather than booting the OS.
+      Keeping the SoC throttled prevents heavy discharge spikes, PMIC
+      brownouts, and VBUS drops on a depleted battery.

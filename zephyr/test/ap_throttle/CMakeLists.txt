@@ -10,6 +10,7 @@ add_subdirectory(${PLATFORM_EC}/zephyr/test/test_utils test_utils)
 
 zephyr_compile_definitions(
 	CONFIG_PLATFORM_EC_BATTERY_PRESENT_CUSTOM
+	CONFIG_PLATFORM_EC_CHARGER_MIN_BAT_PCT_FOR_POWER_ON=3
 )
 
 target_sources(app PRIVATE src/main.c)

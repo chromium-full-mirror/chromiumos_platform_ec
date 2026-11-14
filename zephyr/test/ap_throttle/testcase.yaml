@@ -15,8 +15,13 @@ tests:
     extra_dtc_overlay_files:
       - boards/native_sim.overlay
       - boards/no_g3s5_boot_throttle.overlay
+  ap_throttle.no_low_battery_boot_throttle:
+    extra_dtc_overlay_files:
+      - boards/native_sim.overlay
+      - boards/no_low_battery_boot_throttle.overlay
   ap_throttle.no_boot_throttle:
     extra_dtc_overlay_files:
       - boards/native_sim.overlay
       - boards/no_ac_only_boot_throttle.overlay
       - boards/no_g3s5_boot_throttle.overlay
+      - boards/no_low_battery_boot_throttle.overlay

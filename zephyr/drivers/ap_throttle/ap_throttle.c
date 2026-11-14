@@ -25,11 +25,14 @@ struct ap_throttle_config {
 	struct gpio_dt_spec throttle_gpio;
 	bool ac_only_boot_throttle;
 	bool g3s5_boot_throttle;
+	bool low_battery_boot_throttle;
 };
 
 struct ap_throttle_data {
 	bool boot_throttle; /* G3S5 pre-init boot throttle */
 	bool ac_only_boot; /* Booted without battery */
+	bool low_bat_boot; /* Booted with battery < MIN_BAT_PCT for charging
+			      (retained in S0) */
 	bool thermal_throttle; /* Commanded by chipset_throttle_cpu() */
 };
 
@@ -39,6 +42,8 @@ static const struct ap_throttle_config throttle_cfg = {
 	.throttle_gpio = GPIO_DT_SPEC_GET(DT_DRV_INST(0), throttle_gpios),
 	.ac_only_boot_throttle = DT_PROP(DT_DRV_INST(0), ac_only_boot_throttle),
 	.g3s5_boot_throttle = DT_PROP(DT_DRV_INST(0), g3s5_boot_throttle),
+	.low_battery_boot_throttle =
+		DT_PROP(DT_DRV_INST(0), low_battery_boot_throttle),
 };
 
 void chipset_throttle_cpu(int throttle)
@@ -47,7 +52,8 @@ void chipset_throttle_cpu(int throttle)
 	 * Do not allow changing throttle state during AC-only boot to ensure
 	 * PROCHOT remains asserted to limit SoC power consumption.
 	 */
-	if (!chipset_in_state(CHIPSET_STATE_ON) || throttle_data.ac_only_boot)
+	if (!chipset_in_state(CHIPSET_STATE_ON) || throttle_data.ac_only_boot ||
+	    throttle_data.low_bat_boot)
 		return;
 
 	gpio_pin_set_dt(&throttle_cfg.throttle_gpio, throttle ? 1 : 0);
@@ -65,23 +71,45 @@ void chipset_throttle_cpu(int throttle)
 	}
 }
 
+static bool ap_throttle_is_low_battery(void)
+{
+	int percent = 0;
+
+	if (!throttle_cfg.low_battery_boot_throttle)
+		return false;
+
+	if (battery_is_present() != BP_YES)
+		return false;
+
+	int ret;
+
+	ret = battery_state_of_charge_abs(&percent);
+	if (ret != EC_SUCCESS) {
+		LOG_WRN("Failed to read battery SoC (%d); "
+			"retaining AP throttle in S0",
+			ret);
+		return true;
+	}
+
+	if (percent < CONFIG_PLATFORM_EC_CHARGER_MIN_BAT_PCT_FOR_POWER_ON) {
+		LOG_INF("Low-battery boot detected (State-of-Charge: %d%% < %d%%); "
+			"retaining AP throttle in S0",
+			percent,
+			CONFIG_PLATFORM_EC_CHARGER_MIN_BAT_PCT_FOR_POWER_ON);
+		return true;
+	}
+
+	return false;
+}
+
 static void ap_throttle_chipset_pre_init(void)
 {
 	throttle_data.ac_only_boot = false;
+	throttle_data.low_bat_boot = false;
 	throttle_data.boot_throttle = false;
 
 	/*
-	 * Assert "AP throttle" signal when booting from G3 to S5 if
-	 * g3s5-boot-throttle is enabled. This ensures the SoC is pre-throttled
-	 * before power_on_seq() runs for off-mode charging.
-	 */
-	if (throttle_cfg.g3s5_boot_throttle) {
-		LOG_INF("G3S5 boot detected; asserting AP throttle for off-mode charging");
-		throttle_data.boot_throttle = true;
-		gpio_pin_set_dt(&throttle_cfg.throttle_gpio, 1);
-	}
-
-	/*
+	 * AC-only boot (No battery present):
 	 * If booting without a battery on an adapter that cannot support peak
 	 * power alone, latch ac_only_boot so the throttle remains asserted in
 	 * S0.
@@ -92,6 +120,29 @@ static void ap_throttle_chipset_pre_init(void)
 		gpio_pin_set_dt(&throttle_cfg.throttle_gpio, 1);
 		throttle_data.ac_only_boot = true;
 	}
+
+	/*
+	 * Low-battery boot (<
+	 * CONFIG_PLATFORM_EC_CHARGER_MIN_BAT_PCT_FOR_POWER_ON): Battery is
+	 * present, but charge is insufficient for full OS boot. AP powers on
+	 * strictly for charging (even in S0); retain "AP throttle" asserted.
+	 */
+	if (ap_throttle_is_low_battery()) {
+		throttle_data.low_bat_boot = true;
+		gpio_pin_set_dt(&throttle_cfg.throttle_gpio, 1);
+	}
+
+	/*
+	 * Off-mode charging boot:
+	 * Assert "AP throttle" when booting from G3 to S5 if g3s5-boot-throttle
+	 * is enabled. This ensures the SoC is pre-throttled before
+	 * power_on_seq() runs for off-mode charging.
+	 */
+	if (throttle_cfg.g3s5_boot_throttle) {
+		LOG_INF("G3S5 boot detected; asserting AP throttle for off-mode charging");
+		throttle_data.boot_throttle = true;
+		gpio_pin_set_dt(&throttle_cfg.throttle_gpio, 1);
+	}
 }
 DECLARE_HOOK(HOOK_CHIPSET_PRE_INIT, ap_throttle_chipset_pre_init,
 	     HOOK_PRIO_DEFAULT);
@@ -101,9 +152,11 @@ static void ap_throttle_chipset_resume(void)
 	/*
 	 * If AC-only boot was latched, retain "AP throttle" asserted in S0.
 	 */
-	if (throttle_data.ac_only_boot) {
+	if (throttle_data.ac_only_boot || throttle_data.low_bat_boot) {
 		gpio_pin_set_dt(&throttle_cfg.throttle_gpio, 1);
-		LOG_INF("AC-only boot; AP throttle retained in S0");
+		LOG_INF("Retaining AP throttle in S0 (%s)",
+			throttle_data.ac_only_boot ? "AC-only" :
+						     "low-battery charging");
 		return;
 	}
 
@@ -129,6 +182,7 @@ static void ap_throttle_chipset_hard_off(void)
 {
 	throttle_data.boot_throttle = false;
 	throttle_data.ac_only_boot = false;
+	throttle_data.low_bat_boot = false;
 	throttle_data.thermal_throttle = false;
 	/*
 	 * Deassert "AP throttle" in G3 (hard off) so no leakage current is

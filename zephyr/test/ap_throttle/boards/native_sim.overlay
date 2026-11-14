@@ -12,5 +12,6 @@
 		throttle-gpios = <&gpio0 0 GPIO_ACTIVE_LOW>;
 		ac-only-boot-throttle;
 		g3s5-boot-throttle;
+		low-battery-boot-throttle;
 	};
 };
