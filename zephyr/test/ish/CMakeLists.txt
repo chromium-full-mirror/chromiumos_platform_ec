@@ -8,4 +8,15 @@ project(ish)
 
 add_subdirectory(${PLATFORM_EC}/zephyr/test/test_utils test_utils)
 
-target_sources(app PRIVATE src/nb_mode.c)
+if(CONFIG_TEST_ISH_HECI)
+	target_include_directories(app PRIVATE
+		${PLATFORM_EC}/zephyr/include/host_service
+	)
+	target_sources(app PRIVATE
+		src/test_host_command_heci.c
+		${PLATFORM_EC}/zephyr/shim/src/host_command_heci.c
+		${PLATFORM_EC}/zephyr/shim/src/ish_system.c
+	)
+else()
+	target_sources(app PRIVATE src/nb_mode.c)
+endif()

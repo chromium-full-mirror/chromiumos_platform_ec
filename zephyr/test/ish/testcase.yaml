@@ -12,3 +12,17 @@ tests:
     extra_configs:
       - CONFIG_PLATFORM_EC_TABLET_MODE=y
       - CONFIG_PLATFORM_EC_EXTERNAL_NOTEBOOK_MODE=y
+  # ISH HECI host command and sleep state test
+  ish.heci_no_wake_mask:
+    extra_dtc_overlay_files:
+      - boards/native_sim.overlay
+    extra_configs:
+      - CONFIG_TEST_ISH_HECI=y
+      - CONFIG_PLATFORM_EC_BACKLIGHT_LID=n
+      - CONFIG_PLATFORM_EC_SWITCH=n
+      - CONFIG_PLATFORM_EC_VBOOT_HASH=n
+      - CONFIG_PLATFORM_EC_HOSTCMD=y
+      - CONFIG_PLATFORM_EC_HOST_INTERFACE_HECI=y
+      - CONFIG_PLATFORM_EC_MKBP_EVENT=y
+      - CONFIG_PLATFORM_EC_MKBP_USE_HECI=y
+      - CONFIG_SHIMMED_TASKS=y

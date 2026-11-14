@@ -3,6 +3,7 @@
  * found in the LICENSE file.
  */
 
+#include "chipset.h"
 #include "common.h"
 #include "hooks.h"
 #include "host_command.h"
@@ -11,7 +12,6 @@
 #include <zephyr/device.h>
 #include <zephyr/init.h>
 #include <zephyr/logging/log.h>
-#include <zephyr/sys/atomic.h>
 
 #include <heci.h>
 
@@ -68,8 +68,8 @@ struct cros_ec_ishtp_msg {
 } __ec_align4;
 
 enum heci_cros_ec_channel {
-	CROS_EC_COMMAND = 1, /* initiated from AP */
-	CROS_MKBP_EVENT, /* initiated from EC */
+	HECI_CROS_EC_COMMAND = 1, /* initiated from AP */
+	HECI_CROS_MKBP_EVENT, /* initiated from EC */
 };
 static uint8_t response_buffer[HECI_CROS_EC_RESPONSE_BUF_SIZE] __aligned(4);
 static struct host_packet heci_packet;
@@ -84,11 +84,9 @@ static K_SEM_DEFINE(cros_ec_ishtp_event_sem, 0, 1);
 static uint32_t cros_ec_ishtp_event;
 static uint32_t heci_cros_ec_conn_id;
 
-static atomic_t host_in_sleep;
-
 int heci_send_mkbp_event(uint32_t *timestamp)
 {
-	struct cros_ec_ishtp_msg evt;
+	struct cros_ec_ishtp_msg evt = { 0 };
 	struct mrd_t m = { 0 };
 
 	/*
@@ -99,11 +97,11 @@ int heci_send_mkbp_event(uint32_t *timestamp)
 	 * dev_lock and device_write_lock. Return EC_ERROR_BUSY so MKBP defers
 	 * cleanly until the AP resumes.
 	 */
-	if (atomic_get(&host_in_sleep) != 0) {
+	if (chipset_in_state(CHIPSET_STATE_ANY_SUSPEND)) {
 		return EC_ERROR_BUSY;
 	}
 
-	evt.hdr.channel = CROS_MKBP_EVENT;
+	evt.hdr.channel = HECI_CROS_MKBP_EVENT;
 	evt.hdr.status = 0;
 	m.buf = &evt;
 	m.len = sizeof(evt);
@@ -128,7 +126,7 @@ static void heci_send_hostcmd_response(struct host_packet *pkt)
 		(struct cros_ec_ishtp_msg *)response_buffer;
 	struct mrd_t m = { 0 };
 
-	out->hdr.channel = CROS_EC_COMMAND;
+	out->hdr.channel = HECI_CROS_EC_COMMAND;
 	out->hdr.status = 0;
 	/* id is already set in the receiving method */
 
@@ -147,7 +145,7 @@ static void cros_ec_ishtp_process_msg(uint8_t *msg, const size_t msg_size)
 	struct cros_ec_ishtp_msg *in = (void *)msg;
 	struct cros_ec_ishtp_msg *out = (void *)response_buffer;
 
-	if (in->hdr.channel != CROS_EC_COMMAND) {
+	if (in->hdr.channel != HECI_CROS_EC_COMMAND) {
 		LOG_ERR("Unknown HECI packet 0x%02x", in->hdr.channel);
 		return;
 	}
@@ -292,14 +290,12 @@ host_command_host_sleep_event(struct ec_host_cmd_handler_args *args)
 	case HOST_SLEEP_EVENT_S3_SUSPEND:
 	case HOST_SLEEP_EVENT_S3_WAKEABLE_SUSPEND:
 		LOG_INF("%s: suspend", __FILE__);
-		atomic_set(&host_in_sleep, 1);
 		hook_notify(HOOK_CHIPSET_SUSPEND);
 		break;
 
 	case HOST_SLEEP_EVENT_S0IX_RESUME:
 	case HOST_SLEEP_EVENT_S3_RESUME:
 		LOG_INF("%s: resume", __FILE__);
-		atomic_clear(&host_in_sleep);
 		hook_notify(HOOK_CHIPSET_RESUME);
 		break;
 
