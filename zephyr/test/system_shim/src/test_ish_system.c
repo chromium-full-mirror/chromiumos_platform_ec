@@ -4,6 +4,7 @@
  */
 
 #include "chipset.h"
+#include "hooks.h"
 #include "system.h"
 
 #include <zephyr/device.h>
@@ -14,10 +15,55 @@
 
 LOG_MODULE_REGISTER(test);
 
-ZTEST_SUITE(system, NULL, NULL, NULL, NULL, NULL);
+static int state_seen_in_suspend_hook;
+static int state_seen_in_resume_hook;
+
+static void test_suspend_hook(void)
+{
+	state_seen_in_suspend_hook =
+		chipset_in_state(CHIPSET_STATE_ON | CHIPSET_STATE_ANY_SUSPEND);
+}
+DECLARE_HOOK(HOOK_CHIPSET_SUSPEND, test_suspend_hook, HOOK_PRIO_DEFAULT);
+
+static void test_resume_hook(void)
+{
+	state_seen_in_resume_hook =
+		chipset_in_state(CHIPSET_STATE_ON | CHIPSET_STATE_ANY_SUSPEND);
+}
+DECLARE_HOOK(HOOK_CHIPSET_RESUME, test_resume_hook, HOOK_PRIO_DEFAULT);
+
+static void ish_system_before(void *f)
+{
+	ARG_UNUSED(f);
+	hook_notify(HOOK_CHIPSET_RESUME);
+	state_seen_in_suspend_hook = -1;
+	state_seen_in_resume_hook = -1;
+}
+
+ZTEST_SUITE(system, NULL, NULL, ish_system_before, NULL, NULL);
 
 ZTEST(system, test_chipset_in_state)
 {
+	zassert_equal(CHIPSET_STATE_ON, chipset_in_state(CHIPSET_STATE_ON));
+	zassert_equal(0, chipset_in_state(CHIPSET_STATE_SUSPEND));
+	zassert_equal(0, chipset_in_state(CHIPSET_STATE_ANY_OFF));
+	zassert_equal(CHIPSET_STATE_ON,
+		      chipset_in_state(CHIPSET_STATE_ON |
+				       CHIPSET_STATE_SUSPEND));
+
+	hook_notify(HOOK_CHIPSET_SUSPEND);
+	/* Default-priority hooks must already observe CHIPSET_STATE_SUSPEND. */
+	zassert_equal(CHIPSET_STATE_SUSPEND, state_seen_in_suspend_hook);
+	zassert_equal(0, chipset_in_state(CHIPSET_STATE_ON));
+	zassert_equal(CHIPSET_STATE_SUSPEND,
+		      chipset_in_state(CHIPSET_STATE_SUSPEND));
+	zassert_equal(CHIPSET_STATE_SUSPEND,
+		      chipset_in_state(CHIPSET_STATE_ANY_SUSPEND));
+	zassert_equal(0, chipset_in_state(CHIPSET_STATE_ANY_OFF));
+
+	hook_notify(HOOK_CHIPSET_RESUME);
+	/* Default-priority hooks must already observe CHIPSET_STATE_ON. */
+	zassert_equal(CHIPSET_STATE_ON, state_seen_in_resume_hook);
 	zassert_equal(CHIPSET_STATE_ON, chipset_in_state(CHIPSET_STATE_ON));
 	zassert_equal(0, chipset_in_state(CHIPSET_STATE_SUSPEND));
 }

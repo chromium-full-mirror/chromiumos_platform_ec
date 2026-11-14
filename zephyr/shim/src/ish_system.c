@@ -3,8 +3,33 @@
  * found in the LICENSE file.
  */
 
+#include "hooks.h"
+#include "power.h"
 #include "system.h"
 
+#include <zephyr/sys/atomic.h>
+
+static atomic_t ish_host_sleeping;
+
+static void ish_chipset_suspend(void)
+{
+	atomic_set(&ish_host_sleeping, 1);
+}
+DECLARE_HOOK(HOOK_CHIPSET_SUSPEND, ish_chipset_suspend, HOOK_PRIO_FIRST);
+
+static void ish_chipset_resume(void)
+{
+	atomic_clear(&ish_host_sleeping);
+}
+DECLARE_HOOK(HOOK_CHIPSET_RESUME, ish_chipset_resume, HOOK_PRIO_FIRST);
+
+int chipset_in_state(int state_mask)
+{
+	int cur_state = atomic_get(&ish_host_sleeping) ? CHIPSET_STATE_SUSPEND :
+							 CHIPSET_STATE_ON;
+
+	return state_mask & cur_state;
+}
 test_mockable const char *system_get_chip_vendor(void)
 {
 	return "Intel";
