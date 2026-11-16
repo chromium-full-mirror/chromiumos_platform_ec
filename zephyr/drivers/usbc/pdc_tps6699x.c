@@ -67,10 +67,10 @@ LOG_MODULE_REGISTER(tps6699x, CONFIG_USBC_LOG_LEVEL);
  */
 #define PDC_TI_SET_SINK_PATH_DELAY_MS (1000)
 
-/* When initializing, delay entering error recovery to give PDC time to fully
- * init and be responsive on i2c.
+/* When initializing fails, delay retrying. This may be needed if the PDC is
+ * still booting.
  */
-#define PDC_INIT_ERROR_RECOVERY_DELAY_MS (250)
+#define PDC_INIT_RETRY_DELAY_MS (50)
 
 /* After executing GAID, the system is typically unavailable for 1s as the
  * system resets according to the reference manual. However, it has been seen to
@@ -463,6 +463,14 @@ static void set_state_delayed_post(struct pdc_data_t *data,
 	k_work_reschedule(&data->delayed_post, K_MSEC(delay_ms));
 }
 
+/* Run the current state again after a given delay.
+ */
+static void rerun_state_delayed_post(struct pdc_data_t *data,
+				     const int delay_ms)
+{
+	k_work_reschedule(&data->delayed_post, K_MSEC(delay_ms));
+}
+
 static void tps_delayed_post(struct k_work *work)
 {
 	struct k_work_delayable *dwork = k_work_delayable_from_work(work);
@@ -750,9 +758,12 @@ static void st_init_entry(void *o)
 {
 	struct pdc_data_t *data = (struct pdc_data_t *)o;
 
-	/* Init is restarted. */
+	/* Init is restarted. Do not reset data->init_attempt here because
+	 * ST_INIT can be re-entered from ST_TASK_WAIT / ST_ERROR_RECOVERY if
+	 * CMD_SET_NOTIFICATION_ENABLE fails during init. Callers starting a
+	 * fresh init sequence zero data->init_attempt beforehand.
+	 */
 	data->init_done = false;
-	data->init_attempt++;
 
 	print_current_state(data);
 }
@@ -770,8 +781,12 @@ static enum smf_state_result st_init_run(void *o)
 		return SMF_EVENT_HANDLED;
 	}
 
+	data->init_attempt++;
+
 	/* If we've attempted init too many times, disable instead. */
 	if (data->init_attempt > PDC_INIT_RETRY_MAX) {
+		LOG_ERR("TI%d: Init attempts exhausted. Disabling port.",
+			cfg->connector_number);
 		set_state(data, ST_DISABLE);
 		return SMF_EVENT_HANDLED;
 	}
@@ -837,13 +852,15 @@ static enum smf_state_result st_init_run(void *o)
 	 */
 	k_event_post(&data->pdc_event, PDC_CMD_EVENT);
 
-	/* Transition to the idle state */
+	/* Successful init! Transition to the idle state */
 	set_state(data, ST_IDLE);
 	return SMF_EVENT_HANDLED;
 
 error:
-	set_state_delayed_post(data, ST_ERROR_RECOVERY,
-			       PDC_INIT_ERROR_RECOVERY_DELAY_MS);
+	/* Remain in current state and retry after a delay */
+	LOG_ERR("TI%d: Init failed. Retrying (%d)", cfg->connector_number,
+		data->init_attempt);
+	rerun_state_delayed_post(data, PDC_INIT_RETRY_DELAY_MS);
 	return SMF_EVENT_HANDLED;
 }
 
@@ -2662,7 +2679,8 @@ data_out:
 		/* Transition to idle state */
 		set_state(data, ST_IDLE);
 	} else {
-		/* Re-try init since we didn't complete successfully. */
+		/* Re-try init since we didn't complete successfully. This path
+		 * is used for the initial CMD_SET_NOTIFICATION_ENABLE */
 		set_state(data, ST_INIT);
 	}
 	return SMF_EVENT_HANDLED;
@@ -3502,6 +3520,7 @@ static int pdc_init(const struct device *dev)
 
 	data->cmd = CMD_NONE;
 	data->init_done = false;
+	data->init_attempt = 0;
 	data->info.fw_version = PDC_FWVER_INVALID;
 
 	rv = gpio_pin_configure_dt(&cfg->irq_gpios, GPIO_INPUT);
