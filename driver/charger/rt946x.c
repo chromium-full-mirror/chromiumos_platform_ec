@@ -931,8 +931,16 @@ static enum ec_error_list rt946x_set_voltage(int chgnum, int voltage)
 				  reg_cv << RT946X_SHIFT_CV);
 }
 
+#ifdef HAS_TASK_USB_CHG
+static void rt946x_disable_bc12_detection(int chgnum);
+#endif
+
 static enum ec_error_list rt946x_discharge_on_ac(int chgnum, int enable)
 {
+#ifdef HAS_TASK_USB_CHG
+	if (enable)
+		rt946x_disable_bc12_detection(chgnum);
+#endif
 	return rt946x_enable_hz(chgnum, enable);
 }
 
@@ -1267,10 +1275,22 @@ void rt946x_interrupt(enum gpio_signal signal)
 
 int rt946x_toggle_bc12_detection(void)
 {
+	const int port = TASK_ID_TO_USB_CHG_PORT(TASK_ID_USB_CHG);
+	enum tcpc_cc_voltage_status cc1, cc2;
 	int rv;
+
 	rv = rt946x_enable_bc12_detection(CHARGER_SOLO, 0);
 	if (rv)
 		return rv;
+
+	/* Only run BC1.2 detection for non-PD sources presenting Rp. */
+	if (pd_capable(port))
+		return EC_SUCCESS;
+
+	tcpm_get_cc(port, &cc1, &cc2);
+	if (!cc_is_rp(cc1) && !cc_is_rp(cc2))
+		return EC_SUCCESS;
+
 	/* mt6370 requires 40us delay to toggle RT946X_MASK_USBCHGEN */
 	udelay(40);
 	return rt946x_enable_bc12_detection(CHARGER_SOLO, 1);
@@ -1278,16 +1298,7 @@ int rt946x_toggle_bc12_detection(void)
 
 static void check_pd_capable(void)
 {
-	const int port = TASK_ID_TO_USB_CHG_PORT(TASK_ID_USB_CHG);
-
-	if (!pd_capable(port)) {
-		enum tcpc_cc_voltage_status cc1, cc2;
-
-		tcpm_get_cc(port, &cc1, &cc2);
-		/* if CC is not changed. */
-		if (cc_is_rp(cc1) || cc_is_rp(cc2))
-			rt946x_toggle_bc12_detection();
-	}
+	rt946x_toggle_bc12_detection();
 }
 DECLARE_DEFERRED(check_pd_capable);
 
@@ -1316,6 +1327,7 @@ static void rt946x_pd_disconnect(void)
 {
 	/* Type-C disconnected, disable deferred check. */
 	hook_call_deferred(&check_pd_capable_data, -1);
+	rt946x_disable_bc12_detection(CHARGER_SOLO);
 	hook_call_deferred(&check_ac_state_data, 0);
 }
 DECLARE_HOOK(HOOK_USB_PD_DISCONNECT, rt946x_pd_disconnect, HOOK_PRIO_DEFAULT);
@@ -1530,6 +1542,12 @@ static void rt946x_bc12_workaround(void)
 	rt946x_toggle_bc12_detection();
 }
 DECLARE_DEFERRED(rt946x_bc12_workaround);
+
+static void rt946x_disable_bc12_detection(int chgnum)
+{
+	hook_call_deferred(&rt946x_bc12_workaround_data, -1);
+	rt946x_enable_bc12_detection(chgnum, 0);
+}
 
 static void rt946x_usb_charger_task_init(const int unused_port)
 {
