@@ -9,7 +9,7 @@
 	led_pins2: lightbar {
 		status = "okay";
 		compatible = "cros-ec,led-lightbar";
-		led-segments = <8 4 2 1>;
+		led-segments = <0xc0 0x30 0xc 0x3>;
 		lightbar0 {
 			led-id = "EC_LED_ID_LIGHTBAR_LED";
 			strip = <&uart4_dev0>;
