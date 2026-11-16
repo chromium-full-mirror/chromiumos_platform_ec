@@ -24,6 +24,7 @@ if(DEFINED CONFIG_BOARD_BLANC)
 	project(blanc)
 	zephyr_library_sources("blanc/src/board_power.c")
 	zephyr_library_sources("blanc/src/board.c")
+	zephyr_library_sources("blanc/src/fan.c")
 endif()
 
 if(DEFINED CONFIG_BOARD_OCELOTRVP_MCHP)

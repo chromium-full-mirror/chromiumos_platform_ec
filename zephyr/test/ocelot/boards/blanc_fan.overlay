@@ -1,0 +1,183 @@
+/* Copyright 2026 The ChromiumOS Authors
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file.
+ */
+
+/*
+ * Devicetree for the blanc custom fan control test.
+ *
+ * The fan table below is a copy of blanc/fan.dtsi (Criteria-1). It has to be
+ * kept in sync manually: the test validates the level walk, not the table
+ * itself.
+ */
+
+/* npcx_emul.dts is pulled in by boards/blanc_board.overlay, which is always
+ * loaded before this file in the ocelot.blanc_board test.
+ */
+#include <cros/thermistor/thermistor.dtsi>
+#include <dt-bindings/gpio_defines.h>
+#include <dt-bindings/pwm/pwm.h>
+
+/ {
+	named-gpios {
+		compatible = "named-gpios";
+
+		/* Not implemented on blanc either, but common/system.c needs the
+		 * enum to exist.
+		 */
+		entering-rw {
+			enum-name = "GPIO_ENTERING_RW";
+		};
+
+		gpio_en_pp5000_fan: en_pp5000_fan {
+			gpios = <&gpio1 4 (GPIO_OUTPUT | GPIO_OUTPUT_INIT_LOW)>;
+		};
+	};
+
+	pwms {
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		pwm_fan: pwm@6 {
+			compatible = "cros,pwm-mock";
+			reg = <6 1>;
+			#pwm-cells = <3>;
+			status = "okay";
+		};
+	};
+
+	tachs {
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		tach_fan: tach@0 {
+			compatible = "cros,tach-mock";
+			reg = <0 1>;
+			#tach-cells = <3>;
+			status = "okay";
+		};
+	};
+
+	fans {
+		compatible = "cros-ec,fans";
+
+		fan_0 {
+			pwms = <&pwm_fan 0 PWM_KHZ(25) PWM_POLARITY_NORMAL>;
+			tach = <&tach_fan>;
+			rpm-min = <1300>;
+			rpm-start = <2000>;
+			rpm-max = <3600>;
+			enable-gpio = <&gpio_en_pp5000_fan>;
+		};
+	};
+
+	/* Criteria-1 from the thermal team, same values as blanc/fan.dtsi. */
+	fan_steps: fan-steps {
+		compatible = "cros-ec,fan-steps";
+
+		level_0 {
+			temp-on = <18 0xff 0xff 0xff>;
+			temp-off = <0xff 0xff 0xff 0xff>;
+			rpm-target = <0>;
+		};
+		level_1 {
+			temp-on = <21 0xff 0xff 0xff>;
+			temp-off = <17 0xff 0xff 0xff>;
+			rpm-target = <2200>;
+		};
+		level_2 {
+			temp-on = <24 0xff 0xff 0xff>;
+			temp-off = <20 0xff 0xff 0xff>;
+			rpm-target = <2500>;
+		};
+		level_3 {
+			temp-on = <36 0xff 0xff 0xff>;
+			temp-off = <23 0xff 0xff 0xff>;
+			rpm-target = <2700>;
+		};
+		level_4 {
+			temp-on = <39 0xff 0xff 0xff>;
+			temp-off = <34 0xff 0xff 0xff>;
+			rpm-target = <3000>;
+		};
+		level_5 {
+			temp-on = <43 0xff 0xff 0xff>;
+			temp-off = <37 0xff 0xff 0xff>;
+			rpm-target = <3200>;
+		};
+		level_6 {
+			temp-on = <0xff 0xff 0xff 0xff>;
+			temp-off = <41 0xff 0xff 0xff>;
+			rpm-target = <3400>;
+		};
+	};
+
+	/*
+	 * fan.c only needs TEMP_SENSOR_COUNT (4) and the CPU sensor index (0)
+	 * from the sensor nodes. The sensors still have to be real
+	 * "cros-ec,temp-sensor-thermistor" devices, otherwise
+	 * zephyr/shim/src/temp_sensors.c generates an empty entry list and
+	 * fails to compile.
+	 */
+	adc0: adc {
+		compatible = "zephyr,adc-emul";
+		nchannels = <6>;
+		ref-internal-mv = <3300>;
+		#io-channel-cells = <1>;
+		status = "okay";
+	};
+
+	named-adc-channels {
+		compatible = "named-adc-channels";
+
+		adc_temp: temp {
+			enum-name = "ADC_TEMP_SENSOR_1";
+			io-channels = <&adc0 0>;
+		};
+	};
+
+	temp_cpu_sensor: cpu-sensor {
+		compatible = "cros-ec,temp-sensor-thermistor";
+		thermistor = <&thermistor_3V3_51K1_47K_4050B>;
+		adc = <&adc_temp>;
+	};
+
+	temp_ambient_sensor: ambient-sensor {
+		compatible = "cros-ec,temp-sensor-thermistor";
+		thermistor = <&thermistor_3V3_51K1_47K_4050B>;
+		adc = <&adc_temp>;
+	};
+
+	temp_charger_sensor: charger-sensor {
+		compatible = "cros-ec,temp-sensor-thermistor";
+		thermistor = <&thermistor_3V3_51K1_47K_4050B>;
+		adc = <&adc_temp>;
+	};
+
+	temp_5v_sensor: fivev-sensor {
+		compatible = "cros-ec,temp-sensor-thermistor";
+		thermistor = <&thermistor_3V3_51K1_47K_4050B>;
+		adc = <&adc_temp>;
+	};
+
+	named-temp-sensors {
+		compatible = "cros-ec,temp-sensors";
+
+		temp_sensor_cpu: cpu {
+			sensor = <&temp_cpu_sensor>;
+		};
+		ambient {
+			sensor = <&temp_ambient_sensor>;
+		};
+		charger {
+			sensor = <&temp_charger_sensor>;
+		};
+		fivev {
+			sensor = <&temp_5v_sensor>;
+		};
+	};
+};
+
+&thermistor_3V3_51K1_47K_4050B {
+	status = "okay";
+};

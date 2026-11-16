@@ -27,21 +27,25 @@
 		adc = <&adc_temp_sensor_4>;
 	};
 
+	/*
+	 * Declaration order defines TEMP_SENSOR_ID and therefore the order the
+	 * sensors are reported to the AP.  Keep it aligned with the BIOS DPTF
+	 * table, which describes tsr[0..3] as SOC / Ambient / Charger / 5V:
+	 *
+	 *   index 0 = cpu     -> tsr[0] SOC
+	 *   index 1 = ambient -> tsr[1] Ambient
+	 *   index 2 = charger -> tsr[2] Charger
+	 *   index 3 = 5v      -> tsr[3] 5V
+	 *
+	 * fan.dtsi fan_steps arrays are indexed by the same ID, so they must be
+	 * reordered together with this node.
+	 */
 	named-temp-sensors {
 		compatible = "cros-ec,temp-sensors";
 
-		temp_sensor_5v: 5v {
-			temp-fan-off = <51>;
-			temp-fan-max = <67>;
-			temp-host-high = <85>;
-			temp-host-halt = <88>;
-			temp-host-release-high = <83>;
-			power-good-pin = <&gpio_pg_pp1250_soc_s5_od>;
-			sensor = <&temp_5v>;
-		};
 		temp_sensor_cpu: cpu {
-			temp-fan-off = <40>;
-			temp-fan-max = <51>;
+			temp-fan-off = <16>;
+			temp-fan-max = <60>;
 			temp-host-high = <87>;
 			temp-host-halt = <90>;
 			temp-host-release-high = <85>;
@@ -49,8 +53,8 @@
 			sensor = <&temp_cpu>;
 		};
 		temp_sensor_ambient: ambient {
-			temp-fan-off = <40>;
-			temp-fan-max = <50>;
+			temp-fan-off = <16>;
+			temp-fan-max = <60>;
 			temp-host-high = <72>;
 			temp-host-halt = <75>;
 			temp-host-release-high = <70>;
@@ -58,13 +62,22 @@
 			sensor = <&temp_ambient>;
 		};
 		temp_sensor_charger: charger {
-			temp-fan-off = <55>;
+			temp-fan-off = <20>;
 			temp-fan-max = <75>;
 			temp-host-high = <87>;
 			temp-host-halt = <90>;
 			temp-host-release-high = <85>;
 			power-good-pin = <&gpio_pg_pp1250_soc_s5_od>;
 			sensor = <&temp_charger>;
+		};
+		temp_sensor_5v: 5v {
+			temp-fan-off = <18>;
+			temp-fan-max = <67>;
+			temp-host-high = <85>;
+			temp-host-halt = <88>;
+			temp-host-release-high = <83>;
+			power-good-pin = <&gpio_pg_pp1250_soc_s5_od>;
+			sensor = <&temp_5v>;
 		};
 	};
 };

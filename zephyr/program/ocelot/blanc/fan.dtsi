@@ -10,13 +10,70 @@
 		compatible = "cros-ec,fans";
 		fan_0 {
 			pwms = <&pwm5 0 PWM_KHZ(25) PWM_POLARITY_NORMAL>;
-			rpm-min = <960>;
-			rpm-start = <1200>;
-			rpm-max = <4800>;
+			rpm-min = <1300>;
+			rpm-start = <2000>;
+			rpm-max = <3600>;
 			tach = <&tach1>;
 			rpm-deviation = <1>;
 			pgood-gpio = <&gpio_all_sys_pwrgd>;
 			enable-gpio = <&gpio_en_pp5000_fan>;
+		};
+	};
+
+	/*
+	 * Criteria-1 from the thermal team: CPU sensor drives the fan.
+	 * temp-on[]/temp-off[] carry one entry per sensor, in named-temp-sensors
+	 * declaration order: 0=cpu 1=ambient 2=charger 3=5v.  The array length
+	 * must equal TEMP_SENSOR_COUNT and the positions must follow that node
+	 * order, so both have to be kept in sync when sensors change.
+	 * 0xff means "not used".
+	 *
+	 *   level  enter  exit   rpm
+	 *     0      -      -       0   (<16 C)
+	 *     1      18     17   2200
+	 *     2      21     20   2500
+	 *     3      24     23   2700
+	 *     4      36     34   3000
+	 *     5      39     37   3200
+	 *     6      43     41   3400
+	 */
+	fan_steps: fan-steps {
+		compatible = "cros-ec,fan-steps";
+
+		level_0 {
+			temp-on = <18 0xff 0xff 0xff>;
+			temp-off = <0xff 0xff 0xff 0xff>;
+			rpm-target = <0>;
+		};
+		level_1 {
+			temp-on = <21 0xff 0xff 0xff>;
+			temp-off = <17 0xff 0xff 0xff>;
+			rpm-target = <2200>;
+		};
+		level_2 {
+			temp-on = <24 0xff 0xff 0xff>;
+			temp-off = <20 0xff 0xff 0xff>;
+			rpm-target = <2500>;
+		};
+		level_3 {
+			temp-on = <36 0xff 0xff 0xff>;
+			temp-off = <23 0xff 0xff 0xff>;
+			rpm-target = <2700>;
+		};
+		level_4 {
+			temp-on = <39 0xff 0xff 0xff>;
+			temp-off = <34 0xff 0xff 0xff>;
+			rpm-target = <3000>;
+		};
+		level_5 {
+			temp-on = <43 0xff 0xff 0xff>;
+			temp-off = <37 0xff 0xff 0xff>;
+			rpm-target = <3200>;
+		};
+		level_6 {
+			temp-on = <0xff 0xff 0xff 0xff>;
+			temp-off = <41 0xff 0xff 0xff>;
+			rpm-target = <3400>;
 		};
 	};
 };

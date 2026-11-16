@@ -11,7 +11,8 @@ config TEST_OCELOT_RVP_BOARD_ID
 config TEST_OCELOT_BLANC_BOARD
 	bool "Blanc board tests"
 	help
-	  Enable tests for ocelot/blanc/src/board.c.
+	  Enable tests for ocelot/blanc/src/board.c and
+	  ocelot/blanc/src/fan.c.
 
 config TEST_DISABLE_INLINE_CHIPSET_IN_STATE
 	bool "Disable chipset_in_state inline method"

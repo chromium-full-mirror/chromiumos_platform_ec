@@ -3,6 +3,7 @@
  * found in the LICENSE file.
  */
 
+#include "blanc_fakes.h"
 #include "charger.h"
 #include "chipset.h"
 #include "driver/charger/bq25710.h"
@@ -41,7 +42,6 @@ const struct charger_config_t chg_chips[] = {
  * CONFIG_TEST_DISABLE_INLINE_CHIPSET_IN_STATE is enabled for this test.
  */
 FAKE_VALUE_FUNC(int, lid_is_open);
-FAKE_VALUE_FUNC(int, chipset_in_state, int);
 
 #define CHARGER_ADDR 0x09
 

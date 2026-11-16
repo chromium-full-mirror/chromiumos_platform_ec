@@ -25,7 +25,10 @@ if(CONFIG_TEST_OCELOT_BLANC_BOARD)
 
 	target_sources(app PRIVATE
 		${PLATFORM_EC_PROGRAM_DIR}/ocelot/blanc/src/board.c
-		src/blanc_board_test.c)
+		${PLATFORM_EC_PROGRAM_DIR}/ocelot/blanc/src/fan.c
+		src/blanc_board_test.c
+		src/blanc_fakes.c
+		src/blanc_fan_test.c)
 endif()
 
 set_compiler_property(APPEND PROPERTY coverage -O0)
