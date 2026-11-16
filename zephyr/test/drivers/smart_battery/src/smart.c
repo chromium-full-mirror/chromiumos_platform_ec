@@ -490,6 +490,12 @@ ZTEST_USER(smart_battery, test_battery_mfacc)
 	zassert_mem_equal(mf_data + 1, recv_buf, len - 1, NULL);
 
 	if (IS_ENABLED(CONFIG_SMBUS_PEC)) {
+		uint8_t block_val[2] = { 0x78, 0x56 };
+
+		zassert_ok(sb_write_block(SB_MANUFACTURER_ACCESS, block_val,
+					  sizeof(block_val)));
+		zassert_equal(0x5678, bat->mf_access);
+
 		/* Test pec error */
 		mfacc_conf.incorrect_pec_count = 100;
 		zassert_equal(EC_ERROR_CRC,

@@ -306,6 +306,33 @@ ZTEST_F(i2c_controller, test_write_offset16_block)
 		      expected);
 }
 
+ZTEST_F(i2c_controller, test_write_read_block)
+{
+	uint8_t expected[] = { 0xAA, 0xBB, 0xCC, 0xDD };
+	uint8_t actual[sizeof(expected)] = { 0 };
+	uint8_t reg = 0x02;
+
+	/* Write and read back block */
+	zassert_ok(i2c_write_block(fixture->port, fixture->addr, reg, expected,
+				   sizeof(expected)));
+	zassert_ok(i2c_read_block(fixture->port, fixture->addr, reg, actual,
+				  sizeof(actual)));
+	zassert_mem_equal(actual, expected, sizeof(expected));
+
+	/* Ignored addr_flags bit should still succeed */
+	zassert_ok(i2c_write_block(fixture->port,
+				   fixture->addr | I2C_FLAG_ADDR_IS_SPI, reg,
+				   expected, sizeof(expected)));
+
+	/* Write failure should return EC_ERROR_INVAL */
+	i2c_common_emul_set_write_fail_reg(&fixture->emul_data->common, reg);
+	zassert_equal(i2c_write_block(fixture->port, fixture->addr, reg,
+				      expected, sizeof(expected)),
+		      EC_ERROR_INVAL);
+	i2c_common_emul_set_write_fail_reg(&fixture->emul_data->common,
+					   I2C_COMMON_EMUL_NO_FAIL_REG);
+}
+
 ZTEST_F(i2c_controller, test_pec_disabled)
 {
 	uint16_t addr_flags;

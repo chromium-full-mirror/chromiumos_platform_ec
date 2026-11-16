@@ -151,6 +151,72 @@ int i2c_xfer_unlocked(const int port, const uint16_t addr_flags,
 	return ret;
 }
 
+static int i2c_write_msgs(const int port, const uint16_t addr_flags,
+			  const uint8_t *reg, size_t reg_len,
+			  const uint8_t *data, size_t data_len,
+			  const uint8_t *pec, size_t pec_len)
+{
+	int i;
+	int ret = EC_SUCCESS;
+	uint16_t no_pec_af = addr_flags & ~I2C_FLAG_PEC;
+
+	/* Big endian flag is used in wrappers for this call */
+	if (no_pec_af & ~(I2C_ADDR_MASK | I2C_FLAG_BIG_ENDIAN))
+		CPRINTF("Ignoring flags from i2c addr_flags: %04x", no_pec_af);
+
+	i2c_lock(port, 1);
+	for (i = 0; i <= CONFIG_I2C_NACK_RETRY_COUNT; i++) {
+		struct i2c_msg msgs[IS_ENABLED(CONFIG_SMBUS_PEC) ? 3 : 2];
+		size_t num_msgs = 0;
+
+		msgs[num_msgs].buf = (uint8_t *)reg;
+		msgs[num_msgs].len = reg_len;
+		msgs[num_msgs].flags = I2C_MSG_WRITE;
+		num_msgs++;
+
+		if (data_len > 0) {
+			msgs[num_msgs].buf = (uint8_t *)data;
+			msgs[num_msgs].len = data_len;
+			msgs[num_msgs].flags = I2C_MSG_WRITE;
+			num_msgs++;
+		}
+
+		if (IS_ENABLED(CONFIG_SMBUS_PEC) && pec_len > 0) {
+			msgs[num_msgs].buf = (uint8_t *)pec;
+			msgs[num_msgs].len = pec_len;
+			msgs[num_msgs].flags = I2C_MSG_WRITE;
+			num_msgs++;
+		}
+
+		msgs[num_msgs - 1].flags |= I2C_MSG_STOP;
+
+		ret = i2c_transfer(i2c_get_device_for_port(port), msgs,
+				   num_msgs, I2C_STRIP_FLAGS(no_pec_af));
+
+		if (IS_ENABLED(CONFIG_I2C_DEBUG)) {
+			i2c_trace_notify(port, addr_flags, reg, reg_len, NULL,
+					 0, ret);
+			if (data_len > 0) {
+				i2c_trace_notify(port, addr_flags, data,
+						 data_len, NULL, 0, ret);
+			}
+			if (IS_ENABLED(CONFIG_SMBUS_PEC) && pec_len > 0) {
+				i2c_trace_notify(port, addr_flags, pec, pec_len,
+						 NULL, 0, ret);
+			}
+		}
+
+		if (ret == 0) {
+			ret = EC_SUCCESS;
+			break;
+		}
+		ret = (ret == -EIO) ? EC_ERROR_INVAL : EC_ERROR_UNKNOWN;
+	}
+	i2c_lock(port, 0);
+
+	return ret;
+}
+
 int i2c_xfer(const int port, const uint16_t addr_flags, const uint8_t *out,
 	     int out_size, uint8_t *in, int in_size)
 {
@@ -542,25 +608,13 @@ int i2c_read_offset16_block(const int port, const uint16_t addr_flags,
 int i2c_write_offset16_block(const int port, const uint16_t addr_flags,
 			     uint16_t offset, const uint8_t *data, int len)
 {
-	int rv;
 	uint8_t addr[sizeof(uint16_t)];
 
 	addr[0] = (offset >> 8) & 0xff;
 	addr[1] = offset & 0xff;
 
-	/*
-	 * Split into two transactions to avoid the stack space consumption of
-	 * appending the destination address with the data array.
-	 */
-	i2c_lock(port, 1);
-	rv = i2c_xfer_unlocked(port, addr_flags, addr, 2, NULL, 0,
-			       I2C_XFER_START);
-	if (!rv)
-		rv = i2c_xfer_unlocked(port, addr_flags, data, len, NULL, 0,
-				       I2C_XFER_STOP);
-	i2c_lock(port, 0);
-
-	return rv;
+	return i2c_write_msgs(port, addr_flags, addr, sizeof(addr), data, len,
+			      NULL, 0);
 }
 
 int i2c_read_sized_block(const int port, const uint16_t addr_flags, int offset,
@@ -676,8 +730,8 @@ int i2c_read_block(const int port, const uint16_t addr_flags, int offset,
 int i2c_write_block(const int port, const uint16_t addr_flags, int offset,
 		    const uint8_t *data, int len)
 {
-	int i, rv;
 	uint8_t reg_address = offset, pec = 0;
+	size_t pec_len = 0;
 
 	if (!IS_ENABLED(CONFIG_SMBUS_PEC) && I2C_USE_PEC(addr_flags))
 		return EC_ERROR_UNIMPLEMENTED;
@@ -688,43 +742,11 @@ int i2c_write_block(const int port, const uint16_t addr_flags, int offset,
 		pec = cros_crc8(&addr_8bit, sizeof(uint8_t));
 		pec = cros_crc8_arg(&reg_address, sizeof(uint8_t), pec);
 		pec = cros_crc8_arg(data, len, pec);
+		pec_len = sizeof(uint8_t);
 	}
 
-	/*
-	 * Split into two transactions to avoid the stack space consumption of
-	 * appending the destination address with the data array.
-	 */
-	i2c_lock(port, 1);
-	for (i = 0; i <= CONFIG_I2C_NACK_RETRY_COUNT; i++) {
-		rv = i2c_xfer_unlocked(port, addr_flags, &reg_address, 1, NULL,
-				       0, I2C_XFER_START);
-		if (rv)
-			continue;
-
-		if (IS_ENABLED(CONFIG_SMBUS_PEC) && I2C_USE_PEC(addr_flags)) {
-			rv = i2c_xfer_unlocked(port, addr_flags, data, len,
-					       NULL, 0, 0);
-			if (rv)
-				continue;
-
-			rv = i2c_xfer_unlocked(port, addr_flags, &pec,
-					       sizeof(uint8_t), NULL, 0,
-					       I2C_XFER_STOP);
-			if (rv)
-				continue;
-		} else {
-			rv = i2c_xfer_unlocked(port, addr_flags, data, len,
-					       NULL, 0, I2C_XFER_STOP);
-			if (rv)
-				continue;
-		}
-
-		/* execution reaches here implies rv=0, so we can exit now */
-		break;
-	}
-	i2c_lock(port, 0);
-
-	return rv;
+	return i2c_write_msgs(port, addr_flags, &reg_address,
+			      sizeof(reg_address), data, len, &pec, pec_len);
 }
 
 int i2c_freq_to_khz(enum i2c_freq freq)
