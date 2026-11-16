@@ -16,7 +16,6 @@
 #include "host_command.h"
 #include "hwtimer.h"
 #include "lid_angle.h"
-#include "lightbar.h"
 #include "math_util.h"
 #include "mkbp_event.h"
 #include "motion_lid.h"

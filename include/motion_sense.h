@@ -344,14 +344,6 @@ bool motion_sensor_in_forced_mode(const struct motion_sensor_t *s);
 		 motion_sensor_count + 1 :                \
 		 motion_sensor_count)
 
-#ifdef CONFIG_ALS_LIGHTBAR_DIMMING
-#ifdef TEST_BUILD
-#define MOTION_SENSE_LUX 0
-#else
-#define MOTION_SENSE_LUX motion_sensors[CONFIG_ALS_LIGHTBAR_DIMMING].raw_xyz[0]
-#endif
-#endif
-
 /*
  * helper functions for clamping raw i32 values,
  * each sensor driver should take care of overflow condition.

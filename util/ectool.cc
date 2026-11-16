@@ -14,7 +14,6 @@
 #include "ec_version.h"
 #include "ectool.h"
 #include "i2c.h"
-#include "lightbar.h"
 #include "lock/gec_lock.h"
 #include "misc_util.h"
 #include "panic.h"
@@ -3784,6 +3783,7 @@ int cmd_fanduty(int argc, char *argv[])
 #include "lightbar_msg_list.h"
 static const char *const lightbar_cmds[] = { LIGHTBAR_MSG_LIST };
 #undef LBMSG
+BUILD_ASSERT(ARRAY_SIZE(lightbar_cmds) <= UINT8_MAX);
 
 /* Size of field <FLD> in structure <ST> */
 #define ST_FLD_SIZE(ST, FLD) sizeof(((struct ST *)0)->FLD)
@@ -3870,11 +3870,11 @@ static int lb_help(const char *cmd)
 static uint8_t lb_find_msg_by_name(const char *str)
 {
 	uint8_t i;
-	for (i = 0; i < LIGHTBAR_NUM_SEQUENCES; i++)
+	for (i = 0; i < ARRAY_SIZE(lightbar_cmds); i++)
 		if (!strcasecmp(str, lightbar_cmds[i]))
 			return i;
 
-	return LIGHTBAR_NUM_SEQUENCES;
+	return ARRAY_SIZE(lightbar_cmds);
 }
 
 static int lb_do_cmd(enum lightbar_command cmd, struct ec_params_lightbar *in,
@@ -3890,20 +3890,23 @@ static int lb_do_cmd(enum lightbar_command cmd, struct ec_params_lightbar *in,
 
 static int lb_show_msg_names(void)
 {
-	int i, current_state;
+	int rv;
+	uint8_t current_state;
 	struct ec_params_lightbar param;
 	struct ec_response_lightbar resp;
 
-	i = lb_do_cmd(LIGHTBAR_CMD_GET_SEQ, &param, &resp);
-	if (i < 0)
-		return i;
+	rv = lb_do_cmd(LIGHTBAR_CMD_GET_SEQ, &param, &resp);
+	if (rv < 0)
+		return rv;
 	current_state = resp.get_seq.num;
 
 	printf("sequence names:");
-	for (i = 0; i < LIGHTBAR_NUM_SEQUENCES; i++)
+	for (size_t i = 0; i < ARRAY_SIZE(lightbar_cmds); i++)
 		printf(" %s", lightbar_cmds[i]);
 	printf("\nCurrent = 0x%x %s\n", current_state,
-	       lightbar_cmds[current_state]);
+	       current_state < ARRAY_SIZE(lightbar_cmds) ?
+		       lightbar_cmds[current_state] :
+		       "unknown");
 
 	return 0;
 }
@@ -5010,7 +5013,7 @@ static int cmd_lightbar(int argc, char **argv)
 		num = 0xff & strtoull(argv[2], &e, 16);
 		if (e && *e)
 			num = lb_find_msg_by_name(argv[2]);
-		if (num >= LIGHTBAR_NUM_SEQUENCES) {
+		if (num >= ARRAY_SIZE(lightbar_cmds)) {
 			fprintf(stderr, "Invalid arg\n");
 			return -1;
 		}

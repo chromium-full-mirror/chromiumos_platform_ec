@@ -57,9 +57,6 @@ CONSOLE_CHANNEL(CC_LIDANGLE, "lidangle")
 #ifdef HAS_TASK_LOGOLED
 CONSOLE_CHANNEL(CC_LOGOLED, "logoled")
 #endif
-#ifdef HAS_TASK_LIGHTBAR
-CONSOLE_CHANNEL(CC_LIGHTBAR, "lightbar")
-#endif
 /*
    Use CC_LPC for any host communication channels to x86,
    like LPC, eSPI, or IPC...

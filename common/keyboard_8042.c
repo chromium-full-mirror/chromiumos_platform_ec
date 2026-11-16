@@ -19,7 +19,6 @@
 #include "keyboard_config.h"
 #include "keyboard_protocol.h"
 #include "keyboard_scan.h"
-#include "lightbar.h"
 #include "lpc.h"
 #include "power_button.h"
 #include "queue.h"

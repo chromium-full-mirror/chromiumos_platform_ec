@@ -391,9 +391,6 @@
  */
 #undef CONFIG_ALS_TCS3400_EMULATED_IRQ_EVENT
 
-/* Define which ALS sensor is used for dimming the lightbar when dark */
-#undef CONFIG_ALS_LIGHTBAR_DIMMING
-
 /* Support AP hang detection host command and state machine */
 #undef CONFIG_AP_HANG_DETECT
 
@@ -3241,19 +3238,6 @@
  * Default is 30ms.
  */
 #define CONFIG_LID_DEBOUNCE_US (30 * MSEC)
-
-/*
- * Support for turning the lightbar power rails on briefly when the AP is off.
- * Enabling this requires implementing the board-specific lb_power() function
- * to do it (see lb_common.h).
- */
-#undef CONFIG_LIGHTBAR_POWER_RAILS
-
-/*
- * For tap sequence, show the last segment in dim to give a better idea of
- * battery percentage.
- */
-#undef CONFIG_LIGHTBAR_TAP_DIM_LAST_SEGMENT
 
 /*
  * Adds a console command for testing the long long shift right ABI on Cortex-m4
