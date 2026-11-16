@@ -7,12 +7,29 @@
 #include "console.h"
 #include "ec_commands.h"
 #include "host_command.h"
+#include "printf.h"
 #include "task.h"
 #include "test_util.h"
 #include "timer.h"
 #include "watchdog.h"
 
 int command_watchdoginfo(int argc, const char **argv);
+
+static int expected_watchdog_period_ms(void)
+{
+	return CONFIG_WATCHDOG_PERIOD_MS +
+	       (IS_ENABLED(CONFIG_IT83XX_LOCKED_WATCHDOG_EXTENSION) ?
+			CONFIG_AUX_TIMER_PERIOD_MS :
+			0);
+}
+
+static int expected_watchdog_warning_period_ms(void)
+{
+	return CONFIG_AUX_TIMER_PERIOD_MS +
+	       (IS_ENABLED(CONFIG_IT83XX_LOCKED_WATCHDOG_EXTENSION) ?
+			CONFIG_AUX_TIMER_PERIOD_MS :
+			0);
+}
 
 static int test_watchdog_info_host_command(void)
 {
@@ -26,8 +43,9 @@ static int test_watchdog_info_host_command(void)
 				    sizeof(p), &r, sizeof(r));
 	TEST_ASSERT(rv == EC_RES_SUCCESS);
 	/* Verify static values */
-	TEST_EQ(r.watchdog_period_ms, CONFIG_WATCHDOG_PERIOD_MS, "%d");
-	TEST_EQ(r.watchdog_warning_period_ms, CONFIG_AUX_TIMER_PERIOD_MS, "%d");
+	TEST_EQ(r.watchdog_period_ms, expected_watchdog_period_ms(), "%d");
+	TEST_EQ(r.watchdog_warning_period_ms,
+		expected_watchdog_warning_period_ms(), "%d");
 	TEST_EQ(r.watchdog_reload_period_nominal_ms, HOOK_TICK_INTERVAL / MSEC,
 		"%d");
 
@@ -60,6 +78,14 @@ static int test_watchdog_info_host_command(void)
 static int test_watchdog_info_console_command(void)
 {
 	const char *out;
+	char expected_period[32];
+	char expected_warning[40];
+
+	snprintf(expected_period, sizeof(expected_period), "Period: %u ms",
+		 expected_watchdog_period_ms());
+	snprintf(expected_warning, sizeof(expected_warning),
+		 "Warning Period: %u ms",
+		 expected_watchdog_warning_period_ms());
 
 	/* Run the console command */
 	test_capture_console(1);
@@ -68,7 +94,8 @@ static int test_watchdog_info_console_command(void)
 	test_capture_console(0);
 	out = test_get_captured_console();
 	TEST_ASSERT(strstr(out, "Watchdog Info:"));
-	TEST_ASSERT(strstr(out, "Period: "));
+	TEST_ASSERT(strstr(out, expected_period));
+	TEST_ASSERT(strstr(out, expected_warning));
 	TEST_ASSERT(strstr(out, "Reload Count: "));
 	TEST_ASSERT(strstr(out, "Reload Period Nominal: "));
 	TEST_ASSERT(strstr(out, "Stats Elapsed Time: "));

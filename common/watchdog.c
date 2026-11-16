@@ -20,6 +20,22 @@ static int32_t watchdog_reload_period_max_ms;
 static timestamp_t watchdog_reload_last_ts;
 static uint32_t watchdog_reload_count;
 static timestamp_t watchdog_stats_reset_ts;
+
+static uint32_t watchdog_effective_period_ms(void)
+{
+	if (IS_ENABLED(CONFIG_IT83XX_LOCKED_WATCHDOG_EXTENSION))
+		return CONFIG_WATCHDOG_PERIOD_MS + CONFIG_AUX_TIMER_PERIOD_MS;
+
+	return CONFIG_WATCHDOG_PERIOD_MS;
+}
+
+static uint32_t watchdog_effective_warning_period_ms(void)
+{
+	if (IS_ENABLED(CONFIG_IT83XX_LOCKED_WATCHDOG_EXTENSION))
+		return 2 * CONFIG_AUX_TIMER_PERIOD_MS;
+
+	return CONFIG_AUX_TIMER_PERIOD_MS;
+}
 #endif
 
 void watchdog_reload(void)
@@ -68,9 +84,8 @@ static enum ec_status hostcmd_watchdog_info(struct host_cmd_handler_args *args)
 	if (args->params_size < sizeof(*p))
 		return EC_RES_INVALID_PARAM;
 
-	r->watchdog_period_ms = CONFIG_WATCHDOG_PERIOD_MS;
-	r->watchdog_warning_period_ms = CONFIG_WATCHDOG_PERIOD_MS -
-					CONFIG_WATCHDOG_WARNING_LEADING_TIME_MS;
+	r->watchdog_period_ms = watchdog_effective_period_ms();
+	r->watchdog_warning_period_ms = watchdog_effective_warning_period_ms();
 	r->watchdog_reload_period_nominal_ms = HOOK_TICK_INTERVAL / MSEC;
 
 	{
@@ -108,10 +123,9 @@ static void print_watchdog_info(void)
 	uint64_t max_ts_ms;
 
 	ccprintf("Watchdog Info:\n");
-	ccprintf("Period: %d ms\n", CONFIG_WATCHDOG_PERIOD_MS);
-	ccprintf("Warning Period: %d ms\n",
-		 CONFIG_WATCHDOG_PERIOD_MS -
-			 CONFIG_WATCHDOG_WARNING_LEADING_TIME_MS);
+	ccprintf("Period: %u ms\n", watchdog_effective_period_ms());
+	ccprintf("Warning Period: %u ms\n",
+		 watchdog_effective_warning_period_ms());
 	ccprintf("Reload Period Nominal: %d ms\n", HOOK_TICK_INTERVAL / MSEC);
 
 	uint32_t key = irq_lock();

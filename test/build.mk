@@ -145,6 +145,7 @@ test-list-host += utils_str
 test-list-host += vboot
 test-list-host += version
 test-list-host += watchdog_info
+test-list-host += watchdog_info_extended
 test-list-host += x25519
 -include ../ec-private/test/build.mk
 endif
@@ -354,6 +355,7 @@ vboot-y=vboot.o
 version-y += version.o
 watchdog-y=watchdog.o
 watchdog_info-y=watchdog_info.o
+watchdog_info_extended-y=watchdog_info.o
 float-y=fp.o
 fp-y=fp.o
 x25519-y=x25519.o
