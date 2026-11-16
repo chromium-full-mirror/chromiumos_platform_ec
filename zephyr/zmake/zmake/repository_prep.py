@@ -681,9 +681,9 @@ def copy_outputs_back(shadow_co, real_co, ec_rel):
         dst_path = real_ec / src_path.name
         logger.info("Copying %s back to real checkout...", src_path.name)
         if src_path.is_dir():
+            fix_symlinks(src_path, shadow_co, real_co)
+            fix_lcov_info_paths(src_path, shadow_co, real_co)
             _copytree_overwrite(src_path, dst_path)
-            fix_symlinks(dst_path, shadow_co, real_co)
-            fix_lcov_info_paths(dst_path, shadow_co, real_co)
         else:
             shutil.copy2(src_path, dst_path)
 

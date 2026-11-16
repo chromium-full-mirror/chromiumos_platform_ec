@@ -527,6 +527,10 @@ def test_copy_outputs_back_merges_and_fixes_lcov_paths(tmp_path):
     real_build = real_co / ec_rel / "build"
     (real_build / "board_a").mkdir(parents=True)
     (real_build / "board_a" / "ec.bin").write_text("bin_a\n", encoding="utf-8")
+    (real_build / "board_a" / "a.info").write_text(
+        f"SF:{shadow_co}/a.c\n", encoding="utf-8"
+    )
+    os.symlink(shadow_co / "a.c", real_build / "board_a" / "a.c")
     (real_build / "sym_dir").mkdir(parents=True)
     (real_build / "sym_dir" / "old.txt").write_text("old\n", encoding="utf-8")
 
@@ -535,6 +539,7 @@ def test_copy_outputs_back_merges_and_fixes_lcov_paths(tmp_path):
     (shadow_build / "board_b" / "ec.bin").write_text(
         "bin_b\n", encoding="utf-8"
     )
+    os.symlink(shadow_co / "b.c", shadow_build / "board_b" / "b.c")
     os.symlink(real_build / "board_a", shadow_build / "sym_dir")
     (shadow_build / "lcov.info").write_text(
         f"SF:{shadow_co}/src/platform/ec/main.c\n"
@@ -563,6 +568,11 @@ def test_copy_outputs_back_merges_and_fixes_lcov_paths(tmp_path):
         f"SF:{shadow_co}_other/src/platform/ec/main.c\n"
         "end_of_record\n"
     )
+    assert (real_build / "board_a" / "a.info").read_text(
+        encoding="utf-8"
+    ) == f"SF:{shadow_co}/a.c\n"
+    assert os.readlink(real_build / "board_a" / "a.c") == str(shadow_co / "a.c")
+    assert os.readlink(real_build / "board_b" / "b.c") == str(real_co / "b.c")
 
 
 def test_create_shadow_checkout_and_fix_symlinks(cros_checkout, tmp_path):
