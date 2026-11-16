@@ -50,6 +50,7 @@ from contextlib import suppress
 import copy
 from dataclasses import dataclass
 from dataclasses import field
+from datetime import timedelta
 from enum import Enum
 import errno
 import io
@@ -270,7 +271,7 @@ class BoardConfig:
     rollback_region0_regex: re.Pattern[str]
     rollback_region1_regex: re.Pattern[str]
     mpu_regex: re.Pattern[str]
-    reboot_timeout: float
+    reboot_timeout: timedelta
     fp_power_supply: str
     mcu_power_supply: str
     expected_fp_power: PowerUtilization
@@ -1264,7 +1265,7 @@ BLOONCHIPPER_CONFIG = BoardConfig(
     servo_uart_name="raw_fpmcu_console_uart_pty",
     servo_power_enable="fpmcu_pp3300",
     # TODO(b/410057326): add polling logic to reboot to RW, then decrease this timeout to 2s.
-    reboot_timeout=4.0,
+    reboot_timeout=timedelta(seconds=4),
     rollback_region0_regex=DATA_ACCESS_VIOLATION_8020000_REGEX,
     rollback_region1_regex=DATA_ACCESS_VIOLATION_8040000_REGEX,
     mpu_regex=DATA_ACCESS_VIOLATION_20000000_REGEX,
@@ -1300,7 +1301,7 @@ DARTMONKEY_CONFIG = BoardConfig(
     architecture=Architecture.ARM,
     servo_uart_name="raw_fpmcu_console_uart_pty",
     servo_power_enable="fpmcu_pp3300",
-    reboot_timeout=1.0,
+    reboot_timeout=timedelta(seconds=1),
     rollback_region0_regex=DATA_ACCESS_VIOLATION_80C0000_REGEX,
     rollback_region1_regex=DATA_ACCESS_VIOLATION_80E0000_REGEX,
     mpu_regex=DATA_ACCESS_VIOLATION_24000000_REGEX,
@@ -1335,7 +1336,7 @@ HELIPILOT_CONFIG = BoardConfig(
     architecture=Architecture.ARM,
     servo_uart_name="raw_fpmcu_console_uart_pty",
     servo_power_enable="fpmcu_pp3300",
-    reboot_timeout=3,
+    reboot_timeout=timedelta(seconds=3),
     rollback_region0_regex=DATA_ACCESS_VIOLATION_64020000_REGEX,
     rollback_region1_regex=DATA_ACCESS_VIOLATION_64030000_REGEX,
     mpu_regex=DATA_ACCESS_VIOLATION_200B0000_REGEX,
@@ -1391,7 +1392,7 @@ SANOK_CONFIG = BoardConfig(
     servo_uart_name="raw_fpmcu_console_uart_pty",
     servo_power_enable="fpmcu_pp3300",
     # TODO(b/410057326): use polling instead of hardcoded timeout
-    reboot_timeout=5.0,
+    reboot_timeout=timedelta(seconds=5),
     # TODO(b/468406461): configure rollback regex.
     rollback_region0_regex=NEVER_MATCH_REGEX,
     rollback_region1_regex=NEVER_MATCH_REGEX,
@@ -1421,7 +1422,7 @@ CHUDOW_CONFIG = BoardConfig(
     architecture=Architecture.ARM,
     servo_uart_name="raw_fpmcu_console_uart_pty",
     servo_power_enable="fpmcu_pp3300",
-    reboot_timeout=2.0,
+    reboot_timeout=timedelta(seconds=2),
     # TODO(b/485656019): configure rollback regex.
     rollback_region0_regex=NEVER_MATCH_REGEX,
     rollback_region1_regex=NEVER_MATCH_REGEX,
@@ -1525,9 +1526,9 @@ def power_cycle(platform: Platform, board_config: BoardConfig) -> None:
     """power_cycle the boards."""
     logging.debug("power_cycling board")
     platform.power(board_config, power_on=False)
-    time.sleep(board_config.reboot_timeout)
+    time.sleep(board_config.reboot_timeout.total_seconds())
     platform.power(board_config, power_on=True)
-    time.sleep(board_config.reboot_timeout)
+    time.sleep(board_config.reboot_timeout.total_seconds())
 
 
 def fp_sensor_sel(
@@ -1831,21 +1832,20 @@ def run_test(
     """Run specified test."""
     start = time.monotonic()
 
-    reboot_timeout = board_config.reboot_timeout
     logging.debug("Calling pre-test callback")
     if not test.pre_test_callback(board_config):
         logging.error("pre-test callback failed, aborting")
         return False
 
     # Wait for boot to finish
-    time.sleep(reboot_timeout)
+    time.sleep(board_config.reboot_timeout.total_seconds())
 
     if test.apptype_to_use != ApplicationType.PRODUCTION:
         console.write("\n".encode())
 
     if test.imagetype_to_use == ImageType.RO:
         console.write("reboot ro\n".encode())
-        time.sleep(reboot_timeout)
+        time.sleep(board_config.reboot_timeout.total_seconds())
 
     # Skip runtest if using standard app type
     if test.apptype_to_use != ApplicationType.PRODUCTION:
