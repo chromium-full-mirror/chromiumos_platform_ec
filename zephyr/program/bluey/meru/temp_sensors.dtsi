@@ -40,12 +40,24 @@
 	named-temp-sensors {
 		compatible = "cros-ec,temp-sensors";
 		temp_cpu: cpu {
+			temp-host-warn = <75>;
+			temp-host-high = <82>;
+			temp-host-halt = <95>;
+			temp-host-release-warn = <70>;
+			temp-host-release-high = <77>;
+			temp-host-release-halt = <90>;
 			sensor = <&temp_sensor_cpu>;
 		};
 		temp_core: core {
 			sensor = <&temp_sensor_core>;
 		};
 		temp_charger: charger {
+			temp-host-warn = <80>;
+			temp-host-high = <85>;
+			temp-host-halt = <95>;
+			temp-host-release-warn = <75>;
+			temp-host-release-high = <80>;
+			temp-host-release-halt = <90>;
 			sensor = <&temp_sensor_charger>;
 		};
 		temp_ambient: ambient {
