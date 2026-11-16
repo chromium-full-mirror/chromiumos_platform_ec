@@ -446,8 +446,9 @@ enum power_state power_handle_state(enum power_state state)
 
 	case POWER_S0:
 #ifdef CONFIG_PLATFORM_EC_POWERSEQ_MTK_FW_SUSPEND
-		/* Off state exited. */
-		is_exiting_off = false;
+		/* Off state exited once AP releases suspend signal. */
+		if (!(power_get_signals() & IN_SUSPEND_ASSERTED))
+			is_exiting_off = false;
 #endif
 		if (next_state != POWER_S0)
 			return POWER_S0S3;

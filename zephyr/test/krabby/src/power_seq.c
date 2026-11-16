@@ -166,13 +166,19 @@ ZTEST(power_seq, test_power_state_machine)
 	power_set_state(POWER_G3);
 	set_signal_state(POWER_S3);
 	if (IS_ENABLED(CONFIG_PLATFORM_EC_POWERSEQ_MTK_FW_SUSPEND)) {
+		/* Stay in S0 across wakes until AP releases AP_IN_SLEEP_L */
 		zassert_equal(power_get_state(), POWER_S0);
 		task_wake(TASK_ID_CHIPSET);
 		k_sleep(K_SECONDS(1));
-		zassert_equal(power_get_state(), POWER_S3);
-	} else {
-		zassert_equal(power_get_state(), POWER_S3);
+		zassert_equal(power_get_state(), POWER_S0);
+		zassert_equal(chipset_suspend_hook_fake.call_count, 0);
+
+		set_signal_state(POWER_S0);
+		zassert_equal(power_get_state(), POWER_S0);
+		set_signal_state(POWER_S3);
+		zassert_equal(chipset_suspend_hook_fake.call_count, 1);
 	}
+	zassert_equal(power_get_state(), POWER_S3);
 
 	/* S3 -> S0 */
 	power_set_state(POWER_S3);
@@ -431,11 +437,8 @@ ZTEST(power_seq, test_chipset_reset_in_s3)
 		gpio_get_dt_spec(GPIO_AP_EC_SYSRST_ODL);
 
 	/* Boot AP */
+	set_signal_state(POWER_S0);
 	set_signal_state(POWER_S3);
-	if (IS_ENABLED(CONFIG_PLATFORM_EC_POWERSEQ_MTK_FW_SUSPEND)) {
-		task_wake(TASK_ID_CHIPSET);
-		k_sleep(K_SECONDS(1));
-	}
 	zassert_equal(power_get_state(), POWER_S3);
 	RESET_FAKE(chipset_resume_hook);
 	/* Clear reset reason */
