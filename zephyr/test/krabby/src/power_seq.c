@@ -28,6 +28,8 @@ FAKE_VOID_FUNC(chipset_startup_hook);
 DECLARE_HOOK(HOOK_CHIPSET_STARTUP, chipset_startup_hook, HOOK_PRIO_DEFAULT);
 FAKE_VOID_FUNC(chipset_resume_hook);
 DECLARE_HOOK(HOOK_CHIPSET_RESUME, chipset_resume_hook, HOOK_PRIO_DEFAULT);
+FAKE_VOID_FUNC(chipset_suspend_hook);
+DECLARE_HOOK(HOOK_CHIPSET_SUSPEND, chipset_suspend_hook, HOOK_PRIO_DEFAULT);
 FAKE_VALUE_FUNC(int, system_jumped_late);
 FAKE_VALUE_FUNC(int, system_can_boot_ap);
 
@@ -150,6 +152,7 @@ static void power_seq_before(void *f)
 	RESET_FAKE(chipset_pre_init_hook);
 	RESET_FAKE(chipset_startup_hook);
 	RESET_FAKE(chipset_resume_hook);
+	RESET_FAKE(chipset_suspend_hook);
 	RESET_FAKE(system_jumped_late);
 	RESET_FAKE(system_can_boot_ap);
 	system_can_boot_ap_fake.return_val = 1;
@@ -182,6 +185,21 @@ ZTEST(power_seq, test_power_state_machine)
 	zassert_equal(power_get_state(), POWER_S5);
 	k_sleep(K_SECONDS(S5_INACTIVE_SEC));
 	zassert_equal(power_get_state(), POWER_G3);
+}
+
+/* Verify chipset_power_on() in S0 does not arm is_exiting_off */
+ZTEST(power_seq, test_chipset_power_on_in_s0)
+{
+	set_signal_state(POWER_S0);
+	zassert_equal(power_get_state(), POWER_S0);
+
+	chipset_power_on();
+	set_signal_state(POWER_S3);
+	zassert_equal(power_get_state(), POWER_S3);
+	zassert_equal(chipset_suspend_hook_fake.call_count, 1);
+
+	set_signal_state(POWER_G3);
+	zassert_equal(power_get_state(), POWER_S5);
 }
 
 /* Verify power btn short press can boot the device */

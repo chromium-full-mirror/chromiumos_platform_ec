@@ -240,6 +240,9 @@ DECLARE_DEFERRED(chipset_force_shutdown_button);
 
 void chipset_power_on(void)
 {
+	if (!chipset_in_or_transitioning_to_state(CHIPSET_STATE_ANY_OFF))
+		return;
+
 	is_exiting_off = true;
 	chipset_exit_hard_off();
 }
