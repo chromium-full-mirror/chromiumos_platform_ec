@@ -6,11 +6,16 @@
 #include "../../../../program/ec-aic/rtk-aic/project.overlay"
 
 &i2c_3 {
-	scl-timeout-value = <400>;
-	sda-timeout-value = <400>;
+	/*
+	 * Set the hardware stuck-low timeouts above the 500ms clock stretch
+	 * test duration. The effective I2C transfer timeout is 400ms due to
+	 * CONFIG_I2C_TRANSFER_TIMEOUT_MS=400 in prj.conf.
+	 */
+	scl-timeout-value = <1000>;
+	sda-timeout-value = <1000>;
 
 	dagwood_eeprom: dagwood-eeprom@50 {
 		compatible = "vnd.i2c-device";
-                reg = <0x50>;
+		reg = <0x50>;
 	};
 };

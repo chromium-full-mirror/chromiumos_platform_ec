@@ -196,3 +196,85 @@ ZTEST_F(aic_i2c, test_i2c_clock_stretch_500ms_timeout)
 	elapsed_ms = k_uptime_get_32() - start_time;
 	LOG_INF("Recovery read took %u ms", elapsed_ms);
 }
+
+static struct k_work_delayable preempt_work;
+
+static void preempt_work_handler(struct k_work *work)
+{
+	ARG_UNUSED(work);
+
+	/*
+	 * Busy-wait in the high-priority system workqueue thread across the
+	 * 400ms software transfer timeout and the 500ms target clock stretch
+	 * completion (from ~395ms to ~525ms). This delays the I2C transfer
+	 * thread from cleaning up the timed-out transaction until after the
+	 * target releases SCL and the hardware completes the transfer.
+	 */
+	k_busy_wait(130 * USEC_PER_MSEC);
+}
+
+ZTEST_F(aic_i2c, test_i2c_timeout_stale_sem)
+{
+	const struct i2c_dt_spec *i2c_spec = &fixture->dagwood_eeprom;
+	uint8_t read_byte = 0;
+	uint32_t start_time;
+	uint32_t elapsed_ms;
+	int ret;
+
+	LOG_INF("Testing timeout recovery when transfer completes while preempted");
+
+	/* Set known values in target memory */
+	zassert_ok(i2c_reg_write_byte_dt(i2c_spec, I2C_STRETCH_500MS_OFFSET,
+					 0x3c));
+	zassert_ok(i2c_reg_write_byte_dt(i2c_spec, I2C_GOOD_OFFSET, 0xa5));
+
+	/*
+	 * Lower the current thread priority below the cooperative system
+	 * workqueue and schedule work just before the 400ms transfer timeout
+	 * so the I2C thread is preempted when the timeout expires.
+	 */
+	int orig_prio = k_thread_priority_get(k_current_get());
+
+	k_thread_priority_set(k_current_get(), K_PRIO_PREEMPT(5));
+	k_work_init_delayable(&preempt_work, preempt_work_handler);
+	k_work_schedule(&preempt_work, K_MSEC(395));
+
+	/*
+	 * Transfer A: Read from I2C_STRETCH_500MS_OFFSET.
+	 * The target stretches the clock for 500ms, exceeding the 400ms
+	 * transfer timeout while preempt_work keeps the CPU busy until 525ms.
+	 * At 500ms, the target releases SCL and the transfer completes on the
+	 * bus before the preempted I2C thread resumes to abort the transfer.
+	 */
+	start_time = k_uptime_get_32();
+	ret = i2c_reg_read_byte_dt(i2c_spec, I2C_STRETCH_500MS_OFFSET,
+				   &read_byte);
+	elapsed_ms = k_uptime_get_32() - start_time;
+	k_work_cancel_delayable(&preempt_work);
+	k_thread_priority_set(k_current_get(), orig_prio);
+
+	LOG_INF("Transfer A (500ms stretch) returned %d, took %u ms", ret,
+		elapsed_ms);
+	zassert_not_equal(ret, 0, "Expected Transfer A to fail with timeout");
+	zassert_true(elapsed_ms >= 450,
+		     "Transfer A completed too quickly: %u ms < 450 ms",
+		     elapsed_ms);
+
+	/*
+	 * Transfer B: Read from I2C_GOOD_OFFSET (which returns 0xa5).
+	 * Verify that late completion of Transfer A does not leave stale
+	 * completion state in the driver that causes Transfer B to return
+	 * early before receiving data from the target.
+	 */
+	read_byte = 0x00;
+	start_time = k_uptime_get_32();
+	ret = i2c_reg_read_byte_dt(i2c_spec, I2C_GOOD_OFFSET, &read_byte);
+	elapsed_ms = k_uptime_get_32() - start_time;
+	LOG_INF("Transfer B returned %d, took %u ms, read_byte=0x%02x", ret,
+		elapsed_ms, read_byte);
+
+	zassert_ok(ret, "Transfer B failed: %d", ret);
+	zassert_equal(read_byte, 0xa5,
+		      "Transfer B returned stale data 0x%02x instead of 0xa5!",
+		      read_byte);
+}
