@@ -92,6 +92,9 @@ struct fan_conf {
 	/* set fan_force_off true for fans which keep spinning
 	 * with minimum rpm at dutycycle 0 due to specs limitation */
 	bool fan_force_off;
+	/* Initial fan speed percentage when entering active power state (S0).
+	 */
+	int init_speed;
 };
 
 struct fan_rpm {

@@ -689,9 +689,10 @@ static void pwm_fan_control(int enable)
 		set_thermal_control_enabled(fan, enable);
 		fan_set_rpm_target(
 			FAN_CH(fan),
-			enable ? fan_percent_to_rpm(FAN_CH(fan),
-						    CONFIG_FAN_INIT_SPEED) :
-				 0);
+			enable ?
+				fan_percent_to_rpm(FAN_CH(fan),
+						   fans[fan].conf->init_speed) :
+				0);
 		set_enabled(fan, enable);
 	}
 }

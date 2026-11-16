@@ -29,6 +29,13 @@ child-binding:
       type: int
       description:
         Percentage of fan rpm deviation
+    init-speed:
+      default: 100
+      type: int
+      min: 0
+      max: 100
+      description:
+        Initial fan speed percentage when entering active power state (S0).
     pwms:
       type: phandle-array
       required: true

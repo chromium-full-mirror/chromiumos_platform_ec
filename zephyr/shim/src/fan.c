@@ -39,6 +39,7 @@ BUILD_ASSERT(DT_NUM_INST_STATUS_OKAY(DT_DRV_COMPAT) == 1,
 			(GPIO_SIGNAL(DT_PHANDLE(node_id, enable_gpio))),       \
 			(GPIO_UNIMPLEMENTED)),                                 \
 		.fan_force_off = DT_PROP(node_id, fan_force_off),              \
+		.init_speed = DT_PROP(node_id, init_speed),                    \
 	};                                                                     \
 	const struct fan_rpm node_id##_rpm = {                                 \
 		.rpm_min = DT_PROP(node_id, rpm_min),                          \

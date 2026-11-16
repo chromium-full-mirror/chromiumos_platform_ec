@@ -6,6 +6,7 @@
 #include "ec_commands.h"
 #include "fan.h"
 #include "gpio.h"
+#include "hooks.h"
 #include "include/power.h"
 #include "test/drivers/test_state.h"
 #include "test/drivers/utils.h"
@@ -55,6 +56,15 @@ ZTEST_SUITE(fan_common, drivers_predicate_post_main, fan_common_setup,
 ZTEST(fan_common, test_faninfo)
 {
 	CHECK_CONSOLE_CMD("faninfo", "Duty:", EC_SUCCESS);
+}
+
+ZTEST(fan_common, test_fan_init_speed)
+{
+	zassert_equal(fans[0].conf->init_speed, 60);
+
+	/* Resume handling should apply the per-fan DTS initial speed. */
+	hook_notify(HOOK_CHIPSET_RESUME);
+	zassert_equal(fan_get_rpm_target(0), fan_percent_to_rpm(0, 60));
 }
 
 ZTEST(fan_common, test_fanauto)
