@@ -542,6 +542,7 @@ static void timestamp_spread(struct ec_response_motion_sensor_data *data,
 void motion_sense_fifo_commit_data(void)
 {
 	struct ec_response_motion_sensor_data *data;
+	int out_of_order = 0;
 	int i, sensor_num;
 
 	/* Nothing staged, no work to do. */
@@ -602,8 +603,7 @@ commit_data_end:
 
 		/* Verify we're pointing at a timestamp. */
 		if (!is_timestamp(data)) {
-			CPRINTS("FIFO entries out of order,"
-				" expected timestamp");
+			out_of_order++;
 			continue;
 		}
 
@@ -621,6 +621,10 @@ commit_data_end:
 	memset(&fifo_staged, 0, sizeof(fifo_staged));
 
 	k_mutex_unlock(&g_sensor_mutex);
+
+	if (out_of_order)
+		CPRINTS("%d FIFO entries out of order, missing timestamp",
+			out_of_order);
 }
 
 void motion_sense_fifo_get_info(

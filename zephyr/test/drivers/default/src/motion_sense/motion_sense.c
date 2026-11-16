@@ -5,6 +5,7 @@
 
 #include "accelgyro.h"
 #include "chipset.h"
+#include "console.h"
 #include "ec_commands.h"
 #include "hooks.h"
 #include "host_command.h"
@@ -15,7 +16,11 @@
 #include "test/drivers/test_mocks.h"
 #include "test/drivers/test_state.h"
 
+#include <string.h>
+
 #include <zephyr/fff.h>
+#include <zephyr/shell/shell.h>
+#include <zephyr/shell/shell_dummy.h>
 #include <zephyr/ztest.h>
 
 extern enum chipset_state_mask sensor_active;
@@ -85,7 +90,7 @@ ZTEST_USER(motion_sense, test_ec_motion_sense_get_ec_config)
  */
 ZTEST_USER(motion_sense, test_fifo_data_validation)
 {
-	struct ec_response_motion_sensor_data data;
+	struct ec_response_motion_sensor_data data = { 0 };
 
 	/* Insert just one data entry, no timestamp. */
 	data.flags = 0;
@@ -93,6 +98,42 @@ ZTEST_USER(motion_sense, test_fifo_data_validation)
 
 	fifo_stage_unit(&data, NULL, 0);
 	motion_sense_fifo_commit_data();
+}
+
+ZTEST(motion_sense, test_fifo_out_of_order_coalesced)
+{
+	struct ec_response_motion_sensor_data out[4] = { 0 };
+	struct ec_response_motion_sensor_data entry = {
+		.flags = 0,
+		.sensor_num = 0,
+	};
+	const char *expected = "2 FIFO entries out of order, missing timestamp";
+	const char *buffer, *match;
+	size_t buffer_size = 0;
+	uint16_t data_bytes_read = 0;
+	int read_count;
+
+	console_channel_enable("motionsense");
+	shell_backend_dummy_clear_output(get_ec_shell());
+
+	for (int i = 0; i < 3; i++) {
+		entry.data[0] = i + 1;
+		fifo_stage_unit(&entry, NULL, 0);
+	}
+	motion_sense_fifo_commit_data();
+
+	buffer = shell_backend_dummy_get_output(get_ec_shell(), &buffer_size);
+	match = strstr(buffer, expected);
+	zassert_not_null(match);
+	zassert_is_null(
+		strstr(match + strlen(expected), "FIFO entries out of order"));
+
+	read_count =
+		motion_sense_fifo_read(sizeof(out), 4, out, &data_bytes_read);
+	zassert_equal(read_count, 3);
+	for (int i = 0; i < 3; i++) {
+		zassert_equal(out[i].data[0], i + 1);
+	}
 }
 
 ZTEST(motion_sense, test_fifo_insert_async_event)
