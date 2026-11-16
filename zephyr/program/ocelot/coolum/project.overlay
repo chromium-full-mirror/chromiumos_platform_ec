@@ -28,6 +28,7 @@
 #include "power_signals.dtsi"
 #include "thermal.dtsi"
 #include "usbc.dtsi"
+#include "lightbar.dtsi"
 
 /* Power sequencing */
 gpio_ec_pch_wake_odl: &gpio_ec_soc_wake_odl {};
