@@ -146,7 +146,14 @@ class IteI2cFlasher(_IteBaseFlasher):
         if self.servo.has_control("dut_i2c_mux"):
             logger.info("Switching DUT I2C Mux to ec_prog")
             self.servo.save_state("dut_i2c_mux")
-            self.servo.set("dut_i2c_mux", "ec_prog")
+            try:
+                self.servo.set("dut_i2c_mux", "ec_prog")
+            except ServoError as err:
+                logger.warning(
+                    "dut_i2c_mux did not respond (unpopulated on board); "
+                    "skipping mux switch: %s",
+                    err,
+                )
 
         if self.servo.has_control("dut_i2c_en"):
             logger.info("Enabling I2C programming")

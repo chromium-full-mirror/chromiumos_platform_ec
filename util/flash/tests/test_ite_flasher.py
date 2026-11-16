@@ -86,8 +86,8 @@ class TestIteI2cFlasher(unittest.TestCase):
             return default
 
         def mock_set(key: str, _val: str) -> None:
-            if key == "gsc_uart_cmd":
-                raise ServoError("gsc_uart_cmd failed")
+            if key in ("gsc_uart_cmd", "dut_i2c_mux"):
+                raise ServoError(f"{key} failed")
 
         self.servo.get.side_effect = mock_get
         self.servo.set.side_effect = mock_set

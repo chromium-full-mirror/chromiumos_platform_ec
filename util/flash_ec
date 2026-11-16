@@ -1821,8 +1821,13 @@ function flash_it83xx() {
 	# there is a mux on the dut)
 	if servo_has_dut_i2c_mux; then
 		info "Switching DUT I2C Mux to ${CHIP}"
-		servo_save_add "dut_i2c_mux"
-		dut_control dut_i2c_mux:ec_prog
+		if "${DUT_CONTROL_CMD[@]}" "${DUT_CTRL_PREFIX}dut_i2c_mux" \
+			>/dev/null 2>&1; then
+			servo_save_add "dut_i2c_mux"
+			dut_control dut_i2c_mux:ec_prog
+		else
+			warn "dut_i2c_mux did not respond; skipping mux switch"
+		fi
 	fi
 
 	# The board overlay defines "dut_i2c_en" if there is a signal that
