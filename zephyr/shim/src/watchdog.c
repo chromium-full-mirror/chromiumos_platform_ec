@@ -169,8 +169,7 @@ void watchdog_reload(void)
 	 * from an ISR */
 	if (IS_ENABLED(CONFIG_PLATFORM_EC_HOSTCMD_WATCHDOG_INFO) ||
 	    IS_ENABLED(CONFIG_PLATFORM_EC_CONSOLE_CMD_WATCHDOG_INFO)) {
-		K_SPINLOCK(&watchdog_stats_lock)
-		{
+		K_SPINLOCK(&watchdog_stats_lock) {
 			int32_t elapsed_ms = (int32_t)k_uptime_delta(
 				&watchdog_reload_last_ts_ms);
 			watchdog_reload_count++;
@@ -300,8 +299,7 @@ static void reset_watchdog_stats(void)
 {
 	if (IS_ENABLED(CONFIG_PLATFORM_EC_HOSTCMD_WATCHDOG_INFO) ||
 	    IS_ENABLED(CONFIG_PLATFORM_EC_CONSOLE_CMD_WATCHDOG_INFO)) {
-		K_SPINLOCK(&watchdog_stats_lock)
-		{
+		K_SPINLOCK(&watchdog_stats_lock) {
 			watchdog_stats_reset_ts_ms = watchdog_reload_last_ts_ms;
 			watchdog_reload_period_max_ts_ms = 0;
 			watchdog_reload_period_max_ms = 0;
@@ -325,8 +323,7 @@ hostcmd_watchdog_info(struct ec_host_cmd_handler_args *args)
 	r->watchdog_warning_period_ms = CONFIG_AUX_TIMER_PERIOD_MS;
 	r->watchdog_reload_period_nominal_ms =
 		HOOK_TICK_INTERVAL / USEC_PER_MSEC;
-	K_SPINLOCK(&watchdog_stats_lock)
-	{
+	K_SPINLOCK(&watchdog_stats_lock) {
 		r->watchdog_reload_period_max_ms =
 			watchdog_reload_period_max_ms;
 		r->watchdog_reload_period_max_ts_ms =
@@ -363,8 +360,7 @@ static void print_watchdog_info(const struct shell *shell)
 	shell_print(shell, "Warning Period: %d ms", CONFIG_AUX_TIMER_PERIOD_MS);
 	shell_print(shell, "Reload Period Nominal: %d ms",
 		    HOOK_TICK_INTERVAL / USEC_PER_MSEC);
-	K_SPINLOCK(&watchdog_stats_lock)
-	{
+	K_SPINLOCK(&watchdog_stats_lock) {
 		elapsed =
 			watchdog_reload_last_ts_ms - watchdog_stats_reset_ts_ms;
 		count = watchdog_reload_count;
