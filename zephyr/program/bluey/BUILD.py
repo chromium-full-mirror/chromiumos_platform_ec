@@ -8,6 +8,8 @@
 def register_npcx9_project(
     project_name,
     zephyr_board="npcx9/npcx9m7f",
+    dts_overlays=None,
+    kconfig_files=None,
     extra_kconfig_files=(),
     boards=None,
     extra_modules=(),
@@ -15,21 +17,25 @@ def register_npcx9_project(
     """Register an npcx9 based variant of bluey."""
     if boards is None:
         boards = ["bluey"]
-
-    register_npcx_project(
-        project_name=project_name,
-        zephyr_board=zephyr_board,
-        dts_overlays=[
+    if dts_overlays is None:
+        dts_overlays = [
             here / project_name / "project.overlay",
-        ],
-        kconfig_files=[
+        ]
+    if kconfig_files is None:
+        kconfig_files = [
             # Common to all projects.
             here / "program.conf",
             # Project-specific KConfig customization.
             here / project_name / "project.conf",
             # Additional project-specific KConfig customization.
             *extra_kconfig_files,
-        ],
+        ]
+
+    return register_npcx_project(
+        project_name=project_name,
+        zephyr_board=zephyr_board,
+        dts_overlays=dts_overlays,
+        kconfig_files=kconfig_files,
         boards=boards,
         modules=["cmsis_6", "ec", *extra_modules],
     )
@@ -70,6 +76,25 @@ register_npcx9_project(
 register_npcx9_project(
     project_name="pic",
     zephyr_board="npcx9/npcx9m7fb",
+    dts_overlays=[
+        here / "pic" / "project.overlay",
+        here / "pic" / "keyboard.dtsi",
+    ],
+    extra_modules=["nanopb", "pigweed"],
+)
+
+register_npcx9_project(
+    project_name="pics",
+    zephyr_board="npcx9/npcx9m7fb",
+    dts_overlays=[
+        here / "pic" / "project.overlay",
+        here / "pics" / "keyboard.dtsi",
+    ],
+    kconfig_files=[
+        here / "program.conf",
+        here / "pic" / "project.conf",
+        here / "pics" / "project.conf",
+    ],
     extra_modules=["nanopb", "pigweed"],
 )
 
@@ -88,4 +113,5 @@ assert_rw_fwid_DO_NOT_EDIT(project_name="mica", addr=0x40144)
 assert_rw_fwid_DO_NOT_EDIT(project_name="annite", addr=0x40144)
 assert_rw_fwid_DO_NOT_EDIT(project_name="aneto", addr=0x40144)
 assert_rw_fwid_DO_NOT_EDIT(project_name="pic", addr=0x40144)
+assert_rw_fwid_DO_NOT_EDIT(project_name="pics", addr=0x40144)
 assert_rw_fwid_DO_NOT_EDIT(project_name="meru", addr=0x40144)
