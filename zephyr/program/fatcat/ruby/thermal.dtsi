@@ -49,6 +49,7 @@
 			rpm-max = <4300>;
 			tach = <&tach1>;
 			enable-gpio = <&gpio_en_pp5000_fan>;
+			init-speed = <50>;
 		};
 	};
  };
