@@ -682,6 +682,7 @@ declare -a DELETE_LIST 	# Array of file/dir names to delete at exit
 
 # Put back the servo and the system in a clean state at exit
 FROZEN_PIDS=""
+USBC_CHARGING_ACTIVE=0
 cleanup() {
 	local exit_status=$?
 
@@ -735,6 +736,17 @@ cleanup() {
 		fi
 	fi
 
+	if [[ "${USBC_CHARGING_ACTIVE}" -eq 1 ]]; then
+		dut_control cold_reset:on || true
+		info "Restoring servo_v4 to PD charging"
+		dut_control servo_pd_role:src
+
+		info "Disconnect/reconnect CC lines to reconnect CCD"
+		dut_control servo_v4p1_uart_cmd:"cc off"
+		dut_control servo_v4p1_uart_cmd:"cc on"
+		print_or_run sleep 2
+	fi
+
 	servo_restore
 
 	if [ "${CHIP}" = "stm32" ] || [ "${CHIP}" = "npcx_uut" ]; then
@@ -746,7 +758,12 @@ cleanup() {
 		dut_control ccd_ec_boot_mode_bitbang:off
 	fi
 
-	if ! on_raiden || servo_has_cold_reset; then
+	if [[ "${USBC_CHARGING_ACTIVE}" -eq 1 ]]; then
+		# Allow 15V USB-PD negotiation to reach PE_SNK_Ready; skip
+		# ec_reset since resetting EC while Rd stays asserted triggers
+		# a PE_SNK_Hard_Reset VBUS drop.
+		print_or_run sleep 3
+	elif ! on_raiden || servo_has_cold_reset; then
 		ec_reset
 	fi
 
@@ -1848,20 +1865,21 @@ function flash_it83xx() {
 
 	if [[ "${SERVO_TYPE}" =~ "servo_v4" && \
 	      "${FLAGS_usbc_charging}" == "${FLAGS_TRUE}" ]]; then
-	      	# Put the EC into reset so we know the AP is off.
-		# This prevents a brown-out when we switch to non-PD
-		# charging.
+		# Put the EC into reset so the AP stays off and avoids a
+		# brown-out when switching to non-PD charging.
 		dut_control cold_reset:on
 
 		info "Disable CCD watchdog"
 		dut_control watchdog_remove:"${ACTIVE_DEVICE}"
 		info "Switching servo_v4 to USB-C (non-PD) charging"
+		USBC_CHARGING_ACTIVE=1
 		dut_control usbc_charging:1A5
-		sleep 2
+		print_or_run sleep 2
 
 		info "Disconnect/reconnect CC lines to reconnect CCD"
 		dut_control servo_v4p1_uart_cmd:"cc off"
 		dut_control servo_v4p1_uart_cmd:"cc on"
+		print_or_run sleep 2
 
 		dut_control cold_reset:off
 	fi
@@ -1943,16 +1961,6 @@ function flash_it83xx() {
 	fi
 
 	run_iteflash "${ITEFLASH_ARGS[@]}" || die "${ERROR_MSG}"
-
-	if [[ "${SERVO_TYPE}" =~ "servo_v4" && \
-	      "${FLAGS_usbc_charging}" == "${FLAGS_TRUE}" ]]; then
-		info "Restoring servo_v4 to PD charging"
-		dut_control servo_pd_role:src
-
-		info "Disconnect/reconnect CC lines to reconnect CCD"
-		dut_control servo_v4p1_uart_cmd:"cc off"
-		dut_control servo_v4p1_uart_cmd:"cc on"
-	fi
 }
 
 #
