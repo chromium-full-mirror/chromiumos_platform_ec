@@ -1684,6 +1684,34 @@ ZTEST_USER(pdc_power_mgmt_api, test_get_task_state_name_attached_src)
 		wait_state_name(TEST_PORT, PDC_SRC_ATTACHED, "Attached.SRC"));
 }
 
+ZTEST_USER(pdc_power_mgmt_api, test_get_task_state)
+{
+	/* Out-of-range ports return PDC_INVALID. */
+	zassert_equal(PDC_INVALID, pd_get_task_state(-1));
+	zassert_equal(0, strcmp("PDC Invalid", pd_get_task_state_name(-1)));
+	zassert_equal(PDC_INVALID,
+		      pd_get_task_state(CONFIG_USB_PD_PORT_MAX_COUNT));
+	zassert_equal(0, strcmp("PDC Invalid",
+				pd_get_task_state_name(
+					CONFIG_USB_PD_PORT_MAX_COUNT)));
+
+	zassert_true(wait_state_name(TEST_PORT, PDC_UNATTACHED, "Unattached"));
+
+	/* Delay emulator response so the triggered connector status check stays
+	 * in PDC_SEND_CMD_WAIT while querying the task state, verifying that
+	 * send_cmd_return_state is reported instead of the transient cmd state.
+	 */
+	zassert_ok(emul_pdc_set_response_delay(emul, 100));
+	zassert_equal(-ETIMEDOUT, pdc_power_mgmt_wait_for_sync(TEST_PORT, 20));
+
+	zassert_equal(PDC_UNATTACHED, pd_get_task_state(TEST_PORT));
+	zassert_equal(0,
+		      strcmp("Unattached", pd_get_task_state_name(TEST_PORT)));
+
+	zassert_ok(emul_pdc_set_response_delay(emul, 0));
+	zassert_ok(pdc_power_mgmt_wait_for_sync(TEST_PORT, -1));
+}
+
 ZTEST_USER(pdc_power_mgmt_api, test_get_connector_status)
 {
 	union connector_status_t in = {}, out = {};
