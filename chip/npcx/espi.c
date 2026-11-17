@@ -10,6 +10,7 @@
 #include "task.h"
 #include "chipset.h"
 #include "console.h"
+#include "keyboard_8042.h"
 #include "uart.h"
 #include "util.h"
 #include "power.h"
@@ -458,8 +459,13 @@ void espi_vw_evt_pltrst(void)
 		/* Enable eSPI peripheral channel */
 		SET_BIT(NPCX_ESPICFG, NPCX_ESPICFG_PCHANEN);
 #endif
+		if (IS_ENABLED(HAS_TASK_KEYPROTO))
+			i8042_pause_to_host_queue(false);
 	} else {
 		/* PLTRST# asserted */
+		if (IS_ENABLED(HAS_TASK_KEYPROTO))
+			i8042_pause_to_host_queue(true);
+
 #ifdef CONFIG_CHIPSET_RESET_HOOK
 		hook_call_deferred(&espi_chipset_reset_data, MSEC);
 #endif
@@ -679,6 +685,9 @@ void espi_init(void)
 	/* Configure MIWU for eSPI VW */
 	for (i = 0; i < ARRAY_SIZE(espi_vw_int_list); i++)
 		espi_enable_vw_int(&espi_vw_int_list[i]);
+
+	if (IS_ENABLED(HAS_TASK_KEYPROTO))
+		i8042_pause_to_host_queue(true);
 }
 
 static int command_espi(int argc, char **argv)
