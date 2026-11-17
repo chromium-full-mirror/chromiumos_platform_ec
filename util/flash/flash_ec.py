@@ -232,6 +232,14 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     )
     _add_bool_arg(
         parser,
+        "usbc_charging",
+        default=False,
+        help_text=(
+            "Switch servo_v4p1 to USB-C (non-PD) charging during programming"
+        ),
+    )
+    _add_bool_arg(
+        parser,
         "try_apshutdown",
         default=False,
         help_text=(

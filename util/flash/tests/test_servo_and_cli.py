@@ -273,6 +273,8 @@ class TestFlashEcCli(unittest.TestCase):
                 "--noraiden",
                 "--bitbang",
                 "--nobitbang",
+                "--usbc-charging",
+                "--nousbc_charging",
                 "--ro",
                 "--noro",
                 "--norw",
@@ -287,6 +289,7 @@ class TestFlashEcCli(unittest.TestCase):
         self.assertFalse(args.verbose)
         self.assertFalse(args.raiden)
         self.assertFalse(args.bitbang)
+        self.assertFalse(args.usbc_charging)
         self.assertFalse(args.ro)
         self.assertFalse(args.rw)
         self.assertFalse(args.try_apshutdown)

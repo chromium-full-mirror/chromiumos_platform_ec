@@ -37,12 +37,14 @@ class TestIteI2cFlasher(unittest.TestCase):
         self.servo = MagicMock(spec=ServoDriver)
         self.args = MagicMock()
         self.args.board = "veluza"
+        self.args.chip = "ite_i2c"
         self.args.image = "/tmp/image.bin"
         self.args.read = None
         self.args.verify = True
         self.args.no_preserve = True
         self.args.verbose = False
         self.args.dry_run = False
+        self.args.usbc_charging = False
         self.flasher = IteI2cFlasher(self.servo, self.args)
 
     @patch("time.sleep")
@@ -71,6 +73,66 @@ class TestIteI2cFlasher(unittest.TestCase):
 
         self.flasher.cleanup_dut()
         self.servo.set.assert_any_call("gsc_uart_cmd", "sysrst deassert")
+
+    @patch("time.sleep")
+    def test_prepare_and_cleanup_usbc_charging(
+        self, mock_sleep: MagicMock
+    ) -> None:
+        """Verifies non-PD charging setup and PD settle cleanup on servo_v4."""
+        self.args.chip = "ite_i2c_usbc_charging"
+
+        def mock_get(key: str, default: str = "") -> str:
+            values = {
+                "active_dut_controller": "ccd_cr50",
+                "servo_type": "servo_v4p1_with_ccd_cr50",
+                "ccd_i2c_en": "Always",
+            }
+            return values.get(key, default)
+
+        self.servo.get.side_effect = mock_get
+        self.servo.has_control.side_effect = lambda k: k == "cold_reset"
+
+        self.flasher.prepare_dut()
+
+        self.servo.set_many.assert_called_once_with(
+            [("cold_reset", "on"), ("cold_reset", "off")]
+        )
+        self.servo.set.assert_has_calls(
+            [
+                call("cold_reset", "on"),
+                call("watchdog_remove", "ccd_cr50"),
+                call("usbc_charging", "1A5"),
+                call("servo_v4p1_uart_cmd", "cc off"),
+                call("servo_v4p1_uart_cmd", "cc on"),
+                call("cold_reset", "off"),
+                call("gsc_uart_cmd", "sysrst assert"),
+                call("gsc_i2c_ctrl", "ite_debugger_mode"),
+                call("gsc_uart_cmd", "sysrst assert"),
+            ]
+        )
+
+        self.servo.set.reset_mock()
+        self.servo.set_many.reset_mock()
+        mock_sleep.reset_mock()
+
+        self.flasher.cleanup_dut()
+
+        # Must bounce CC while EC is held in reset, release cold_reset once,
+        # and wait 3s for PD negotiation without pulsing cold_reset again.
+        self.servo.set_many.assert_not_called()
+        self.servo.set.assert_has_calls(
+            [
+                call("cold_reset", "on"),
+                call("servo_pd_role", "src"),
+                call("servo_v4p1_uart_cmd", "cc off"),
+                call("servo_v4p1_uart_cmd", "cc on"),
+                call("cold_reset", "off"),
+                call("ccd_ec_boot_mode_uut", "off"),
+                call("ccd_ec_boot_mode_bitbang", "off"),
+                call("gsc_uart_cmd", "sysrst deassert"),
+            ]
+        )
+        mock_sleep.assert_has_calls([call(2), call(3)])
 
     @patch("time.sleep")
     def test_prepare_and_cleanup_ccd_ignores_sysrst_servo_error(

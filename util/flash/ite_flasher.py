@@ -4,6 +4,7 @@
 
 """ITE (it83xx / it8xxx2) I2C and UART EC flasher implementations."""
 
+import argparse
 from collections.abc import Sequence
 import logging
 import os
@@ -12,12 +13,14 @@ import subprocess
 import sys
 import tempfile
 import time
+from typing import Optional
 
 from flash.flasher_base import BaseEcFlasher
 from flash.helpers import get_preserve_ranges
 from flash.helpers import locate_tool
 from flash.helpers import parse_fmap_areas
 from flash.helpers import preserve_sections_with_cur_image
+from flash.servo_utils import ServoDriver
 from flash.servo_utils import ServoError
 
 
@@ -79,6 +82,24 @@ class IteI2cFlasher(_IteBaseFlasher):
     MAX_DFU_ATTEMPTS = 5
     _CHIP_ID_ERR = "Failed to get ITE chip ID"
 
+    def __init__(
+        self, servo: Optional[ServoDriver], args: argparse.Namespace
+    ) -> None:
+        super().__init__(servo, args)
+        self._usbc_charging_active = False
+
+    def _use_usbc_charging(self) -> bool:
+        """Returns True when non-PD USB-C charging mode is needed."""
+        if not self.servo:
+            return False
+        servo_type = self.servo.get("servo_type", default="")
+        if "servo_v4" not in servo_type:
+            return False
+        return (
+            getattr(self.args, "usbc_charging", False) is True
+            or getattr(self.args, "chip", "") == "ite_i2c_usbc_charging"
+        )
+
     def _get_serial(self) -> str:
         """Return the servo serial number for USB I2C transport."""
         if not self.servo:
@@ -92,16 +113,23 @@ class IteI2cFlasher(_IteBaseFlasher):
             return self.servo.get("ccd_serialname", default="")
         return self.servo.get("serialname", default="")
 
-    def _enter_dfu_mode(self) -> None:
-        """Reset EC and send the ITE special debugger waveform."""
+    def _enter_dfu_mode(self, reset_ec: bool = True) -> None:
+        """Resets EC and sends the ITE special debugger waveform.
+
+        Args:
+            reset_ec: Whether to pulse EC reset before sending the waveform.
+        """
         if not self.servo:
             return
         controller = self._get_controller()
 
-        if controller == "c2d2":
-            self.servo.set("gsc_ec_reset", "off")
-        elif self.servo.has_control("cold_reset"):
-            self.servo.set_many([("cold_reset", "on"), ("cold_reset", "off")])
+        if reset_ec:
+            if controller == "c2d2":
+                self.servo.set("gsc_ec_reset", "off")
+            elif self.servo.has_control("cold_reset"):
+                self.servo.set_many(
+                    [("cold_reset", "on"), ("cold_reset", "off")]
+                )
 
         if controller in ("servo_micro", "c2d2"):
             # Get-only control: reading it sends the waveform.
@@ -129,7 +157,7 @@ class IteI2cFlasher(_IteBaseFlasher):
             self.servo.set("gsc_idle_level", "active")
 
     def prepare_dut(self) -> None:
-        """Configure I2C muxes, EC reset, and ITE DFU/debugger waveform."""
+        """Configures I2C muxes, charging mode, EC reset, and ITE DFU mode."""
         if not self.servo:
             return
 
@@ -160,6 +188,11 @@ class IteI2cFlasher(_IteBaseFlasher):
             self.servo.save_state("dut_i2c_en")
             self.servo.set("dut_i2c_en", "on")
 
+        reset_ec = True
+        if self._use_usbc_charging():
+            self._enable_usbc_charging()
+            reset_ec = False
+
         if controller == "ccd":
             ccd_i2c = self.servo.get("ccd_i2c_en", default="")
             if ccd_i2c.lower() != "always":
@@ -173,13 +206,72 @@ class IteI2cFlasher(_IteBaseFlasher):
             except ServoError:
                 pass
 
-        self._enter_dfu_mode()
+        self._enter_dfu_mode(reset_ec=reset_ec)
 
-    def cleanup_dut(self) -> None:
-        """Deassert sysrst after CCD ITE I2C flashing."""
+    def _enable_usbc_charging(self) -> None:
+        """Switches servo_v4 to non-PD USB-C charging and bounces CC."""
         if not self.servo:
             return
-        if self._is_ccd():
+        active_dev = self.servo.get(
+            "active_dut_controller", default=""
+        ) or self.servo.get("servo_type", default="")
+        if self.servo.has_control("cold_reset"):
+            self.servo.set_many([("cold_reset", "on"), ("cold_reset", "off")])
+            self.servo.set("cold_reset", "on")
+        logger.info("Disable CCD watchdog")
+        self.servo.set("watchdog_remove", active_dev)
+        logger.info("Switching servo_v4 to USB-C (non-PD) charging")
+        self._usbc_charging_active = True
+        self.servo.set("usbc_charging", "1A5")
+        if not self.args.dry_run:
+            time.sleep(2)
+        logger.info("Disconnect/reconnect CC lines to reconnect CCD")
+        self.servo.set("servo_v4p1_uart_cmd", "cc off")
+        self.servo.set("servo_v4p1_uart_cmd", "cc on")
+        if not self.args.dry_run:
+            time.sleep(2)
+        if self.servo.has_control("cold_reset"):
+            self.servo.set("cold_reset", "off")
+
+    def _restore_pd_charging(self, is_ccd: bool) -> None:
+        """Restores servo_v4 USB-PD charging and waits for PD negotiation.
+
+        Args:
+            is_ccd: Whether the active servo controller is CCD.
+        """
+        if not self.servo:
+            return
+        if self.servo.has_control("cold_reset"):
+            try:
+                self.servo.set("cold_reset", "on")
+            except ServoError:
+                pass
+        logger.info("Restoring servo_v4 to PD charging")
+        self.servo.set("servo_pd_role", "src")
+        logger.info("Disconnect/reconnect CC lines to reconnect CCD")
+        self.servo.set("servo_v4p1_uart_cmd", "cc off")
+        self.servo.set("servo_v4p1_uart_cmd", "cc on")
+        if not self.args.dry_run:
+            time.sleep(2)
+        if self.servo.has_control("cold_reset"):
+            self.servo.set("cold_reset", "off")
+        if is_ccd:
+            try:
+                self.servo.set("ccd_ec_boot_mode_uut", "off")
+                self.servo.set("ccd_ec_boot_mode_bitbang", "off")
+            except ServoError:
+                pass
+        if not self.args.dry_run:
+            time.sleep(3)
+
+    def cleanup_dut(self) -> None:
+        """Restores USB-PD charging and deasserts sysrst after ITE flash."""
+        if not self.servo:
+            return
+        is_ccd = self._is_ccd()
+        if self._usbc_charging_active:
+            self._restore_pd_charging(is_ccd)
+        if is_ccd:
             logger.info("Deasserting sysrst to allow AP boot")
             try:
                 self.servo.set("gsc_uart_cmd", "sysrst deassert")
