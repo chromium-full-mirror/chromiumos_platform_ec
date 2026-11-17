@@ -71,29 +71,27 @@ static int board_ap_power_action_g3_run(void *data)
 AP_POWER_APP_STATE_DEFINE(G3, board_ap_power_action_g3_entry,
 			  board_ap_power_action_g3_run, NULL);
 
-static int board_ap_power_action_s3_run(void *data)
+static void board_s0ix_rails_cb(struct ap_power_ev_callback *cb,
+				struct ap_power_ev_data data)
 {
-	/* S3 -> S4/S5: turn the panel backlight off before the rails drop */
-	if (power_signal_get(PWR_RSMRST_PWRGD) == 0 ||
-	    power_signal_get(PWR_SLP_S4)) {
+	switch (data.event) {
+	case AP_POWER_SUSPEND:
+		/* S0 -> S0ix/S3: turn off the panel backlight */
 		gpio_pin_set_dt(GPIO_DT_FROM_NODELABEL(gpio_ec_en_edp_bl), 0);
 
-		return 0;
-	}
-
-	/* Backlight on once the main rails are up */
-	if (!power_wait_signals_on_timeout(
-		    POWER_SIGNAL_MASK(PWR_ALL_SYS_PWRGD),
-		    AP_PWRSEQ_DT_VALUE(all_sys_pwrgd_timeout))) {
+		break;
+	case AP_POWER_RESUME:
+		/* S0ix/S3 -> S0: turn on the panel backlight */
 		gpio_pin_set_dt(GPIO_DT_FROM_NODELABEL(gpio_ec_en_edp_bl), 1);
 
-		return 0;
+		break;
+	default:
+		break;
 	}
-
-	return 0;
 }
 
-AP_POWER_APP_STATE_DEFINE(S3, NULL, board_ap_power_action_s3_run, NULL);
+AP_POWER_EVENT_CALLBACK_DEFINE(board_s0ix_rails_cb, AP_POWER_SUSPEND,
+			       AP_POWER_RESUME);
 
 int power_signal_external_init(void)
 {

@@ -40,7 +40,7 @@
 			gpios = <&gpioa 1 (GPIO_INPUT | GPIO_ACTIVE_LOW)>;
 		};
 		gpio_ec_en_edp_bl: ec_en_edp_bl {
-			gpios = <&gpiod 3 (GPIO_OUTPUT | GPIO_OUTPUT_INIT_LOW)>;
+			gpios = <&gpiod 3 (GPIO_OUTPUT | GPIO_OPEN_DRAIN | GPIO_OUTPUT_INIT_LOW)>;
 			enum-name = "GPIO_ENABLE_BACKLIGHT";
 		};
 		gpio_ec_soc_wake_odl: ec_soc_wake_odl {
