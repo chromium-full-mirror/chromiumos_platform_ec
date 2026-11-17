@@ -89,9 +89,6 @@
 		gpio_ec_soc_rtcrst: ec_soc_rtcrst {
 			gpios = <&gpioh 5 (GPIO_OUTPUT | GPIO_OUTPUT_INIT_LOW)>;
 		};
-		gpio_ec_ish_int_odl: ec_ish_int_odl {
-			gpios = <&gpioh 6 (GPIO_ACTIVE_LOW | GPIO_VOLTAGE_1P8 | GPIO_OPEN_DRAIN)>;
-		};
 		gpio_prochot_odl: prochot_odl {
 			gpios = <&gpioi 0 (GPIO_OUTPUT | GPIO_OPEN_DRAIN | GPIO_OUTPUT_INIT_HIGH)>;
 		};

@@ -299,6 +299,20 @@ register_it8xxx2_project(
     ],
 )
 
+register_ish_project(
+    project_name="coolum-ish",
+    boards=["ocelot"],
+    zephyr_board="intel_ish_5_8_0",
+    dts_overlays=[
+        here / "coolum-ish" / "project.overlay",
+    ],
+    kconfig_files=[
+        here / "dsp_comms.conf",
+        here / "coolum-ish" / "prj.conf",
+        here / ".." / ".." / "ish.conf",
+    ],
+)
+
 # Note for reviews, do not let anyone edit these assertions, the addresses
 # must not change after the first RO release.
 assert_rw_fwid_DO_NOT_EDIT(project_name="blanc", addr=0x80144)
