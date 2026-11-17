@@ -14,6 +14,12 @@ config BOARD_C1NV
 	  Build Google C1nv reference board.  The board uses Nuvoton
 	  NPCX9 chip as the EC.
 
+config BOARD_C1NVS
+	bool "Google C1nvs baseboard"
+	help
+	  Build Google C1nvs reference board.  The board uses Nuvoton
+	  NPCX9 chip as the EC.
+
 module = Mensa
 module-str = Mensa board-specific code
 source "subsys/logging/Kconfig.template.log_config"

@@ -14,6 +14,10 @@ if(DEFINED CONFIG_BOARD_C1NV)
 	project(c1nv)
 endif()
 
+if(DEFINED CONFIG_BOARD_C1NVS)
+	project(c1nvs)
+endif()
+
 zephyr_library_sources("src/battery.c")
 zephyr_library_sources_ifdef(CONFIG_AP_ARM_QUALCOMM_QC_EXP
 				"src/switchcap.c")

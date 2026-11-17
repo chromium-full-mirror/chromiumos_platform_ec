@@ -180,6 +180,7 @@ def get_projects(opts=None):
             project.config.project_name
             in [
                 "c1nv",
+                "c1nvs",
             ]
             and not platform_ec_private.exists()
         ):
