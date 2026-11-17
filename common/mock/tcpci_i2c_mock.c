@@ -76,7 +76,6 @@ static struct tcpci_reg tcpci_regs[] = {
 static uint8_t tx_buffer[BUFFER_SIZE];
 static int tx_pos = -1;
 static int tx_msg_cnt;
-static int tx_retry_cnt = -1;
 static uint8_t rx_buffer[BUFFER_SIZE];
 static int rx_pos = -1;
 
@@ -561,7 +560,6 @@ int tcpci_i2c_xfer(int port, uint16_t addr_flags, const uint8_t *out,
 			print_header("TX",
 				     UINT16_FROM_BYTE_ARRAY_LE(tx_buffer, 1));
 			tx_pos = -1;
-			tx_retry_cnt = -1;
 		}
 		return EC_SUCCESS;
 	}

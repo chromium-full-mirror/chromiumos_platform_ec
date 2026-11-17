@@ -36,8 +36,6 @@ static bool pe_get_flags_called;
 static bool pe_is_explicit_contract_called;
 static bool pe_snk_in_epr_mode_called;
 static bool pe_snk_epr_explicit_exit_called;
-static bool pd_get_dual_role_called;
-static bool board_get_usb_pd_port_count_called;
 static bool pd_srccaps_dump_called;
 static bool pd_timer_dump_called;
 
@@ -48,10 +46,6 @@ static int max_volt;
 static int comm_enable;
 static int pd_suspended;
 static int pd_bistsharemode;
-static int dev_info;
-static int vdm_cmd;
-static int vdm_count;
-static int vdm_vid;
 static uint32_t vdm_data[10];
 static enum pd_dual_role_states dr_state;
 static enum pd_power_role pd_get_power_role_return = PD_ROLE_SINK;
@@ -106,7 +100,6 @@ const char *pe_get_current_state(int port)
 
 enum pd_dual_role_states pd_get_dual_role(int port)
 {
-	pd_get_dual_role_called = true;
 	return 0;
 }
 
@@ -169,7 +162,6 @@ void tc_run(int port)
 
 uint8_t board_get_usb_pd_port_count(void)
 {
-	board_get_usb_pd_port_count_called = true;
 	return CONFIG_USB_PD_PORT_MAX_COUNT;
 }
 
@@ -179,9 +171,6 @@ void pe_send_vdm(int port, uint32_t vid, int cmd, const uint32_t *data,
 	int i;
 
 	test_port = port;
-	vdm_cmd = cmd;
-	vdm_count = count;
-	vdm_vid = vid;
 
 	if (data == NULL)
 		for (i = 0; i < 10; i++)
@@ -229,7 +218,6 @@ enum ec_status pd_set_bist_share_mode(uint8_t enable)
 void tc_print_dev_info(int port)
 {
 	test_port = port;
-	dev_info = 1;
 }
 
 void pd_set_dual_role(int port, enum pd_dual_role_states state)

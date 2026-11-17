@@ -19,7 +19,6 @@ static int tick_hook_count;
 static int tick2_hook_count;
 static int tick_count_seen_by_tick2;
 static timestamp_t tick_time[2];
-static int second_hook_count;
 static timestamp_t second_time[2];
 static int deferred_call_count;
 
@@ -54,7 +53,6 @@ DECLARE_HOOK(HOOK_TICK, tick2_hook, HOOK_PRIO_DEFAULT + 1);
 
 static void second_hook(void)
 {
-	second_hook_count++;
 	second_time[0] = second_time[1];
 	second_time[1] = get_time();
 }

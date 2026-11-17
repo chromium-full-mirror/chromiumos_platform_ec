@@ -357,16 +357,13 @@ void dpm_set_pe_ready(int port, bool enable)
 {
 }
 
-static enum tcpc_rp_value lcl_rp;
 __overridable void typec_select_src_current_limit_rp(int port,
 						     enum tcpc_rp_value rp)
 {
-	lcl_rp = rp;
 }
 __overridable void typec_select_src_collision_rp(int port,
 						 enum tcpc_rp_value rp)
 {
-	lcl_rp = rp;
 }
 __overridable int typec_update_cc(int port)
 {

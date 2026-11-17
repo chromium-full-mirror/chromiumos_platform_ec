@@ -16,8 +16,6 @@
 #include "adc.h"
 #endif
 
-static int error_count;
-
 /*****************************************************************************/
 /* Test parameters */
 
@@ -64,12 +62,10 @@ static int stress(const char *name, int (*test_routine)(void),
 	return EC_SUCCESS;
 }
 
-#define RUN_STRESS_TEST(n, r, iter)                     \
-	do {                                            \
-		if (stress(n, r, iter) != EC_SUCCESS) { \
-			ccputs("Fail\n");               \
-			error_count++;                  \
-		}                                       \
+#define RUN_STRESS_TEST(n, r, iter)                   \
+	do {                                          \
+		if (stress(n, r, iter) != EC_SUCCESS) \
+			ccputs("Fail\n");             \
 	} while (0)
 
 /*****************************************************************************/

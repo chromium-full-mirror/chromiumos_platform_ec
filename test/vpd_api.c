@@ -86,8 +86,6 @@ static int ct_cc_rp_value;
 
 /* Charge-Through pull up/down enabled */
 static int host_cc_pull;
-/* Charge-Through pull up value */
-static int host_cc_rp_value;
 
 /* Voltage thresholds for Ra attach in normal SRC mode */
 static int pd_src_rd_threshold[TYPEC_RP_RESERVED] = {
@@ -366,7 +364,6 @@ void vpd_host_set_pull(int pull, int rp_value)
 	switch (pull) {
 	case TYPEC_CC_RP:
 		vpd_cc_db_en_od(GPO_LOW);
-		host_cc_rp_value = rp_value;
 		switch (rp_value) {
 		case TYPEC_RP_USB:
 			vpd_config_cc_rp3a0_rd_l(PIN_CMP, 0);
