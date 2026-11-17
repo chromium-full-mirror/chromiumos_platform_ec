@@ -22,6 +22,7 @@
 #include <zephyr/sys/minmax.h>
 LOG_MODULE_REGISTER(tps6699x, CONFIG_USBC_LOG_LEVEL);
 #include "builtin/endian.h"
+#include "system.h"
 #include "task_id.h"
 #include "tps6699x_cmd.h"
 #include "tps6699x_reg.h"
@@ -821,6 +822,8 @@ static enum smf_state_result st_init_run(void *o)
 	 * should go into a suspended state if it can't initialize.
 	 */
 	if (!data->info.is_running_flash_code) {
+		LOG_ERR("TI%d: PDC is in bootloader mode",
+			cfg->connector_number);
 		goto error;
 	}
 
@@ -1119,6 +1122,52 @@ static enum smf_state_result st_suspended_run(void *o)
 	return SMF_EVENT_HANDLED;
 }
 
+static void tps6699x_recover_from_bootloader_mode(struct pdc_data_t *data)
+{
+	static K_MUTEX_DEFINE(recovery_mutex);
+
+	/* Not in bootloader mode. Do nothing. */
+	if (data->info.is_running_flash_code) {
+		return;
+	}
+
+	uint32_t reset_flags = system_get_reset_flags();
+
+	/* Skip if not a cold boot. */
+	if (!(reset_flags &
+	      (EC_RESET_FLAG_RESET_PIN | EC_RESET_FLAG_POWER_ON))) {
+		return;
+	}
+
+	/* Grab a mutex to prevent other drivers instances from initiating
+	 * their own recovery attempts. This is never unlocked because the
+	 * system will be rebooted.
+	 */
+	k_mutex_lock(&recovery_mutex, K_FOREVER);
+
+	LOG_INF("TI: Begin PDC recovery sequence");
+
+	for (int i = 0; i < ARRAY_SIZE(pdc_data); i++) {
+		struct pdc_config_t const *cfg = pdc_data[i]->dev->config;
+		int rv;
+
+		if (cfg->no_fw_update) {
+			/* Don't reset a chip twice */
+			continue;
+		}
+
+		/* Send GAID cold reboot command */
+		rv = write_task_cmd(cfg, COMMAND_TASK_GAID, NULL);
+
+		LOG_INF("TI%d: Sent GAID (%d)", cfg->connector_number, rv);
+	}
+
+	LOG_INF("TI: Wait for reset delay and reboot");
+	k_sleep(K_MSEC(PDC_TI_GAID_DELAY_MS));
+
+	system_reset(SYSTEM_RESET_HARD);
+}
+
 static void st_disable_entry(void *o)
 {
 	struct pdc_data_t *data = (struct pdc_data_t *)o;
@@ -1137,6 +1186,8 @@ static void st_disable_entry(void *o)
 	 * GET_CONNECTOR_STATUS) against a dead PDC.
 	 */
 	data->error_status.port_disabled = 1;
+
+	tps6699x_recover_from_bootloader_mode(data);
 }
 
 static enum smf_state_result st_disable_run(void *o)
