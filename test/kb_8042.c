@@ -323,6 +323,24 @@ static int test_vivaldi_top_keys(void)
 	return EC_SUCCESS;
 }
 
+static int test_8042_pause_to_host_queue(void)
+{
+	set_scancode(2);
+	enable_keystroke(1);
+	write_cmd_byte(read_cmd_byte() | I8042_XLATE);
+
+	i8042_pause_to_host_queue(true);
+
+	press_key(1, 1, 1);
+	press_key(1, 1, 0);
+	VERIFY_NO_CHAR();
+
+	i8042_pause_to_host_queue(false);
+	VERIFY_LPC_CHAR("\x01\x81");
+
+	return EC_SUCCESS;
+}
+
 void run_test(int argc, char **argv)
 {
 	test_reset();
@@ -336,6 +354,7 @@ void run_test(int argc, char **argv)
 		RUN_TEST(test_power_button);
 		RUN_TEST(test_ec_cmd_get_keybd_config);
 		RUN_TEST(test_vivaldi_top_keys);
+		RUN_TEST(test_8042_pause_to_host_queue);
 		RUN_TEST(test_sysjump);
 	} else {
 		RUN_TEST(test_sysjump_cont);
