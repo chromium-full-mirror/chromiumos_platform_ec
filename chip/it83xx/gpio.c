@@ -897,8 +897,14 @@ static void __gpio_irq(void)
 	/* Determine interrupt number. */
 	int irq = intc_get_ec_int();
 
-	/* assert failure if interrupt number is zero */
-	ASSERT(irq);
+	/*
+	 * intc_get_ec_int() returns 0 (IVCT == 0x10) if WUESR is cleared as
+	 * the CPU enters INT#2 or before IVCT latches on deep-doze wake.
+	 */
+	if (irq == 0)
+		return;
+
+	ASSERT(irq > 0);
 
 #if defined(HAS_TASK_KEYSCAN) && !defined(CONFIG_KEYBOARD_DISCRETE)
 	if (irq == IT83XX_IRQ_WKINTC) {
