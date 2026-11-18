@@ -498,10 +498,13 @@ class Renode(Platform):
         return self._wait_for_console(uart_pty, log_path)
 
     def _wait_for_console(
-        self, console_path: Path, log_path: Path, timeout: float = 60.0
+        self,
+        console_path: Path,
+        log_path: Path,
+        timeout: timedelta = timedelta(seconds=60),
     ) -> bool:
         """Waits for the Renode process to create the UART PTY."""
-        end_time = time.monotonic() + timeout
+        end_time = time.monotonic() + timeout.total_seconds()
 
         while time.monotonic() < end_time:
             if self.process.poll() is not None:
