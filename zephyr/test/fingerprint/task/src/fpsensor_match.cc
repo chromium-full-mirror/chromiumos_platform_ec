@@ -989,6 +989,55 @@ ZTEST_USER(fpsensor_match, test_match_unwritten_index_rejected)
 	assert_match_internal_error();
 }
 
+ZTEST_USER(fpsensor_match, test_match_passes_single_valid_templ_count)
+{
+	load_example_templates(1);
+	mock_alg_match_fake.return_val = FP_MATCH_RESULT_NO_MATCH;
+
+	trigger_match_attempt(FP_MODE_MATCH);
+
+	zassert_equal(mock_alg_match_fake.call_count, 1);
+	zassert_equal(mock_alg_match_fake.arg2_val, 1);
+}
+
+ZTEST_USER(fpsensor_match, test_match_passes_max_valid_templ_count)
+{
+	static_assert(FP_MAX_FINGER_COUNT >= 2);
+
+	load_example_templates(FP_MAX_FINGER_COUNT);
+	mock_alg_match_fake.return_val = FP_MATCH_RESULT_NO_MATCH;
+
+	trigger_match_attempt(FP_MODE_MATCH);
+
+	zassert_equal(mock_alg_match_fake.call_count, 1);
+	zassert_equal(mock_alg_match_fake.arg2_val, FP_MAX_FINGER_COUNT);
+}
+
+ZTEST_USER(fpsensor_match, test_match_rejects_templ_valid_above_max)
+{
+	static_assert(FP_MAX_FINGER_COUNT <
+		      std::numeric_limits<uint16_t>::max());
+
+	/* Inject directly since public host commands reject overflow. */
+	global_context.templ_valid = FP_MAX_FINGER_COUNT + 1;
+	trigger_match_attempt(FP_MODE_MATCH);
+
+	zassert_equal(mock_alg_match_fake.call_count, 0);
+	assert_match_internal_error();
+}
+
+ZTEST_USER(fpsensor_match, test_match_rejects_templ_valid_uint16_max)
+{
+	static_assert(FP_MAX_FINGER_COUNT <
+		      std::numeric_limits<uint16_t>::max());
+
+	global_context.templ_valid = std::numeric_limits<uint16_t>::max();
+	trigger_match_attempt(FP_MODE_MATCH);
+
+	zassert_equal(mock_alg_match_fake.call_count, 0);
+	assert_match_internal_error();
+}
+
 static void *fpsensor_setup(void)
 {
 	struct ec_params_fp_seed fp_seed_params = {

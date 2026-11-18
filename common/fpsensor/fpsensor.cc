@@ -235,11 +235,16 @@ static uint32_t fp_process_match(void)
 	fp_disable_positive_match_secret(
 		&global_context.positive_match_secret_state);
 
-	CPRINTS("Matching/%d ...", global_context.templ_valid);
-	if (global_context.templ_valid) {
+	const uint16_t templ_count = global_context.templ_valid;
+
+	CPRINTS("Matching/%d ...", templ_count);
+	if (templ_count > FP_MAX_FINGER_COUNT) {
+		CPRINTS("Error: Invalid template count %d", templ_count);
+		res = EC_MKBP_FP_ERR_MATCH_NO_INTERNAL;
+		timestamps_invalid |= FPSTATS_MATCHING_INV;
+	} else if (templ_count) {
 		int32_t fgr = FP_NO_SUCH_TEMPLATE;
-		res = fp_finger_match(fp_template[0],
-				      global_context.templ_valid, fp_buffer,
+		res = fp_finger_match(fp_template[0], templ_count, fp_buffer,
 				      !(global_context.sensor_mode &
 					FP_MODE_MATCH_NO_TEMPLATE_UPDATE),
 				      &fgr, &updated);
