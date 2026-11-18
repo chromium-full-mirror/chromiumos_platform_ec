@@ -301,8 +301,7 @@ hc_pdc_trace_msg_get_entries(struct ec_host_cmd_handler_args *args)
 	struct ec_response_pdc_trace_msg_get_entries *r = args->output_buf;
 
 	struct pdc_trace_msg_entry entry;
-
-	memset(r, 0, sizeof(*r));
+	uint16_t pl_size = 0;
 
 	for (;;) {
 		size_t cap_entry_bytes;
@@ -323,7 +322,7 @@ hc_pdc_trace_msg_get_entries(struct ec_host_cmd_handler_args *args)
 		cap_entry_bytes = sizeof(entry) + entry.pdc_data_size;
 
 		if ((cap_entry_bytes <= MAX_HC_PDC_TRACE_MSG_GET_PAYLOAD) &&
-		    (r->pl_size + cap_entry_bytes >
+		    (pl_size + cap_entry_bytes >
 		     MAX_HC_PDC_TRACE_MSG_GET_PAYLOAD)) {
 			/* not enough room, return next time */
 			msg_fifo_unlock();
@@ -345,17 +344,18 @@ hc_pdc_trace_msg_get_entries(struct ec_host_cmd_handler_args *args)
 		}
 
 		ring_buf_consume(&msg_fifo_rbuf, sizeof(entry));
-		memcpy(&r->payload[r->pl_size], &entry, sizeof(entry));
-		r->pl_size += sizeof(entry);
+		memcpy(&r->payload[pl_size], &entry, sizeof(entry));
+		pl_size += sizeof(entry);
 
-		ring_buf_get(&msg_fifo_rbuf, &r->payload[r->pl_size],
+		ring_buf_get(&msg_fifo_rbuf, &r->payload[pl_size],
 			     entry.pdc_data_size);
 		msg_fifo_unlock();
 
-		r->pl_size += entry.pdc_data_size;
+		pl_size += entry.pdc_data_size;
 	}
 
-	args->output_buf_size = sizeof(*r) + r->pl_size;
+	r->pl_size = pl_size;
+	args->output_buf_size = sizeof(*r) + pl_size;
 
 	return EC_HOST_CMD_SUCCESS;
 }
