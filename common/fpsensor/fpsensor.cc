@@ -227,7 +227,7 @@ static uint32_t fp_process_match(void)
 	timestamp_t t0 = get_time();
 	int res = -1;
 	uint32_t updated = 0;
-	int32_t fgr = FP_NO_SUCH_TEMPLATE;
+	uint32_t matched_idx = FP_NO_SUCH_TEMPLATE;
 	timestamps_invalid = 0;
 	stats_template_matched = static_cast<int8_t>(FP_NO_SUCH_TEMPLATE);
 
@@ -237,6 +237,7 @@ static uint32_t fp_process_match(void)
 
 	CPRINTS("Matching/%d ...", global_context.templ_valid);
 	if (global_context.templ_valid) {
+		int32_t fgr = FP_NO_SUCH_TEMPLATE;
 		res = fp_finger_match(fp_template[0],
 				      global_context.templ_valid, fp_buffer,
 				      !(global_context.sensor_mode &
@@ -251,6 +252,7 @@ static uint32_t fp_process_match(void)
 			 * with EC_MKBP_FP_ERR_MATCH_NO_INTERNAL.
 			 */
 			if (fgr >= 0 && fgr < FP_MAX_FINGER_COUNT) {
+				matched_idx = static_cast<uint32_t>(fgr);
 				stats_template_matched = fgr;
 				fp_enable_positive_match_secret(
 					fgr,
@@ -283,7 +285,7 @@ static uint32_t fp_process_match(void)
 
 	matching_time_us = time_since32(t0);
 	return EC_MKBP_FP_MATCH | EC_MKBP_FP_ERRCODE(res) |
-	       ((fgr << EC_MKBP_FP_MATCH_IDX_OFFSET) &
+	       ((matched_idx << EC_MKBP_FP_MATCH_IDX_OFFSET) &
 		EC_MKBP_FP_MATCH_IDX_MASK);
 }
 
