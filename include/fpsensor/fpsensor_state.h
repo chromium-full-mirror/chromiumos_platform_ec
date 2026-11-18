@@ -145,7 +145,8 @@ __test_only void fp_task_simulate(void);
 #endif
 
 /*
- * Clear one fingerprint template.
+ * Clear one fingerprint template and its positive match salt.
+ * Does nothing if |idx| >= FP_MAX_FINGER_COUNT.
  *
  * @param idx the index of the template to clear.
  */

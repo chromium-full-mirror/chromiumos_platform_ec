@@ -87,6 +87,9 @@ __test_only void fp_task_simulate(void)
 
 void fp_clear_finger_context(uint16_t idx)
 {
+	if (idx >= FP_MAX_FINGER_COUNT) {
+		return;
+	}
 	OPENSSL_cleanse(fp_template[idx], sizeof(fp_template[0]));
 	OPENSSL_cleanse(global_context.fp_positive_match_salt[idx],
 			sizeof(global_context.fp_positive_match_salt[0]));

@@ -9,6 +9,8 @@
 #include <zephyr/ztest.h>
 #include <zephyr/ztest_assert.h>
 
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <ec_commands.h>
 #include <fpsensor/fpsensor_state.h>
@@ -422,6 +424,86 @@ ZTEST_USER(fpsensor_state, test_fp_mode_v1_truncated)
 	zassert_equal(rv, EC_HOST_CMD_REQUEST_TRUNCATED,
 		      "Expected truncated v1 request to be rejected, got %d",
 		      rv);
+}
+
+namespace
+{
+
+void fill_all_finger_slots(uint8_t value)
+{
+	for (auto &templ : fp_template) {
+		std::ranges::fill(templ, value);
+	}
+	for (auto &salt : global_context.fp_positive_match_salt) {
+		std::ranges::fill(salt, value);
+	}
+}
+
+void assert_finger_slot_filled(uint16_t slot, uint8_t expected)
+{
+	const auto is_expected = [expected](uint8_t byte) {
+		return byte == expected;
+	};
+
+	zassert_true(std::ranges::all_of(fp_template[slot], is_expected),
+		     "Expected fp_template[%u] to be filled with 0x%02x", slot,
+		     expected);
+	zassert_true(
+		std::ranges::all_of(global_context.fp_positive_match_salt[slot],
+				    is_expected),
+		"Expected fp_positive_match_salt[%u] to be filled with 0x%02x",
+		slot, expected);
+}
+
+} // namespace
+
+ZTEST_USER(fpsensor_state, test_fp_clear_finger_context_out_of_range_ignored)
+{
+	static_assert(offsetof(fpsensor_context, template_encrypted_id) ==
+		      offsetof(fpsensor_context, fp_positive_match_salt) +
+			      sizeof(fpsensor_context::fp_positive_match_salt));
+	constexpr uint8_t canary_byte = 0xab;
+	constexpr uint16_t sentinel_encrypted_id = 0x1234;
+
+	fill_all_finger_slots(canary_byte);
+	/*
+	 * template_encrypted_id immediately follows fp_positive_match_salt in
+	 * global_context, so an off-by-one cleanse at FP_MAX_FINGER_COUNT
+	 * zeroes it even without AddressSanitizer.
+	 */
+	global_context.template_encrypted_id = sentinel_encrypted_id;
+
+	fp_clear_finger_context(FP_MAX_FINGER_COUNT);
+	fp_clear_finger_context(FP_MAX_FINGER_COUNT + 1);
+	fp_clear_finger_context(FP_NO_SUCH_TEMPLATE);
+
+	for (uint16_t slot = 0; slot < FP_MAX_FINGER_COUNT; slot++) {
+		assert_finger_slot_filled(slot, canary_byte);
+	}
+	zassert_equal(global_context.template_encrypted_id,
+		      sentinel_encrypted_id,
+		      "Expected adjacent template_encrypted_id to remain 0x%x, "
+		      "got 0x%x",
+		      sentinel_encrypted_id,
+		      global_context.template_encrypted_id);
+}
+
+ZTEST_USER(fpsensor_state, test_fp_clear_finger_context_cleanses_valid_slots)
+{
+	static_assert(FP_MAX_FINGER_COUNT >= 2);
+	constexpr uint8_t canary_byte = 0xab;
+
+	for (uint16_t target_slot = 0; target_slot < FP_MAX_FINGER_COUNT;
+	     target_slot++) {
+		fill_all_finger_slots(canary_byte);
+
+		fp_clear_finger_context(target_slot);
+
+		for (uint16_t slot = 0; slot < FP_MAX_FINGER_COUNT; slot++) {
+			assert_finger_slot_filled(
+				slot, slot == target_slot ? 0 : canary_byte);
+		}
+	}
 }
 
 static void *fpsensor_setup(void)
