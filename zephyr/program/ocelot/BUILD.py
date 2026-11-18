@@ -256,6 +256,20 @@ register_ish_project(
     ],
 )
 
+register_ish_project(
+    project_name="pelion-ish",
+    boards=["ocelot"],
+    zephyr_board="intel_ish_5_8_0",
+    dts_overlays=[
+        here / "pelion-ish" / "pelion-ish" / "project.overlay",
+    ],
+    kconfig_files=[
+        here / "pelion-ish" / "prj.conf",
+        here / "pelion-ish" / "motionsense.conf",
+        here / ".." / ".." / "ish.conf",
+    ],
+)
+
 ocicat = register_it8xxx2_project(
     project_name="ocicat",
     chip="it8xxx2/it82002bw",
