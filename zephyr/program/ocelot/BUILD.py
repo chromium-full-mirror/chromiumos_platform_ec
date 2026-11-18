@@ -105,19 +105,23 @@ def register_mec172x_project(
 
 def register_rtk59_project(
     project_name,
+    dts_overlays=None,
     extra_kconfig_base_files=(),
     extra_kconfig_proj_files=(),
     extra_modules=(),
 ):
     """Register a realtek based variant of ocelot."""
-    register_rtk_project(
+    if dts_overlays is None:
+        dts_overlays = [
+            here / "common.overlay",
+            here / project_name / "project.overlay",
+        ]
+
+    return register_rtk_project(
         project_name=project_name,
         boards=["ocelot"],
         zephyr_board="realtek/rts5912",
-        dts_overlays=[
-            here / "common.overlay",
-            here / project_name / "project.overlay",
-        ],
+        dts_overlays=dts_overlays,
         kconfig_files=[
             # Common to all projects.
             here / "program.conf",
@@ -218,9 +222,28 @@ register_rtk59_project(
 
 register_rtk59_project(
     project_name="hekla",
+    dts_overlays=[
+        here / "common.overlay",
+        here / "hekla" / "project.overlay",
+        here / "hekla" / "keyboard.dtsi",
+    ],
     extra_modules=["pigweed", "nanopb"],
     extra_kconfig_base_files=[
         here / "dsp_comms.conf",
+    ],
+)
+
+register_rtk59_project(
+    project_name="heklas",
+    dts_overlays=[
+        here / "common.overlay",
+        here / "hekla" / "project.overlay",
+        here / "heklas" / "keyboard.dtsi",
+    ],
+    extra_modules=["pigweed", "nanopb"],
+    extra_kconfig_base_files=[
+        here / "dsp_comms.conf",
+        here / "hekla" / "project.conf",
     ],
 )
 
@@ -344,6 +367,7 @@ register_ish_project(
 # must not change after the first RO release.
 assert_rw_fwid_DO_NOT_EDIT(project_name="blanc", addr=0x80144)
 assert_rw_fwid_DO_NOT_EDIT(project_name="hekla", addr=0x80404)
+assert_rw_fwid_DO_NOT_EDIT(project_name="heklas", addr=0x80404)
 assert_rw_fwid_DO_NOT_EDIT(project_name="kodkod", addr=0x80404)
 assert_rw_fwid_DO_NOT_EDIT(project_name="libra", addr=0x60098)
 assert_rw_fwid_DO_NOT_EDIT(project_name="matsu", addr=0x60098)

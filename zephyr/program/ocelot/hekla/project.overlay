@@ -20,7 +20,6 @@
 #include "gpios.dtsi"
 #include "i2c.dtsi"
 #include "interrupts.dtsi"
-#include "keyboard.dtsi"
 #include "power_signals.dtsi"
 #include "pwm.dtsi"
 #include "temp_sensors.dtsi"
