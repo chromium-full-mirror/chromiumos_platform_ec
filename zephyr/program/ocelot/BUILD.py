@@ -237,6 +237,10 @@ matsu.variant(
     ],
 )
 
+register_it8xxx2_project(
+    project_name="pelion",
+    chip="it8xxx2/it82002bw",
+)
 
 register_ish_project(
     project_name="matsu-ish",
@@ -327,4 +331,5 @@ assert_rw_fwid_DO_NOT_EDIT(project_name="ocelotrvp-mchp", addr=0x40318)
 assert_rw_fwid_DO_NOT_EDIT(project_name="ojal", addr=0x80404)
 assert_rw_fwid_DO_NOT_EDIT(project_name="ocicat", addr=0x60098)
 assert_rw_fwid_DO_NOT_EDIT(project_name="ocelotrvp-rtk", addr=0x80404)
+assert_rw_fwid_DO_NOT_EDIT(project_name="pelion", addr=0x60098)
 assert_rw_fwid_DO_NOT_EDIT(project_name="coolum", addr=0x60098)

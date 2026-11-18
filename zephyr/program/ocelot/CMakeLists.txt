@@ -63,6 +63,15 @@ if(DEFINED CONFIG_BOARD_MATSU)
 					"matsu/src/keyboard_customization.c")
 endif()
 
+if(DEFINED CONFIG_BOARD_PELION)
+	project(pelion)
+	zephyr_library_sources("pelion/src/board_power.c")
+	zephyr_library_sources("pelion/src/suspend_resume.c")
+	zephyr_library_sources("pelion/src/touch_panel.c")
+	zephyr_library_sources_ifdef(CONFIG_PLATFORM_EC_KEYBOARD_CUSTOMIZATION
+					"pelion/src/keyboard_customization.c")
+endif()
+
 if(DEFINED CONFIG_BOARD_OCICAT)
 	project(ocicat)
 	zephyr_library_sources("ocicat/src/keyboard_customization.c")

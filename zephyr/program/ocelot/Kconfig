@@ -48,6 +48,12 @@ config BOARD_MATSU
 	  Build Google Matsu reference board.
 	  This board uses an Intel WCL SoC and ITE EC.
 
+config BOARD_PELION
+	bool "Google Ocelot with ITE (it82002) EC"
+	help
+	  Build Google Pelion board.
+	  This board uses an Intel WCL SoC and ITE EC.
+
 config BOARD_KODKOD
 	bool "Google Ocelot with Realtek (rtk5915) EC"
 	help
@@ -77,7 +83,7 @@ config BOARD_LIBRA
 	  Build Google Libra reference board.
 	  This board uses an Intel WCL SoC and ITE EC.
 
-module = Oceolot
+module = Ocelot
 module-str = Ocelot board-specific code
 source "subsys/logging/Kconfig.template.log_config"
 
