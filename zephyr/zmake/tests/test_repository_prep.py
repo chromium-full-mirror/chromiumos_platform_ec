@@ -14,6 +14,7 @@ from unittest import mock
 import pytest
 from zmake import util
 from zmake.repository_prep import _CONFIG
+from zmake.repository_prep import _copy_build_metadata_to_shadow
 from zmake.repository_prep import _find_override_files
 from zmake.repository_prep import _find_patch_files
 from zmake.repository_prep import _has_files
@@ -519,12 +520,41 @@ def test_preparer_edge_cases(cros_checkout, tmp_path, setup_git_repo):
             prep.commit_changes()
 
 
+def test_copy_build_metadata_to_shadow(tmp_path):
+    """Test _copy_build_metadata_to_shadow copies only Zephyr build metadata."""
+    real_co, shadow_co = tmp_path / "real", tmp_path / "shadow"
+    ec_rel = pathlib.Path("src/platform/ec")
+    real_build = real_co / ec_rel / "build/zephyr"
+    shadow_build = shadow_co / ec_rel / "build/zephyr"
+
+    _copy_build_metadata_to_shadow(real_co, shadow_co, ec_rel)
+    assert not shadow_build.exists()
+
+    (real_build / "board_a").mkdir(parents=True)
+    (real_build / ".shard_info.json").write_text("{}\n", encoding="utf-8")
+    (real_build / "board_a/a.info").write_text(
+        f"SF:{real_co}/a.c\n", encoding="utf-8"
+    )
+    (real_build.parent / "host").mkdir()
+    (real_build.parent / "host/b.info").touch()
+
+    _copy_build_metadata_to_shadow(real_co, shadow_co, ec_rel)
+
+    assert (shadow_build / ".shard_info.json").read_text(
+        encoding="utf-8"
+    ) == "{}\n"
+    assert (shadow_build / "board_a/a.info").read_text(
+        encoding="utf-8"
+    ) == f"SF:{shadow_co}/a.c\n"
+    assert not (shadow_build.parent / "host").exists()
+
+
 def test_copy_outputs_back_merges_and_fixes_lcov_paths(tmp_path):
-    """Test copy_outputs_back merges build dirs and fixes lcov paths cleanly."""
+    """Test copy_outputs_back merges Zephyr outputs and fixes lcov paths."""
     real_co, shadow_co = tmp_path / "real", tmp_path / "shadow"
     ec_rel = pathlib.Path("src/platform/ec")
 
-    real_build = real_co / ec_rel / "build"
+    real_build = real_co / ec_rel / "build/zephyr"
     (real_build / "board_a").mkdir(parents=True)
     (real_build / "board_a" / "ec.bin").write_text("bin_a\n", encoding="utf-8")
     (real_build / "board_a" / "a.info").write_text(
@@ -534,7 +564,7 @@ def test_copy_outputs_back_merges_and_fixes_lcov_paths(tmp_path):
     (real_build / "sym_dir").mkdir(parents=True)
     (real_build / "sym_dir" / "old.txt").write_text("old\n", encoding="utf-8")
 
-    shadow_build = shadow_co / ec_rel / "build"
+    shadow_build = shadow_co / ec_rel / "build/zephyr"
     (shadow_build / "board_b").mkdir(parents=True)
     (shadow_build / "board_b" / "ec.bin").write_text(
         "bin_b\n", encoding="utf-8"
@@ -547,6 +577,11 @@ def test_copy_outputs_back_merges_and_fixes_lcov_paths(tmp_path):
         "end_of_record\n",
         encoding="utf-8",
     )
+    (shadow_build.parent / "tokens.bin").write_text(
+        "tokens\n", encoding="utf-8"
+    )
+    (shadow_build.parent / "host").mkdir()
+    (shadow_build.parent / "host/util").touch()
     (shadow_co / ec_rel / "twister-out.json").write_text(
         "{}\n", encoding="utf-8"
     )
@@ -560,6 +595,10 @@ def test_copy_outputs_back_merges_and_fixes_lcov_paths(tmp_path):
         encoding="utf-8"
     ) == "bin_b\n"
     assert (real_build / "sym_dir").is_symlink()
+    assert (real_build.parent / "tokens.bin").read_text(
+        encoding="utf-8"
+    ) == "tokens\n"
+    assert not (real_build.parent / "host").exists()
     assert (real_co / ec_rel / "twister-out.json").read_text(
         encoding="utf-8"
     ) == "{}\n"
@@ -756,8 +795,8 @@ def test_prepared_workspace_shadow_and_partial_failure(
             assert (shadow_ec / "file_to_override.c").read_text(
                 encoding="utf-8"
             ) == "shadow override\n"
-            (shadow_ec / "build").mkdir()
-            (shadow_ec / "build" / "out.bin").write_text(
+            (shadow_ec / "build/zephyr").mkdir(parents=True)
+            (shadow_ec / "build/zephyr/out.bin").write_text(
                 "artifact\n", encoding="utf-8"
             )
             (shadow_ec / "twister-out-llvm").mkdir()
@@ -780,7 +819,7 @@ def test_prepared_workspace_shadow_and_partial_failure(
 
         assert os.environ.get("ZMAKE_WORKSPACE_PREPARED") is None
         assert os.environ.get("ZMAKE_ORIGIN_CHECKOUT") is None
-        assert (ec_path / "build" / "out.bin").read_text(
+        assert (ec_path / "build/zephyr/out.bin").read_text(
             encoding="utf-8"
         ) == "artifact\n"
         assert (ec_path / "twister-out-llvm" / "coverage.info").read_text(

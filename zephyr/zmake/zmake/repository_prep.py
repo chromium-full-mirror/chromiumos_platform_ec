@@ -656,15 +656,12 @@ def fix_lcov_info_paths(directory, old_prefix, new_prefix):
 
 
 def _copy_build_metadata_to_shadow(real_co, shadow_co, ec_rel):
-    """Copy .shard_info.json and *.info from real build dir to shadow build dir."""
-    real_build = real_co / ec_rel / "build"
-    shadow_build = shadow_co / ec_rel / "build"
+    """Copy .shard_info.json and *.info from real to shadow Zephyr build dir."""
+    real_build = real_co / ec_rel / "build" / "zephyr"
+    shadow_build = shadow_co / ec_rel / "build" / "zephyr"
     if not real_build.exists():
         return
-    for f in [
-        real_build / "zephyr" / ".shard_info.json",
-        *real_build.rglob("*.info"),
-    ]:
+    for f in (real_build / ".shard_info.json", *real_build.rglob("*.info")):
         if f.is_file() and not f.is_symlink():
             dst = shadow_build / f.relative_to(real_build)
             dst.parent.mkdir(parents=True, exist_ok=True)
@@ -673,18 +670,24 @@ def _copy_build_metadata_to_shadow(real_co, shadow_co, ec_rel):
 
 
 def copy_outputs_back(shadow_co, real_co, ec_rel):
-    """Copy build and twister outputs from shadow back to real checkout."""
+    """Copy Zephyr build and twister outputs from shadow to real checkout."""
     shadow_ec, real_ec = shadow_co / ec_rel, real_co / ec_rel
-    for src_path in [shadow_ec / "build", *shadow_ec.glob("twister-out*")]:
+    shadow_build = shadow_ec / "build" / "zephyr"
+    real_build = real_ec / "build" / "zephyr"
+    outputs = [
+        (shadow_build, real_build),
+        (shadow_build.parent / "tokens.bin", real_build.parent / "tokens.bin"),
+    ] + [(p, real_ec / p.name) for p in shadow_ec.glob("twister-out*")]
+    for src_path, dst_path in outputs:
         if not src_path.exists() or src_path.is_symlink():
             continue
-        dst_path = real_ec / src_path.name
         logger.info("Copying %s back to real checkout...", src_path.name)
         if src_path.is_dir():
             fix_symlinks(src_path, shadow_co, real_co)
             fix_lcov_info_paths(src_path, shadow_co, real_co)
             _copytree_overwrite(src_path, dst_path)
         else:
+            dst_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src_path, dst_path)
 
 
