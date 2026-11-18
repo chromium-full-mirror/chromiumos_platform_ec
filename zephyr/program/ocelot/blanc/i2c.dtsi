@@ -16,6 +16,26 @@
 			enum-names = "I2C_PORT_CHARGER",
 				"I2C_PORT_BATTERY";
 		};
+		/* EC_ISH */
+		i2c_ec_i2c_sensor: ec_i2c_sensor {
+			i2c-port = <&i2c0_0>;
+			enum-names = "I2C_PORT_SENSOR";
+		};
+	};
+};
+
+&i2c0_0 {
+	label = "I2C_PORT_SENSOR";
+	status = "okay";
+	pinctrl-0 = <&i2c0_0_sda_scl_gpb4_b5>;
+	pinctrl-names = "default";
+	clock-frequency = <I2C_BITRATE_FAST>;
+
+	dsp_service: dsp-service@29 {
+		compatible = "cros,dsp-service";
+		reg = <0x29>;
+		int-gpios = <&gpioa 2 (GPIO_ACTIVE_LOW | GPIO_VOLTAGE_1P8 |
+				GPIO_OPEN_DRAIN)>;
 	};
 };
 
@@ -32,18 +52,7 @@
 };
 
 &i2c3_0 {
-	label = "I2C_PORT_SENSOR";
-	status = "okay";
-	pinctrl-0 = <&i2c3_0_sda_scl_gpd0_d1>;
-	pinctrl-names = "default";
-	clock-frequency = <I2C_BITRATE_FAST>;
-
-	dsp_service: dsp-service@29 {
-		compatible = "cros,dsp-service";
-		reg = <0x29>;
-		int-gpios = <&gpioa 2 (GPIO_ACTIVE_LOW | GPIO_VOLTAGE_1P8 |
-				GPIO_OPEN_DRAIN)>;
-	};
+	status = "disabled";
 };
 
 &i2c4_1 {
@@ -70,12 +79,16 @@
 	clock-frequency = <I2C_BITRATE_STANDARD>;
 };
 
+&i2c_ctrl0 {
+	status = "okay";
+};
+
 &i2c_ctrl1 {
 	status = "okay";
 };
 
 &i2c_ctrl3 {
-	status = "okay";
+	status = "disabled";
 };
 
 &i2c_ctrl4 {

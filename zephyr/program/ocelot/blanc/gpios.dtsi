@@ -89,9 +89,10 @@
 		gpio_fp_btn_ign: fp_btn_ign {
 			gpios = <&gpiof 5 GPIO_INPUT>;
 		};
-		/* KB_LOCK_EC_IN */
-		gpio_kb_lock_ec_in: kb_lock_ec_in {
-			gpios = <&gpiob 5 GPIO_INPUT>;
+		/* EC_ISH_INT_ODL */
+		gpio_ec_ish_int_odl: ec_ish_int_odl {
+			gpios = <&gpioa 2 (GPIO_ACTIVE_LOW | GPIO_VOLTAGE_1P8 |
+					GPIO_OPEN_DRAIN)>;
 		};
 		gpio_ec_soc_rtcrst_r_n: ec_soc_rtcrst_r_n {
 			gpios = <&gpio7 6 (GPIO_OUTPUT | GPIO_OUTPUT_INIT_LOW)>;
@@ -125,7 +126,6 @@
 			<&gpio8 1 (GPIO_INPUT | GPIO_PULL_DOWN)>,
 			<&gpio3 2 (GPIO_INPUT | GPIO_PULL_DOWN)>,
 			<&gpioe 3 (GPIO_INPUT | GPIO_PULL_DOWN)>,
-			<&gpiob 4 (GPIO_INPUT | GPIO_PULL_DOWN)>,
 			<&gpio9 6 (GPIO_INPUT | GPIO_PULL_DOWN)>,
 			<&gpio9 3 (GPIO_INPUT | GPIO_PULL_DOWN)>,
 			<&gpio5 6 (GPIO_INPUT | GPIO_PULL_DOWN)>;

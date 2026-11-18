@@ -4,6 +4,13 @@
  */
 
 / {
+	/*
+	 * The idle image drives no sensors, but a named-i2c-ports node is
+	 * still required: it selects CONFIG_PLATFORM_EC_I2C, which is what
+	 * gates component manifest generation in zephyr/CMakeLists.txt.
+	 * IshBinPacker unconditionally packs component_manifest.json, and
+	 * cros-ish-utils.eclass unconditionally installs it.
+	 */
 	named-i2c-ports {
 		compatible = "named-i2c-ports";
 		i2c_ec_i2c_sensor: sensor {

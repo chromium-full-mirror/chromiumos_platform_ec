@@ -9,12 +9,23 @@
 
 / {
 	chosen {
+		/*
+		 * intel_ish_5_8_0.dts already chooses zephyr,sram,
+		 * zephyr,console and zephyr,shell-uart; they are repeated
+		 * here for clarity. zephyr,flash is required by
+		 * zephyr/shim/include/config_chip.h.
+		 */
 		zephyr,sram = &sram;
 		zephyr,console = &uart0;
 		zephyr,shell-uart = &uart0;
 		zephyr,flash = &sram;
 	};
 
+	/*
+	 * common/system.c references GPIO_ENTERING_RW unconditionally. A
+	 * named-gpios child with no "gpios" property resolves it to
+	 * GPIO_UNIMPLEMENTED, which is what an idle image wants.
+	 */
 	named-gpios {
 		compatible = "named-gpios";
 
