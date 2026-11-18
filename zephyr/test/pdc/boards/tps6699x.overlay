@@ -31,6 +31,7 @@
                 reg = <0x24>;
                 irq-gpios = <&gpiof 5 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
                 port-index-on-chip = <0x2>;
+                no-fw-update;
                 frs-supported;
         };
 };

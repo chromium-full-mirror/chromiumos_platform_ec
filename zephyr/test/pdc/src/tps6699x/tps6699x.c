@@ -8,6 +8,7 @@
 #include "emul/emul_pdc.h"
 #include "emul/emul_tps6699x.h"
 #include "pdc_trace_msg.h"
+#include "system.h"
 #include "tps6699x_cmd.h"
 
 #include <string.h>
@@ -39,6 +40,7 @@ enum port_control_access {
 
 FAKE_VALUE_FUNC(int, tps_rw_port_control, const struct i2c_dt_spec *,
 		union reg_port_control *, int);
+FAKE_VOID_FUNC(system_reset, int);
 test_mockable_static int tps_xfer_reg(const struct i2c_dt_spec *i2c,
 				      enum tps6699x_reg reg, uint8_t *buf,
 				      uint8_t len, int flag);
@@ -63,7 +65,10 @@ static void tps6699x_before_test(void *data)
 {
 	access = ACCESS_OK;
 	RESET_FAKE(tps_rw_port_control);
+	RESET_FAKE(system_reset);
+	system_clear_reset_flags(0xffffffff);
 	emul_pdc_reset(emul);
+	emul_pdc_reset(emul2);
 	emul_pdc_set_response_delay(emul, 0);
 	if (IS_ENABLED(CONFIG_TEST_PDC_MESSAGE_TRACING)) {
 		set_pdc_trace_msg_mocks();
@@ -975,4 +980,152 @@ ZTEST_USER(tps6699x, test_delayed_response)
 	/* Reset delay for subsequent tests */
 	emul_pdc_set_response_delay(emul, 0);
 	zassert_true(pdc_is_init_done(dev));
+}
+
+/* Verify that when the PDC is in bootloader mode on a non-cold boot (e.g.
+ * warm/hard reset after a previous recovery attempt), init retries fail and
+ * the port enters ST_DISABLE without sending GAID or rebooting the EC.
+ */
+ZTEST_USER(tps6699x, test_bootloader_mode_no_recovery_on_warm_boot)
+{
+	struct pdc_info_t info = { 0 };
+
+	zassert_true(pdc_is_init_done(dev));
+
+	system_set_reset_flags(EC_RESET_FLAG_HARD | EC_RESET_FLAG_SOFT);
+	zassert_ok(emul_tps6699x_set_reg_mode(emul, REG_MODE_F211));
+
+	restart_init_all_ports();
+	wait_for_st_disable();
+
+	zassert_equal(PDC_DRIVER_INIT_STATE_FAILED, pdc_is_init_done(dev));
+	zassert_ok(pdc_get_info(dev, &info, false));
+	zassert_false(info.is_running_flash_code);
+	zassert_equal(0, emul_tps6699x_get_gaid_count(emul));
+	zassert_equal(0, emul_tps6699x_get_gaid_count(emul2));
+	zassert_equal(0, system_reset_fake.call_count);
+
+	zassert_ok(emul_tps6699x_set_reg_mode(emul, REG_MODE_APP0));
+	system_clear_reset_flags(0xffffffff);
+	recover_from_st_disable();
+}
+
+/* Verify that entering ST_DISABLE while running flash code on a cold boot
+ * does not trigger bootloader recovery.
+ */
+ZTEST_USER(tps6699x, test_no_bootloader_recovery_when_running_flash_code)
+{
+	struct pdc_info_t info = { 0 };
+
+	zassert_true(pdc_is_init_done(dev));
+
+	system_set_reset_flags(EC_RESET_FLAG_POWER_ON |
+			       EC_RESET_FLAG_RESET_PIN);
+	emul_pdc_fail_next_ucsi_command(emul, UCSI_SET_NOTIFICATION_ENABLE,
+					TASK_REJECTED, TPS6699X_INIT_RETRY_MAX);
+
+	restart_init_all_ports();
+	wait_for_st_disable();
+
+	zassert_equal(PDC_DRIVER_INIT_STATE_FAILED, pdc_is_init_done(dev));
+	zassert_ok(pdc_get_info(dev, &info, false));
+	zassert_true(info.is_running_flash_code);
+	zassert_equal(0, emul_tps6699x_get_gaid_count(emul));
+	zassert_equal(0, emul_tps6699x_get_gaid_count(emul2));
+	zassert_equal(0, system_reset_fake.call_count);
+
+	system_clear_reset_flags(0xffffffff);
+	recover_from_st_disable();
+}
+
+/* Verify that when a PDC is stuck in bootloader mode on a cold boot
+ * (EC_RESET_FLAG_POWER_ON or EC_RESET_FLAG_RESET_PIN), entering ST_DISABLE
+ * sends GAID once per chip (skipping ports marked no-fw-update) and triggers a
+ * hard EC reset.
+ */
+ZTEST_USER(tps6699x, test_bootloader_mode_recovery_on_cold_boot)
+{
+	struct pdc_info_t info = { 0 };
+
+	zassert_true(pdc_is_init_done(dev));
+	zassert_true(pdc_is_init_done(dev2));
+
+	/* Confirm port 0 allows FW update and port 1 sets no-fw-update. */
+	zassert_ok(pdc_get_info(dev, &info, false));
+	zassert_false(info.no_fw_update);
+	zassert_ok(pdc_get_info(dev2, &info, false));
+	zassert_true(info.no_fw_update);
+
+	/* Case 1: Cold boot via EC_RESET_FLAG_POWER_ON in REG_MODE_F211. */
+	system_set_reset_flags(EC_RESET_FLAG_POWER_ON);
+	zassert_ok(emul_tps6699x_set_reg_mode(emul, REG_MODE_F211));
+
+	restart_init_all_ports();
+	zassert_true(WAIT_FOR(system_reset_fake.call_count == 1,
+			      ST_DISABLE_POLL_TIMEOUT_US,
+			      k_sleep(K_MSEC(ST_DISABLE_POLL_MS))),
+		     "Expected system_reset() during power-on recovery");
+	k_sleep(K_MSEC(SLEEP_MS));
+
+	zassert_equal(1, system_reset_fake.call_count);
+	zassert_equal(SYSTEM_RESET_HARD, system_reset_fake.arg0_val);
+	zassert_equal(1, emul_tps6699x_get_gaid_count(emul));
+	zassert_equal(0, emul_tps6699x_get_gaid_count(emul2));
+	zassert_equal(PDC_DRIVER_INIT_STATE_FAILED, pdc_is_init_done(dev));
+
+	zassert_ok(emul_tps6699x_set_reg_mode(emul, REG_MODE_APP0));
+	system_clear_reset_flags(0xffffffff);
+	recover_from_st_disable();
+
+	/* Case 2: Cold boot via EC_RESET_FLAG_RESET_PIN in REG_MODE_BOOT. */
+	RESET_FAKE(system_reset);
+	emul_pdc_reset(emul);
+	emul_pdc_reset(emul2);
+
+	system_set_reset_flags(EC_RESET_FLAG_RESET_PIN);
+	zassert_ok(emul_tps6699x_set_reg_mode(emul, REG_MODE_BOOT));
+
+	restart_init_all_ports();
+	zassert_true(WAIT_FOR(system_reset_fake.call_count == 1,
+			      ST_DISABLE_POLL_TIMEOUT_US,
+			      k_sleep(K_MSEC(ST_DISABLE_POLL_MS))),
+		     "Expected system_reset() during reset-pin recovery");
+	k_sleep(K_MSEC(SLEEP_MS));
+
+	zassert_equal(1, system_reset_fake.call_count);
+	zassert_equal(SYSTEM_RESET_HARD, system_reset_fake.arg0_val);
+	zassert_equal(1, emul_tps6699x_get_gaid_count(emul));
+	zassert_equal(0, emul_tps6699x_get_gaid_count(emul2));
+
+	zassert_ok(emul_tps6699x_set_reg_mode(emul, REG_MODE_APP0));
+	system_clear_reset_flags(0xffffffff);
+	recover_from_st_disable();
+}
+
+/* Verify that if sending GAID fails during bootloader recovery, the driver
+ * still completes the recovery delay and triggers a hard EC reset.
+ */
+ZTEST_USER(tps6699x, test_bootloader_mode_recovery_gaid_write_failure)
+{
+	zassert_true(pdc_is_init_done(dev));
+
+	system_set_reset_flags(EC_RESET_FLAG_POWER_ON);
+	zassert_ok(emul_tps6699x_set_reg_mode(emul, REG_MODE_F211));
+	zassert_ok(emul_pdc_fail_reg_write(emul, REG_COMMAND_FOR_I2C1));
+
+	restart_init_all_ports();
+	zassert_true(WAIT_FOR(system_reset_fake.call_count == 1,
+			      ST_DISABLE_POLL_TIMEOUT_US,
+			      k_sleep(K_MSEC(ST_DISABLE_POLL_MS))),
+		     "Expected system_reset() even when GAID write fails");
+	k_sleep(K_MSEC(SLEEP_MS));
+
+	zassert_equal(1, system_reset_fake.call_count);
+	zassert_equal(SYSTEM_RESET_HARD, system_reset_fake.arg0_val);
+	zassert_equal(0, emul_tps6699x_get_gaid_count(emul));
+	zassert_equal(0, emul_tps6699x_get_gaid_count(emul2));
+
+	zassert_ok(emul_tps6699x_set_reg_mode(emul, REG_MODE_APP0));
+	system_clear_reset_flags(0xffffffff);
+	recover_from_st_disable();
 }

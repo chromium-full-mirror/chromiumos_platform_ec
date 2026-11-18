@@ -551,6 +551,7 @@ static int tps6699x_emul_handle_gaid(struct tps6699x_emul_pdc_data *data,
 				     uint8_t *data_reg)
 {
 	LOG_INF("GAID TASK");
+	data->gaid_count++;
 	data_reg[0] = TASK_COMPLETED_SUCCESSFULLY;
 	return 0;
 }
@@ -1180,6 +1181,7 @@ static int emul_tps6699x_reset(const struct emul *target)
 	memset(data->fail_reg_reads, 0, REG_U32_BITMAP_SIZE);
 	memset(data->fail_reg_writes, 0, REG_U32_BITMAP_SIZE);
 	data->fail_next_ucsi_cmd_count = 0;
+	data->gaid_count = 0;
 
 	/* Initialize reg_mode to APP0 to indicate running from flash. */
 	*((uint32_t *)reg_mode->data) = REG_MODE_APP0;
@@ -1660,6 +1662,25 @@ emul_tps6699x_get_i2c_common_data(const struct emul *emul)
 {
 	struct tps6699x_emul_data *data = emul->data;
 	return &data->common;
+}
+
+int emul_tps6699x_set_reg_mode(const struct emul *target, enum tps_mode mode)
+{
+	struct tps6699x_emul_pdc_data *data =
+		tps6699x_emul_get_pdc_data(target);
+	union reg_mode *reg_mode = (union reg_mode *)data->reg_val[REG_MODE];
+
+	*((uint32_t *)reg_mode->data) = mode;
+
+	return 0;
+}
+
+int emul_tps6699x_get_gaid_count(const struct emul *target)
+{
+	struct tps6699x_emul_pdc_data *data =
+		tps6699x_emul_get_pdc_data(target);
+
+	return data->gaid_count;
 }
 
 /* clang-format off */

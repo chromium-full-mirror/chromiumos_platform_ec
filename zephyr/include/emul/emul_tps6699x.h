@@ -108,6 +108,8 @@ struct tps6699x_emul_pdc_data {
 	enum ucsi_command_t fail_next_ucsi_cmd;
 	enum std_task_response fail_next_ucsi_cmd_with_response;
 
+	int gaid_count;
+
 	uint32_t pending_rdo;
 	struct emul_pdc_pdo_t pdo;
 	bool cmd_error;
@@ -144,5 +146,22 @@ int emul_pdc_set_interrupt_patch_loaded(const struct emul *target);
  */
 struct i2c_common_emul_data *
 emul_tps6699x_get_i2c_common_data(const struct emul *emul);
+
+/**
+ * @brief Set the REG_MODE value reported by the TPS6699x emulator
+ *
+ * @param target Pointer to TPS6699x emulator
+ * @param mode Chip operating mode (e.g. REG_MODE_APP0, REG_MODE_F211)
+ * @return 0 on success
+ */
+int emul_tps6699x_set_reg_mode(const struct emul *target, enum tps_mode mode);
+
+/**
+ * @brief Get the number of COMMAND_TASK_GAID commands received since reset
+ *
+ * @param target Pointer to TPS6699x emulator
+ * @return Number of GAID commands handled
+ */
+int emul_tps6699x_get_gaid_count(const struct emul *target);
 
 #endif /* PLATFORM_EC_ZEPHYR_INCLUDE_EMUL_EMUL_TPS6699X_H_ */
