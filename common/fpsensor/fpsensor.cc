@@ -256,7 +256,7 @@ static uint32_t fp_process_match(void)
 			 * is valid. If it is not valid, overwrite result
 			 * with EC_MKBP_FP_ERR_MATCH_NO_INTERNAL.
 			 */
-			if (fgr >= 0 && fgr < FP_MAX_FINGER_COUNT) {
+			if (fgr >= 0 && fgr < templ_count) {
 				matched_idx = static_cast<uint32_t>(fgr);
 				stats_template_matched = fgr;
 				fp_enable_positive_match_secret(

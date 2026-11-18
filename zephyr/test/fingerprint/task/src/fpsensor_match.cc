@@ -848,7 +848,13 @@ void assert_no_match_reported(uint32_t expected_err,
 {
 	assert_match_mkbp_event(expected_err, kNoMatchedTemplateMkbpIdx);
 
-	const ec_params_fp_read_match_secret secret_params = { .fgr = 0 };
+	const uint16_t secret_probe_fgr =
+		(finger_index >= 0 && finger_index < FP_MAX_FINGER_COUNT) ?
+			static_cast<uint16_t>(finger_index) :
+			0;
+	const ec_params_fp_read_match_secret secret_params = {
+		.fgr = secret_probe_fgr,
+	};
 	ec_response_fp_read_match_secret secret_response{};
 	zassert_equal(ec_cmd_fp_read_match_secret(nullptr, &secret_params,
 						  &secret_response),
@@ -869,6 +875,26 @@ void assert_match_internal_error()
 {
 	assert_no_match_reported(EC_MKBP_FP_ERR_MATCH_NO_INTERNAL,
 				 FPSTATS_MATCHING_INV);
+}
+
+void assert_valid_match_accepted(uint16_t expected_idx)
+{
+	assert_match_mkbp_event(EC_MKBP_FP_ERR_MATCH_YES, expected_idx);
+
+	ec_response_fp_stats stats{};
+	zassert_ok(ec_cmd_fp_stats(nullptr, &stats));
+	zassert_equal(stats.timestamps_invalid, 0);
+	zassert_equal(stats.template_matched, expected_idx);
+
+	const ec_params_fp_read_match_secret secret_params = {
+		.fgr = expected_idx,
+	};
+	ec_response_fp_read_match_secret secret_response{};
+	zassert_ok(ec_cmd_fp_read_match_secret(nullptr, &secret_params,
+					       &secret_response));
+	zassert_mem_equal(secret_response.positive_match_secret,
+			  example_positive_match_secret,
+			  sizeof(secret_response.positive_match_secret));
 }
 
 } // namespace
@@ -908,7 +934,7 @@ ZTEST_USER(fpsensor_match, test_match_out_of_range_index_resets_mkbp_idx)
 ZTEST_USER(fpsensor_match, test_match_max_valid_index_reports_mkbp_idx)
 {
 	static_assert(FP_MAX_FINGER_COUNT >= 2);
-	constexpr int32_t kMaxValidIndex = FP_MAX_FINGER_COUNT - 1;
+	constexpr uint16_t kMaxValidIndex = FP_MAX_FINGER_COUNT - 1;
 
 	load_example_templates(FP_MAX_FINGER_COUNT);
 
@@ -920,22 +946,7 @@ ZTEST_USER(fpsensor_match, test_match_max_valid_index_reports_mkbp_idx)
 	trigger_match_attempt(FP_MODE_MATCH);
 
 	zassert_equal(mock_alg_match_fake.call_count, 1);
-	assert_match_mkbp_event(EC_MKBP_FP_ERR_MATCH_YES, kMaxValidIndex);
-
-	ec_response_fp_stats stats{};
-	zassert_ok(ec_cmd_fp_stats(nullptr, &stats));
-	zassert_equal(stats.timestamps_invalid, 0);
-	zassert_equal(stats.template_matched, kMaxValidIndex);
-
-	const ec_params_fp_read_match_secret secret_params = {
-		.fgr = static_cast<uint16_t>(kMaxValidIndex),
-	};
-	ec_response_fp_read_match_secret secret_response{};
-	zassert_ok(ec_cmd_fp_read_match_secret(nullptr, &secret_params,
-					       &secret_response));
-	zassert_mem_equal(secret_response.positive_match_secret,
-			  example_positive_match_secret,
-			  sizeof(secret_response.positive_match_secret));
+	assert_valid_match_accepted(kMaxValidIndex);
 }
 
 ZTEST_USER(fpsensor_match, test_match_error_mutating_index_resets_mkbp_idx)
@@ -1036,6 +1047,49 @@ ZTEST_USER(fpsensor_match, test_match_rejects_templ_valid_uint16_max)
 
 	zassert_equal(mock_alg_match_fake.call_count, 0);
 	assert_match_internal_error();
+}
+
+ZTEST_USER(fpsensor_match, test_match_last_valid_nonzero_index_succeeds)
+{
+	static_assert(FP_MAX_FINGER_COUNT >= 2);
+
+	/* Load two templates (templ_valid == 2, valid indices are 0 and 1). */
+	load_example_templates(2);
+
+	match_result = FP_MATCH_RESULT_MATCH;
+	finger_index = 1;
+	mock_alg_match_fake.custom_fake = custom_match;
+	trigger_match_attempt(FP_MODE_MATCH);
+
+	zassert_equal(mock_alg_match_fake.call_count, 1);
+	assert_valid_match_accepted(1);
+}
+
+ZTEST_USER(fpsensor_match, test_match_index_beyond_valid_templates_fails)
+{
+	static_assert(FP_MAX_FINGER_COUNT >= 2);
+
+	static constexpr auto kUnloadedIndices = std::to_array<int32_t>({
+		1,
+		FP_MAX_FINGER_COUNT - 1,
+	});
+
+	/* Load a single template (templ_valid == 1, valid index is 0). */
+	load_example_templates(1);
+
+	/* Return indices within capacity but outside templ_valid. */
+	match_result = FP_MATCH_RESULT_MATCH_UPDATED;
+	mock_alg_match_fake.custom_fake = custom_match;
+
+	for (const int32_t invalid_index : kUnloadedIndices) {
+		mock_alg_match_fake.call_count = 0;
+		finger_index = invalid_index;
+		finger_updated_bitmap = BIT(invalid_index);
+		trigger_match_attempt(FP_MODE_MATCH);
+
+		zassert_equal(mock_alg_match_fake.call_count, 1);
+		assert_match_internal_error();
+	}
 }
 
 static void *fpsensor_setup(void)
