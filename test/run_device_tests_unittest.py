@@ -223,7 +223,7 @@ class RunDeviceTestsTest(unittest.TestCase):
         self.assertTrue(self._run_test(test))
         self.assertEqual(
             self.console.writes,
-            [b"\n", b"reboot ro\n", b"runtest \n"],
+            [b"\nreboot ro\n", b"\nruntest \n"],
         )
 
     def test_run_test_rw_ec_with_args_joins_test_args(self) -> None:
@@ -233,13 +233,13 @@ class RunDeviceTestsTest(unittest.TestCase):
         )
 
         self.assertTrue(self._run_test(test))
-        self.assertEqual(self.console.writes, [b"\n", b"runtest spi dma\n"])
+        self.assertEqual(self.console.writes, [b"\nruntest spi dma\n"])
 
     def test_run_test_rw_zephyr_without_args_runs_all_suites(self) -> None:
         test = run_device_tests.TestConfig(test_name="flash_protection_rw")
 
         self.assertTrue(self._run_test(test, zephyr=True))
-        self.assertEqual(self.console.writes, [b"\n", b"ztest run-all\n"])
+        self.assertEqual(self.console.writes, [b"\nztest run-all\n"])
 
     def test_run_test_rw_zephyr_with_args_runs_matching_testcase(self) -> None:
         test = run_device_tests.TestConfig(
@@ -256,7 +256,7 @@ class RunDeviceTestsTest(unittest.TestCase):
         )
         self.assertEqual(
             self.console.writes,
-            [b"\n", b"ztest run-testcase fp_transport_spi_dma\n"],
+            [b"\nztest run-testcase fp_transport_spi_dma\n"],
         )
 
     def test_run_test_ec_production_app_writes_no_command(self) -> None:
@@ -285,7 +285,7 @@ class RunDeviceTestsTest(unittest.TestCase):
         )
         self.assertEqual(self.console.writes, [])
 
-    def test_run_test_zephyr_upstream_skips_ztest_command(self) -> None:
+    def test_run_test_zephyr_upstream_writes_no_command(self) -> None:
         test = run_device_tests.TestConfig(
             zephyr_name="cpp.main.newlib",
             test_name="zephyr_cpp_newlib",
@@ -297,7 +297,7 @@ class RunDeviceTestsTest(unittest.TestCase):
                 test, zephyr=True, output=b"PROJECT EXECUTION SUCCESSFUL\r\n"
             )
         )
-        self.assertEqual(self.console.writes, [b"\n"])
+        self.assertEqual(self.console.writes, [])
 
     def _make_console_path(self, ready_at: datetime.timedelta) -> Path:
         console_path = Path("/tmp/renode-uart")

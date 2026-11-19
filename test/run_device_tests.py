@@ -1817,17 +1817,17 @@ def _test_command(test: TestConfig, zephyr: bool) -> Optional[bytes]:
     if test.apptype_to_use == ApplicationType.PRODUCTION:
         return None
     if not zephyr:
-        return f"runtest {' '.join(test.test_args)}\n".encode()
+        return f"\nruntest {' '.join(test.test_args)}\n".encode()
     # Zephyr upstream tests run automatically on startup.
     if test.zephyr_name:
         return None
     if not test.test_args:
         # Run all suites when there are no args to avoid suite-name limits.
-        return b"ztest run-all\n"
+        return b"\nztest run-all\n"
     # ZTEST console doesn't support passing test arguments; assume a testsuite
     # for every test + arg combination.
     suite = "_".join([test.test_name, *test.test_args])
-    return f"ztest run-testcase {suite}\n".encode()
+    return f"\nztest run-testcase {suite}\n".encode()
 
 
 def run_test(
@@ -1847,11 +1847,8 @@ def run_test(
     # Wait for boot to finish
     time.sleep(board_config.reboot_timeout.total_seconds())
 
-    if test.apptype_to_use != ApplicationType.PRODUCTION:
-        console.write("\n".encode())
-
     if test.imagetype_to_use == ImageType.RO:
-        console.write("reboot ro\n".encode())
+        console.write(b"\nreboot ro\n")
         time.sleep(board_config.reboot_timeout.total_seconds())
 
     if test_cmd := _test_command(test, zephyr):
