@@ -182,6 +182,9 @@
 		gpio_soc_edp_bl_en: soc_edp_bl_en {
 			gpios = <&gpioe 5 (GPIO_INPUT | GPIO_VOLTAGE_1P8)>;
 		};
+		gpio_en_pp5000_led_x: en_pp5000_led_x {
+			gpios = <&gpiog 3 (GPIO_OUTPUT)>;
+		};
 		gpio_ec_touch_en: ec_touch_en {
 			gpios = <&gpiof 3 (GPIO_OUTPUT_LOW | GPIO_OPEN_DRAIN)>;
 		};
@@ -208,7 +211,6 @@
 			/* check both not used */
 			<&gpioa 6 0>, /* LED_4_L */
 			<&gpiog 0 0>, /* SPARE GPG0 */
-			<&gpiog 3 0>, /* SPARE GPG3 */
 			<&gpiog 4 0>, /* SPARE GPG4 */
 			<&gpiog 5 0>, /* SPARE GPG5 */
 			<&gpiog 7 0>, /* SPARE GPG7 */
