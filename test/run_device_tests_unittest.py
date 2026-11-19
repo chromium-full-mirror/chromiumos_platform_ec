@@ -42,6 +42,7 @@ class _FakeConsole:
     """In-memory console stream backed by _FakeClock."""
 
     clock: _FakeClock
+    writes: list[bytes] = dataclasses.field(default_factory=list)
     _queue: collections.deque[tuple[float, bytes | None]] = dataclasses.field(
         default_factory=collections.deque, init=False
     )
@@ -86,7 +87,8 @@ class _FakeConsole:
         return chunk
 
     def write(self, data: bytes) -> int:
-        """Accept console input bytes and return the byte count."""
+        """Record console input bytes and return the byte count."""
+        self.writes.append(data)
         return len(data)
 
     def flush(self) -> None:
@@ -196,6 +198,106 @@ class RunDeviceTestsTest(unittest.TestCase):
 
         self.assertTrue(passed)
         self.assertEqual(self.clock.sleeps, [3.0, 3.0])
+
+    def _run_test(
+        self,
+        test: run_device_tests.TestConfig,
+        *,
+        zephyr: bool = False,
+        output: bytes = b"Pass!\r\n",
+    ) -> bool:
+        self.console.feed(output)
+        return run_device_tests.run_test(
+            test,
+            run_device_tests.HELIPILOT_CONFIG,
+            self.console,
+            zephyr=zephyr,
+        )
+
+    def test_run_test_ro_ec_reboots_to_ro_and_runs_test(self) -> None:
+        test = run_device_tests.TestConfig(
+            test_name="abort",
+            imagetype_to_use=run_device_tests.ImageType.RO,
+        )
+
+        self.assertTrue(self._run_test(test))
+        self.assertEqual(
+            self.console.writes,
+            [b"\n", b"reboot ro\n", b"runtest \n"],
+        )
+
+    def test_run_test_rw_ec_with_args_joins_test_args(self) -> None:
+        test = run_device_tests.TestConfig(
+            test_name="fp_transport",
+            test_args=["spi", "dma"],
+        )
+
+        self.assertTrue(self._run_test(test))
+        self.assertEqual(self.console.writes, [b"\n", b"runtest spi dma\n"])
+
+    def test_run_test_rw_zephyr_without_args_runs_all_suites(self) -> None:
+        test = run_device_tests.TestConfig(test_name="flash_protection_rw")
+
+        self.assertTrue(self._run_test(test, zephyr=True))
+        self.assertEqual(self.console.writes, [b"\n", b"ztest run-all\n"])
+
+    def test_run_test_rw_zephyr_with_args_runs_matching_testcase(self) -> None:
+        test = run_device_tests.TestConfig(
+            test_name="fp_transport",
+            test_args=["spi", "dma"],
+        )
+
+        self.assertTrue(
+            self._run_test(
+                test,
+                zephyr=True,
+                output=b"TESTSUITE fp_transport_spi_dma succeeded\r\n",
+            )
+        )
+        self.assertEqual(
+            self.console.writes,
+            [b"\n", b"ztest run-testcase fp_transport_spi_dma\n"],
+        )
+
+    def test_run_test_ec_production_app_writes_no_command(self) -> None:
+        test = run_device_tests.TestConfig(
+            test_name="production_app_test",
+            finish_regexes=[run_device_tests.RW_IMAGE_BOOTED_REGEX],
+            apptype_to_use=run_device_tests.ApplicationType.PRODUCTION,
+        )
+
+        self.assertTrue(
+            self._run_test(test, output=b"[Image: RW, helipilot]\r\n")
+        )
+        self.assertEqual(self.console.writes, [])
+
+    def test_run_test_zephyr_production_app_writes_no_command(self) -> None:
+        test = run_device_tests.TestConfig(
+            test_name="production_app_test",
+            finish_regexes=[run_device_tests.RW_IMAGE_BOOTED_REGEX],
+            apptype_to_use=run_device_tests.ApplicationType.PRODUCTION,
+        )
+
+        self.assertTrue(
+            self._run_test(
+                test, zephyr=True, output=b"[Image: RW, helipilot]\r\n"
+            )
+        )
+        self.assertEqual(self.console.writes, [])
+
+    def test_run_test_zephyr_upstream_skips_ztest_command(self) -> None:
+        test = run_device_tests.TestConfig(
+            zephyr_name="cpp.main.newlib",
+            test_name="zephyr_cpp_newlib",
+            finish_regexes=[run_device_tests.ALL_TESTS_PASSED_REGEX_ZEPHYR],
+        )
+
+        self.assertTrue(
+            self._run_test(
+                test, zephyr=True, output=b"PROJECT EXECUTION SUCCESSFUL\r\n"
+            )
+        )
+        self.assertEqual(self.console.writes, [b"\n"])
 
     def _make_console_path(self, ready_at: datetime.timedelta) -> Path:
         console_path = Path("/tmp/renode-uart")
