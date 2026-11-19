@@ -200,15 +200,13 @@
 		unused-gpios =
 			/* check IT82002 not used */
 			<&gpiob 4 0>, /* SPARE GPB4 */
-			<&gpiod 7 0>, /* SPARE GPD7 */
 			<&gpioe 2 0>, /* SPARE GPE2 */
 			<&gpiof 2 0>, /* SPARE GPF2 */
 			<&gpiog 1 0>, /* SPARE GPG1 */
 			<&gpiog 2 0>, /* SPARE GPG2 */
 
 			/* check both not used */
-			<&gpioa 4 0>, /* LED_3_R_L */
-			<&gpioa 5 0>, /* LED_4_R_L */
+			<&gpioa 6 0>, /* LED_4_L */
 			<&gpiog 0 0>, /* SPARE GPG0 */
 			<&gpiog 3 0>, /* SPARE GPG3 */
 			<&gpiog 4 0>, /* SPARE GPG4 */
