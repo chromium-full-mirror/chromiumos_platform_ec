@@ -59,9 +59,9 @@
 	pinctrl-names = "default";
 };
 
-&i2c5 {
+&i2c3 {
 	status = "okay";
-	pinctrl-0 = <&i2c5_clk_gpe1_default
-		&i2c5_data_gpe2_default>;
+	pinctrl-0 = <&i2c3_clk_gph1_default
+		&i2c3_data_gph2_default>;
 	pinctrl-names = "default";
 };

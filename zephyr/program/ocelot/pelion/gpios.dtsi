@@ -45,6 +45,10 @@
 			gpios = <&gpioe 4 (GPIO_INPUT)>;
 			enum-name = "GPIO_POWER_BUTTON_L";
 		};
+		gpio_ec_gsc_packet_mode: ec_gsc_packet_mode {
+			gpios = <&gpioe 6 GPIO_OUTPUT>;
+			enum-name = "GPIO_PACKET_MODE_EN";
+		};
 		gpio_acok_od: acok_od {
 			gpios = <&gpioc 0 (GPIO_INPUT)>;
 			enum-name = "GPIO_AC_PRESENT";
@@ -79,6 +83,9 @@
 			gpios = <&gpioi 7 (GPIO_OUTPUT | GPIO_ACTIVE_HIGH | GPIO_OUTPUT_INIT_LOW)>;
 			no-auto-init;
 		};
+		gpio_espi_soc_rst_l: espi_soc_rst_l {
+			gpios = <&gpiod 2 (GPIO_INPUT | GPIO_VOLTAGE_1P8)>;
+		};
 		gpio_en_pp5000_fan: en_pp5000_fan {
 			gpios = <&gpioc 4 (GPIO_OUTPUT | GPIO_ACTIVE_LOW)>;
 		};
@@ -93,6 +100,9 @@
 		};
 		gpio_gpg6_r: gpg6_r {
 			gpios = <&gpiog 6 (GPIO_INPUT)>;
+		};
+		gpio_fp_btn_ign: fp_btn_ign {
+			gpios = <&gpioj 6 (GPIO_INPUT)>;
 		};
 		gpio_ec_soc_rtcrst: ec_soc_rtcrst {
 			gpios = <&gpioh 5 (GPIO_INPUT | GPIO_ACTIVE_LOW)>;
@@ -124,8 +134,8 @@
 		gpio_ec_forcepr_odl: ec_forcepr_odl {
 			gpios = <&gpioi 0 (GPIO_INPUT | GPIO_ACTIVE_LOW)>;
 		};
-		gpio_pg_vccio_od: pg_vccio_od {
-			gpios = <&gpioe 6 (GPIO_INPUT | GPIO_VOLTAGE_1P8)>;
+		gpio_pg_pp1250_soc_s5_od: pg_pp1250_soc_s5_od {
+			gpios = <&gpiof 0 (GPIO_INPUT | GPIO_VOLTAGE_1P8)>;
 			no-auto-init;
 		};
 		gpio_sys_rst_odl: sys_rst_odl {
@@ -140,16 +150,16 @@
 			gpios = <&gpiod 3 (GPIO_INPUT)>;
 			enum-name = "GPIO_LID_OPEN";
 		};
+		/* EC_EN_PWRMON_R */
+		gpio_ec_en_pwrmon_r: ec_en_pwrmon_r {
+			gpios = <&gpiob 3 (GPIO_OUTPUT | GPIO_ACTIVE_HIGH | GPIO_OUTPUT_INIT_LOW)>;
+		};
 		gpio_ec_soc_wake_odl: ec_soc_wake_odl {
 			gpios = <&gpiob 6 (GPIO_OUTPUT | GPIO_OPEN_DRAIN | GPIO_ACTIVE_HIGH | GPIO_OUTPUT_INIT_HIGH)>;
 		};
 		gpio_soc_sys_pwrok: soc_sys_pwrok {
-			gpios = <&gpioj 4 (GPIO_INPUT)>;
+			gpios = <&gpiof 1 (GPIO_INPUT)>;
 			no-auto-init;
-		};
-		gpio_ec_gsc_packet_mode: ec_gsc_packet_mode {
-			gpios = <&gpiod 7 GPIO_OUTPUT>;
-			enum-name = "GPIO_PACKET_MODE_EN";
 		};
 		gpio_ec_volup_btn_odl: ec_volup_btn_odl {
 			gpios = <&gpioa 7 (GPIO_INPUT)>;
@@ -170,13 +180,13 @@
 			gpios = <&gpioa 3 GPIO_OUTPUT_HIGH>;
 		};
 		gpio_soc_edp_bl_en: soc_edp_bl_en {
-			gpios = <&gpioh 1 (GPIO_INPUT | GPIO_VOLTAGE_1P8)>;
+			gpios = <&gpioe 5 (GPIO_INPUT | GPIO_VOLTAGE_1P8)>;
 		};
 		gpio_ec_touch_en: ec_touch_en {
-			gpios = <&gpiog 2 (GPIO_OUTPUT_LOW | GPIO_OPEN_DRAIN)>;
+			gpios = <&gpiof 3 (GPIO_OUTPUT_LOW | GPIO_OPEN_DRAIN)>;
 		};
 		gpio_soc_tchscr_report_en: soc_tchscr_report_en {
-			gpios = <&gpiob 2 (GPIO_INPUT | GPIO_VOLTAGE_1P8)>;
+			gpios = <&gpioe 1 (GPIO_INPUT | GPIO_VOLTAGE_1P8)>;
 		};
 		/* The legacy system code requires GPIO_ENTERING_RW symbol */
 		ec-entering-rw {
@@ -189,11 +199,12 @@
 
 		unused-gpios =
 			/* check IT82002 not used */
-			<&gpiob 3 0>, /* SPARE GPB3 */
 			<&gpiob 4 0>, /* SPARE GPB4 */
+			<&gpiod 7 0>, /* SPARE GPD7 */
+			<&gpioe 2 0>, /* SPARE GPE2 */
 			<&gpiof 2 0>, /* SPARE GPF2 */
-			<&gpiof 3 0>, /* SPARE GPF3 */
 			<&gpiog 1 0>, /* SPARE GPG1 */
+			<&gpiog 2 0>, /* SPARE GPG2 */
 
 			/* check both not used */
 			<&gpioa 4 0>, /* LED_3_R_L */
@@ -203,10 +214,7 @@
 			<&gpiog 4 0>, /* SPARE GPG4 */
 			<&gpiog 5 0>, /* SPARE GPG5 */
 			<&gpiog 7 0>, /* SPARE GPG7 */
-			<&gpioj 6 0>, /* SPARE GPJ6 PD2_INT*/
-			<&gpiof 0 0>, /* SPARE GPF0 */
-			<&gpiof 1 0>, /* SPARE GPF1 */
-			<&gpioe 5 0>; /* SPARE GPE5 */
+			<&gpioj 4 0>; /* SPARE GPJ4 */
 	};
 };
 

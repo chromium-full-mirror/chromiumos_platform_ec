@@ -102,7 +102,7 @@
 	pinctrl-names = "default", "sleep";
 	row-size = <8>;
 	col-size = <18>;
-	kso-ignore-mask = <04>;
+	kso-ignore-mask = <0x30004>;
 	debounce-down-ms = <15>;
 	debounce-up-ms = <15>;
 	actual-key-mask = <
@@ -130,6 +130,22 @@
 		compatible = "cros-ec,col-gpio";
 		col-num = <2>;
 		col-gpios = <&gpioksol 2 GPIO_ACTIVE_LOW>;
+	};
+
+	/* KSO16: Reassign function to GPB2 */
+	kso16-gpio {
+		compatible = "cros-ec,col-gpio";
+		col-num = <16>;
+		col-gpios = <&gpiob 2 (GPIO_OPEN_DRAIN | GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+		settle-time-us = <0>;
+	};
+
+	/* KSO17: Control the original pin GPC5 */
+	kso17-gpio {
+		compatible = "cros-ec,col-gpio";
+		col-num = <17>;
+		col-gpios = <&gpioc 5 (GPIO_OPEN_DRAIN | GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+		settle-time-us = <0>;
 	};
 
 	boot-keys {
