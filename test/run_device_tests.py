@@ -714,7 +714,7 @@ class TestConfig:
     fail_regexes: Optional[list[re.Pattern[str]]] = None
     toggle_power: bool = False
     test_args: list[str] = field(default_factory=list)
-    timeout_secs: int = 60
+    timeout: timedelta = timedelta(seconds=60)
     enable_hw_write_protect: bool = False
     ro_image: Optional[str] = None
     build_board: Optional[str] = None
@@ -814,7 +814,7 @@ class AllTests:
             TestConfig(
                 test_name="aes",
                 # TODO(b/485954886): Runs slowly on helipilot Renode.
-                timeout_secs=150,
+                timeout=timedelta(seconds=150),
             ),
             # Cryptoc is not supported with Zephyr; covered by openssl_cleanse.
             TestConfig(test_name="always_memset", skip_for_zephyr=True),
@@ -843,7 +843,7 @@ class AllTests:
             TestConfig(
                 test_name="benchmark",
                 # TODO(b/485954886): Runs slowly on helipilot Renode.
-                timeout_secs=150,
+                timeout=timedelta(seconds=150),
             ),
             TestConfig(test_name="boringssl_crypto"),
             # TODO(b/468409589): Add RISC-V FPU test.
@@ -935,7 +935,7 @@ class AllTests:
             TestConfig(
                 test_name="libcxx",
                 # TODO(b/485954886): Runs slowly on helipilot Renode.
-                timeout_secs=120,
+                timeout=timedelta(seconds=120),
             ),
             TestConfig(test_name="malloc", imagetype_to_use=ImageType.RO),
             # TODO(b/363277530): Add Zephyr MPU tests.
@@ -1099,7 +1099,7 @@ class AllTests:
             TestConfig(
                 test_name="watchdog",
                 # Increase timeout since this executes more slowly in Renode.
-                timeout_secs=120,
+                timeout=timedelta(seconds=120),
             ),
             TestConfig(
                 config_name="power_utilization_idle",
@@ -1211,7 +1211,10 @@ class AllTests:
             import private_tests  # pylint: disable=import-error,import-outside-toplevel
 
             for test_args in private_tests.tests:
-                tests.append(TestConfig(**test_args))
+                args = dict(test_args)
+                if (timeout_secs := args.pop("timeout_secs", None)) is not None:
+                    args["timeout"] = timedelta(seconds=timeout_secs)
+                tests.append(TestConfig(**args))
         # Catch all exceptions to avoid disruptions in public repo
         except BaseException as exception:  # pylint: disable=broad-except
             logging.debug(
@@ -1254,7 +1257,7 @@ class AllTests:
                 zephyr_name="drivers.counter.basic_api.stm32_subsec",
                 test_name="zephyr_counter_basic_api_stm32_subsec",
                 exclude_boards=[CHUDOW, DARTMONKEY, HELIPILOT, SANOK],
-                timeout_secs=60,
+                timeout=timedelta(seconds=60),
             ),
             TestConfig(
                 zephyr_name="kernel.poll",
@@ -1874,7 +1877,7 @@ def run_test(
         console.flush()
 
         elapsed_secs = time.monotonic() - start
-        remaining_secs = int(test.timeout_secs - elapsed_secs)
+        remaining_secs = int(test.timeout.total_seconds() - elapsed_secs)
         if remaining_secs <= 0:
             logging.debug("Test timed out")
             return False

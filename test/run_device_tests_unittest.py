@@ -13,6 +13,7 @@ import dataclasses
 import datetime
 from pathlib import Path
 import signal
+import types
 import unittest
 from unittest import mock
 
@@ -262,6 +263,48 @@ class RunDeviceTestsTest(unittest.TestCase):
             run_device_tests.readline(self.console, 1.0), b"line 3\r\n"
         )
         self.assertEqual(self.clock.now, 2.0)
+
+    def test_get_private_tests_converts_legacy_timeout_secs(self) -> None:
+        fake_private_tests = types.SimpleNamespace(
+            tests=[
+                {"test_name": "rick_benchmark", "timeout_secs": 30},
+                {"test_name": "rng"},
+            ]
+        )
+        self.enterContext(
+            mock.patch("run_device_tests.os.path.isdir", return_value=True)
+        )
+        self.enterContext(mock.patch("run_device_tests.sys.path", []))
+        self.enterContext(
+            mock.patch.dict(
+                "sys.modules", {"private_tests": fake_private_tests}
+            )
+        )
+
+        tests = run_device_tests.AllTests.get_private_tests()
+
+        self.assertEqual(
+            [(t.test_name, t.timeout) for t in tests],
+            [
+                ("rick_benchmark", datetime.timedelta(seconds=30)),
+                ("rng", datetime.timedelta(seconds=60)),
+            ],
+        )
+
+    def test_run_test_times_out_at_deadline(self) -> None:
+        test = run_device_tests.TestConfig(
+            test_name="aes", timeout=datetime.timedelta(seconds=10)
+        )
+
+        passed = run_device_tests.run_test(
+            test,
+            run_device_tests.HELIPILOT_CONFIG,
+            self.console,
+            zephyr=False,
+        )
+
+        self.assertFalse(passed)
+        self.assertEqual(self.clock.now, 10.0)
 
 
 if __name__ == "__main__":
