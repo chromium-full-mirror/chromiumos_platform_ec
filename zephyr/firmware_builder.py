@@ -174,6 +174,8 @@ def get_projects(opts=None):
     modules = zmake.modules.locate_from_checkout(find_checkout())
     projects_path = zmake.modules.default_projects_dirs(modules)
     for project in zmake.project.find_projects(projects_path).values():
+        if project.config.skip_build_all:
+            continue
         # Skip some projects if ec-private dir is missing until the builders
         # are fixed correctly.
         if (
