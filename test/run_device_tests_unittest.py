@@ -115,6 +115,7 @@ class _FakeProcess:
 
 
 # pylint: disable=missing-function-docstring,protected-access
+# pylint: disable=too-many-public-methods
 class RunDeviceTestsTest(unittest.TestCase):
     """Tests for run_device_tests."""
 
@@ -444,6 +445,52 @@ class RunDeviceTestsTest(unittest.TestCase):
 
         self.assertFalse(passed)
         self.assertEqual(self.clock.now, 10.0)
+
+    def test_run_test_production_app_skips_pre_test_setup(self) -> None:
+        self.console.feed(
+            b"[Image: RO, sanok]\r\n",
+            b"[Image: RW, sanok]\r\n",
+        )
+        test = run_device_tests.TestConfig(
+            test_name="production_app_test",
+            imagetype_to_use=run_device_tests.ImageType.RO,
+            finish_regexes=[run_device_tests.RW_IMAGE_BOOTED_REGEX],
+            apptype_to_use=run_device_tests.ApplicationType.PRODUCTION,
+        )
+
+        passed = run_device_tests.run_test(
+            test,
+            run_device_tests.SANOK_CONFIG,
+            self.console,
+            zephyr=True,
+        )
+
+        self.assertTrue(passed)
+        self.assertEqual(self.clock.sleeps, [])
+        self.assertEqual(self.console.writes, [])
+
+    def test_run_test_zephyr_upstream_skips_pre_test_setup(self) -> None:
+        self.console.feed(
+            b"*** Booting Zephyr OS build 1234 ***\r\n",
+            b"PROJECT EXECUTION SUCCESSFUL\r\n",
+        )
+        test = run_device_tests.TestConfig(
+            zephyr_name="cpp.main.newlib",
+            test_name="zephyr_cpp_newlib",
+            imagetype_to_use=run_device_tests.ImageType.RO,
+            finish_regexes=[run_device_tests.ALL_TESTS_PASSED_REGEX_ZEPHYR],
+        )
+
+        passed = run_device_tests.run_test(
+            test,
+            run_device_tests.HELIPILOT_CONFIG,
+            self.console,
+            zephyr=True,
+        )
+
+        self.assertTrue(passed)
+        self.assertEqual(self.clock.sleeps, [])
+        self.assertEqual(self.console.writes, [])
 
 
 if __name__ == "__main__":

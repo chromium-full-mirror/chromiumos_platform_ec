@@ -1844,14 +1844,13 @@ def run_test(
         logging.error("pre-test callback failed, aborting")
         return False
 
-    # Wait for boot to finish
-    time.sleep(board_config.reboot_timeout.total_seconds())
-
-    if test.imagetype_to_use == ImageType.RO:
-        console.write(b"\nreboot ro\n")
+    if test_cmd := _test_command(test, zephyr):
         time.sleep(board_config.reboot_timeout.total_seconds())
 
-    if test_cmd := _test_command(test, zephyr):
+        if test.imagetype_to_use == ImageType.RO:
+            console.write(b"\nreboot ro\n")
+            time.sleep(board_config.reboot_timeout.total_seconds())
+
         console.write(test_cmd)
 
     while True:
