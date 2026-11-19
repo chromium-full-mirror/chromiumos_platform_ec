@@ -1812,31 +1812,22 @@ def process_console_output_line(line: bytes, test: TestConfig):
         return None
 
 
-def run_test_ec(test: TestConfig) -> str:
-    """Prepare a command to run test on CrosEC"""
-    test_cmd = "runtest " + " ".join(test.test_args) + "\n"
-
-    return test_cmd
-
-
-def run_test_zephyr(test: TestConfig) -> str:
-    """Prepare a command to run test on Zephyr"""
-    # Zephyr upstream tests run automatically
+def _test_command(test: TestConfig, zephyr: bool) -> Optional[bytes]:
+    """Return console command to start test, or None if it runs on boot."""
+    if test.apptype_to_use == ApplicationType.PRODUCTION:
+        return None
+    if not zephyr:
+        return f"runtest {' '.join(test.test_args)}\n".encode()
+    # Zephyr upstream tests run automatically on startup.
     if test.zephyr_name:
-        return []
-
-    if len(test.test_args) == 0:
-        # If there are no args just run-all not to be limited by suite name
-        test_cmd = "ztest run-all\n"
-    else:
-        # ZTEST console doesn't support passing test arguments
-        # Assume a testsuite for every test + arg combination
-        test_cmd = "ztest run-testcase " + test.test_name
-        for test_arg in test.test_args:
-            test_cmd = test_cmd + "_" + test_arg
-        test_cmd = test_cmd + "\n"
-
-    return test_cmd
+        return None
+    if not test.test_args:
+        # Run all suites when there are no args to avoid suite-name limits.
+        return b"ztest run-all\n"
+    # ZTEST console doesn't support passing test arguments; assume a testsuite
+    # for every test + arg combination.
+    suite = "_".join([test.test_name, *test.test_args])
+    return f"ztest run-testcase {suite}\n".encode()
 
 
 def run_test(
@@ -1863,15 +1854,8 @@ def run_test(
         console.write("reboot ro\n".encode())
         time.sleep(board_config.reboot_timeout.total_seconds())
 
-    # Skip runtest if using standard app type
-    if test.apptype_to_use != ApplicationType.PRODUCTION:
-        if zephyr:
-            test_cmd = run_test_zephyr(test)
-        else:
-            test_cmd = run_test_ec(test)
-
-        if len(test_cmd) > 0:
-            console.write(test_cmd.encode())
+    if test_cmd := _test_command(test, zephyr):
+        console.write(test_cmd)
 
     while True:
         console.flush()
