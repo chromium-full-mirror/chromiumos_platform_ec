@@ -11,9 +11,17 @@ config AP_POWER_CONTROL
       This is automatically enabled if an implementation of AP power
       sequencing is enabled.
 
+config PLATFORM_EC_CUSTOM_CHIPSET_IN_STATE
+	bool
+	default y if SOC_FAMILY_INTEL_ISH
+	help
+	  The platform implements chipset_in_state() itself, so chipset.h
+	  does not define the inline version used when AP_POWER_CONTROL is
+	  disabled.
+
 config PLATFORM_EC_CHIPSET_STATE_ALWAYS_ON
 	bool "Assume AP chipset is always in S0 (CHIPSET_STATE_ON)"
-	depends on !AP_POWER_CONTROL && !SOC_FAMILY_INTEL_ISH
+	depends on !AP_POWER_CONTROL && !PLATFORM_EC_CUSTOM_CHIPSET_IN_STATE
 	help
 	  For companion processors (such as MediaTek SCP) that do not control
 	  AP power rails (AP_POWER_CONTROL=n) and only execute when the host AP
