@@ -10,7 +10,6 @@ add_subdirectory(${PLATFORM_EC}/zephyr/test/test_utils test_utils)
 
 zephyr_compile_definitions(
 	CONFIG_PLATFORM_EC_BATTERY_PRESENT_CUSTOM
-	CONFIG_TEST_DISABLE_INLINE_CHIPSET_IN_STATE
 )
 
 target_sources(app PRIVATE src/main.c)

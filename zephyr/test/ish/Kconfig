@@ -2,13 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-config TEST_DISABLE_INLINE_CHIPSET_IN_STATE
-	bool
-	help
-	  Disable the inline chipset_in_state() stub in chipset.h so unit tests
-	  link against the real chipset state implementation in ish_system.c
-	  and exercise suspend and resume transitions.
-
 config TEST_ISH_HECI
 	bool "Run ISH HECI host command and sleep state tests"
 	select TEST_DISABLE_INLINE_CHIPSET_IN_STATE

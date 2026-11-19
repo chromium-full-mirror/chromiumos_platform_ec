@@ -86,12 +86,6 @@ config TEST_VOLTORB_DPS
 	help
 	  Include voltorb_dps.c into the binary to test DPS change.
 
-config TEST_DISABLE_INLINE_CHIPSET_IN_STATE
-	bool "Disable chipset_in_state inline method"
-	help
-	  This is used to not define chipset_in_state method as inline
-	  function.
-
 config TEST_USB_PD_POLICY
 	bool "Run the tests intended for voltorb usb policy"
 	select TEST_DISABLE_INLINE_CHIPSET_IN_STATE

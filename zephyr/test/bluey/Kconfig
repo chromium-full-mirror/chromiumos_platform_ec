@@ -2,10 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-config TEST_DISABLE_INLINE_CHIPSET_IN_STATE
-	bool "Disable chipset_in_state inline method"
-	default y
-
 choice TEST_BOARD_VARIANT
 	prompt "Select board variant for tests"
 	help

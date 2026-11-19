@@ -7,12 +7,6 @@ config TEST_PROVIDE_PM_HOOKS
 	default y
 	select HAS_PM
 
-config TEST_DISABLE_INLINE_CHIPSET_IN_STATE
-	bool
-	help
-	  Stub config that's used in chipset.h to control the definition of
-	  `chipset_in_state()` in tests. Each test must define this currently.
-
 choice SYSTEM_SHIM_TEST
 	prompt "Which shim to test"
 	default SYSTEM_SHIM_TEST_DEFAULT

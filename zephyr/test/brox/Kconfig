@@ -96,11 +96,5 @@ config TEST_BOARD_JUCHI_TOUCH_PANEL
 config TEST_BOARD_JUCHI_SENSOR
 	bool "Enable juchi sensor tests"
 
-config TEST_DISABLE_INLINE_CHIPSET_IN_STATE
-	bool "Disable chipset_in_state inline method"
-	help
-	  This is used to not define chipset_in_state method as inline
-	  function.
-
 
 source "Kconfig.zephyr"

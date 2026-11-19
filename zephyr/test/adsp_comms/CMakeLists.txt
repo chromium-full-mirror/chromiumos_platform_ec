@@ -15,8 +15,6 @@ zephyr_include_directories(
 	"${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
 
-zephyr_compile_definitions(CONFIG_TEST_DISABLE_INLINE_CHIPSET_IN_STATE)
-
 target_sources(app PRIVATE
 	src/stubs.c
 	src/test_adsp_i2c_mode.c

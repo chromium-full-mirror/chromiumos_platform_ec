@@ -199,12 +199,6 @@ choice TEST_TARGET
 	    The test target that exercises nissa/src/touch_panel.c.
 endchoice
 
-config TEST_DISABLE_INLINE_CHIPSET_IN_STATE
-	bool "Disable chipset_in_state inline method"
-	help
-	  This is used to not define chipset_in_state method as inline
-	  function.
-
 config NISSA_BOARD_HAS_HDMI_SUPPORT
 	bool "Board supports HDMI sub-boards"
 	help
