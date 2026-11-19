@@ -41,10 +41,19 @@ class _FakeConsole:
     """In-memory console stream backed by _FakeClock."""
 
     clock: _FakeClock
-    items: collections.deque[bytes | None] = dataclasses.field(
-        default_factory=collections.deque
+    _queue: collections.deque[tuple[float, bytes | None]] = dataclasses.field(
+        default_factory=collections.deque, init=False
     )
     _buf: bytearray = dataclasses.field(default_factory=bytearray, init=False)
+
+    def feed(
+        self,
+        *args: bytes | None,
+        delay: datetime.timedelta = datetime.timedelta(),
+    ) -> None:
+        """Queue console lines, each arriving after delay."""
+        delay_secs = delay.total_seconds()
+        self._queue.extend((delay_secs, line) for line in args)
 
     def select(
         self,
@@ -57,12 +66,17 @@ class _FakeConsole:
         if self._buf:
             return list(rlist), [], []
 
-        if (item := self.items.popleft() if self.items else None) is None:
-            self.clock.now += timeout
-            return [], [], []
+        if self._queue:
+            delay, item = self._queue.popleft()
+            if delay >= timeout:
+                self._queue.appendleft((delay - timeout, item))
+            elif item is not None:
+                self.clock.now += delay
+                self._buf.extend(item)
+                return list(rlist), [], []
 
-        self._buf.extend(item)
-        return list(rlist), [], []
+        self.clock.now += timeout
+        return [], [], []
 
     def read(self, size: int = 1) -> bytes:
         """Read up to size bytes from the buffered console output."""
@@ -166,7 +180,7 @@ class RunDeviceTestsTest(unittest.TestCase):
         self.assertEqual(self.clock.sleeps, [3.0, 3.0])
 
     def test_run_test_ro_sleeps_for_reboot_timeout(self) -> None:
-        self.console.items.append(b"Pass!\r\n")
+        self.console.feed(b"Pass!\r\n")
         test = run_device_tests.TestConfig(
             test_name="abort",
             imagetype_to_use=run_device_tests.ImageType.RO,
@@ -232,6 +246,22 @@ class RunDeviceTestsTest(unittest.TestCase):
         self.assertIsNone(platform.process)
         self.assertTrue(process.waited)
         self.mock_killpg.assert_called_once_with(process.pid, signal.SIGKILL)
+
+    def test_readlines_until_timeout_reads_until_deadline(self) -> None:
+        self.console.feed(b"line 1\r\n", delay=datetime.timedelta(seconds=0.5))
+        self.console.feed(b"line 2\r\n", delay=datetime.timedelta(seconds=1.0))
+        self.console.feed(b"line 3\r\n", delay=datetime.timedelta(seconds=0.5))
+
+        lines = run_device_tests.readlines_until_timeout(
+            self.console, datetime.timedelta(seconds=2)
+        )
+
+        self.assertEqual(lines, [b"line 1\r\n", b"line 2\r\n"])
+        self.assertEqual(self.clock.now, 2.0)
+        self.assertEqual(
+            run_device_tests.readline(self.console, 1.0), b"line 3\r\n"
+        )
+        self.assertEqual(self.clock.now, 2.0)
 
 
 if __name__ == "__main__":

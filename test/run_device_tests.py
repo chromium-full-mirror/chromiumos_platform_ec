@@ -1771,10 +1771,10 @@ def readline(file: BinaryIO, timeout_secs: float) -> Optional[bytes]:
     return bytes(line) if line else None
 
 
-def readlines_until_timeout(file: BinaryIO, timeout_secs: float) -> list[bytes]:
-    """Continuously read lines for timeout_secs."""
+def readlines_until_timeout(file: BinaryIO, timeout: timedelta) -> list[bytes]:
+    """Continuously read lines for timeout."""
     lines: list[bytes] = []
-    end_time = time.monotonic() + timeout_secs
+    end_time = time.monotonic() + timeout.total_seconds()
 
     while (remaining := end_time - time.monotonic()) > 0:
         try:
@@ -1902,7 +1902,7 @@ def run_test(
         for finish_re in test.finish_regexes:
             if finish_re.match(line_str):
                 # flush read the remaining
-                lines = readlines_until_timeout(console, 1)
+                lines = readlines_until_timeout(console, timedelta(seconds=1))
                 logging.debug(lines)
                 test.logs.extend(lines)
 
