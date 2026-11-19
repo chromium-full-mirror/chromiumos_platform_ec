@@ -291,6 +291,43 @@ class RunDeviceTestsTest(unittest.TestCase):
             ],
         )
 
+    def test_run_test_preserves_subsecond_remaining_timeout(self) -> None:
+        self.clock.now = 100.0
+        board = run_device_tests.HELIPILOT_CONFIG
+        remaining_timeout = datetime.timedelta(milliseconds=500)
+        self.console.feed(
+            b"Pass!\r\n", delay=datetime.timedelta(milliseconds=400)
+        )
+        test = run_device_tests.TestConfig(
+            test_name="aes",
+            timeout=board.reboot_timeout + remaining_timeout,
+        )
+
+        passed = run_device_tests.run_test(
+            test, board, self.console, zephyr=False
+        )
+
+        self.assertTrue(passed)
+
+    def test_run_test_times_out_at_subsecond_deadline(self) -> None:
+        self.clock.now = 100.0
+        board = run_device_tests.HELIPILOT_CONFIG
+        remaining_timeout = datetime.timedelta(milliseconds=500)
+        self.console.feed(b"Pass!\r\n", delay=remaining_timeout)
+        test = run_device_tests.TestConfig(
+            test_name="aes",
+            timeout=board.reboot_timeout + remaining_timeout,
+        )
+
+        passed = run_device_tests.run_test(
+            test, board, self.console, zephyr=False
+        )
+
+        self.assertFalse(passed)
+        # 100.0s initial clock + 3.0s HELIPILOT_CONFIG.reboot_timeout + 0.5s
+        # remaining_timeout.
+        self.assertEqual(self.clock.now, 103.5)
+
     def test_run_test_times_out_at_deadline(self) -> None:
         test = run_device_tests.TestConfig(
             test_name="aes", timeout=datetime.timedelta(seconds=10)

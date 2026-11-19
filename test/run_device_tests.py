@@ -1846,7 +1846,7 @@ def run_test(
     zephyr: bool,
 ) -> bool:
     """Run specified test."""
-    start = time.monotonic()
+    deadline = time.monotonic() + test.timeout.total_seconds()
 
     logging.debug("Calling pre-test callback")
     if not test.pre_test_callback(board_config):
@@ -1876,8 +1876,7 @@ def run_test(
     while True:
         console.flush()
 
-        elapsed_secs = time.monotonic() - start
-        remaining_secs = int(test.timeout.total_seconds() - elapsed_secs)
+        remaining_secs = deadline - time.monotonic()
         if remaining_secs <= 0:
             logging.debug("Test timed out")
             return False
