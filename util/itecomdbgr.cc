@@ -156,6 +156,23 @@ struct itecomdbgr_config {
 #define EFLASH_TYPE_KGD 0x02
 #define EFLASH_TYPE_NONE 0xFF
 
+/* Chip ID family, read from 0xF02085 */
+#define CHIP_FAMILY_IT8XXX2 0x08
+#define CHIP_FAMILY_IT51XXX 0x05
+
+/* IT8xxx2: eflash size is encoded in CHIPVER (0xF02002) bit 7-4 */
+#define IT8XXX2_REG_CHIPVER 0xF02002
+#define IT8XXX2_EFLASH_SIZE_512K 0x8
+#define IT8XXX2_EFLASH_SIZE_1024K 0xC
+
+/* IT51xxx: eflash size is encoded in 0xF01080 bit 3-0 */
+#define IT51XXX_REG_EFLASH_SIZE 0xF01080
+#define IT51XXX_EFLASH_SIZE_MASK 0x0F
+#define IT51XXX_EFLASH_SIZE_128K 0x01
+#define IT51XXX_EFLASH_SIZE_256K 0x02
+#define IT51XXX_EFLASH_SIZE_512K 0x0E
+#define IT51XXX_EFLASH_SIZE_1024K 0x0F
+
 #define SPI_CMD_SECTOR_ERASE_1K 0xD7
 #define SPI_CMD_SECTOR_ERASE_4K 0x20
 
@@ -468,6 +485,23 @@ static int check_status(struct itecomdbgr_config *conf, uint8_t wait_mask,
 	return 0;
 }
 
+/* Decode IT51xxx eflash size from 0xF01080 bit 3-0. Returns 0 if unknown. */
+static int it51xxx_eflash_size_in_k(uint8_t eflash_size_flag)
+{
+	switch (eflash_size_flag & IT51XXX_EFLASH_SIZE_MASK) {
+	case IT51XXX_EFLASH_SIZE_128K:
+		return 128;
+	case IT51XXX_EFLASH_SIZE_256K:
+		return 256;
+	case IT51XXX_EFLASH_SIZE_512K:
+		return 512;
+	case IT51XXX_EFLASH_SIZE_1024K:
+		return 1024;
+	default:
+		return 0;
+	}
+}
+
 static int getchipid(struct itecomdbgr_config *conf)
 {
 	uint8_t chipid[3], chipver, eflash_size_flag;
@@ -481,21 +515,38 @@ static int getchipid(struct itecomdbgr_config *conf)
 	chipid[0] = rd_reg_or_ff(conf, 0xF02085);
 	chipid[1] = rd_reg_or_ff(conf, 0xF02086);
 	chipid[2] = rd_reg_or_ff(conf, 0xF02087);
-	chipver = rd_reg_or_ff(conf, 0xF02002);
 
-	if ((chipid[0] != 0x08) && (chipid[0] != 0x05)) {
+	if ((chipid[0] != CHIP_FAMILY_IT8XXX2) &&
+	    (chipid[0] != CHIP_FAMILY_IT51XXX)) {
 		/* Get Chip ID Fail */
 		return FAIL;
 	}
 
 	printf("Chip ID = %02x %02x %02x", chipid[0], chipid[1], chipid[2]);
-	printf(", Chip Ver = %02x", chipver);
 
-	eflash_size_flag = chipver >> 4;
-	if (eflash_size_flag == 0xC)
-		conf->eflash_size_in_k = 1024;
-	if (eflash_size_flag == 0x8)
-		conf->eflash_size_in_k = 512;
+	conf->eflash_size_in_k = 0;
+	if (chipid[0] == CHIP_FAMILY_IT51XXX) {
+		eflash_size_flag = rd_reg_or_ff(conf, IT51XXX_REG_EFLASH_SIZE) &
+				   IT51XXX_EFLASH_SIZE_MASK;
+		conf->eflash_size_in_k =
+			it51xxx_eflash_size_in_k(eflash_size_flag);
+	} else {
+		chipver = rd_reg_or_ff(conf, IT8XXX2_REG_CHIPVER);
+		printf(", Chip Ver = %02x", chipver);
+
+		eflash_size_flag = chipver >> 4;
+		if (eflash_size_flag == IT8XXX2_EFLASH_SIZE_1024K)
+			conf->eflash_size_in_k = 1024;
+		if (eflash_size_flag == IT8XXX2_EFLASH_SIZE_512K)
+			conf->eflash_size_in_k = 512;
+	}
+
+	if (conf->eflash_size_in_k == 0) {
+		printf("\nUnknown eflash size encoding: %02x\n",
+		       eflash_size_flag);
+		return FAIL;
+	}
+
 	printf(", eflash size = %4d KB", conf->eflash_size_in_k);
 	printf(", file size = %4d KB\n", conf->file_size / 1024);
 
