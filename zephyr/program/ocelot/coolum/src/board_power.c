@@ -26,6 +26,9 @@ static void board_ap_power_shutdown(void)
 {
 	int timeout_ms = X86_NON_DSX_FORCE_SHUTDOWN_TO_MS;
 
+	/* Cut the panel backlight before the rails go down */
+	gpio_pin_set_dt(GPIO_DT_FROM_NODELABEL(gpio_ec_en_edp_bl), 0);
+
 	/* De-assert PCH_PWROK and EC_PCH_SYS_PWROK */
 	power_signal_set(PWR_PCH_PWROK, 0);
 	power_signal_set(PWR_EC_PCH_SYS_PWROK, 0);
@@ -71,6 +74,28 @@ static int board_ap_power_action_g3_run(void *data)
 
 AP_POWER_APP_STATE_DEFINE(G3, board_ap_power_action_g3_entry,
 			  board_ap_power_action_g3_run, NULL);
+
+static void board_s0ix_rails_cb(struct ap_power_ev_callback *cb,
+				struct ap_power_ev_data data)
+{
+	switch (data.event) {
+	case AP_POWER_SUSPEND:
+		/* S0 -> S0ix/S3: turn off the panel backlight */
+		gpio_pin_set_dt(GPIO_DT_FROM_NODELABEL(gpio_ec_en_edp_bl), 0);
+
+		break;
+	case AP_POWER_RESUME:
+		/* S0ix/S3 -> S0: turn on the panel backlight */
+		gpio_pin_set_dt(GPIO_DT_FROM_NODELABEL(gpio_ec_en_edp_bl), 1);
+
+		break;
+	default:
+		break;
+	}
+}
+
+AP_POWER_EVENT_CALLBACK_DEFINE(board_s0ix_rails_cb, AP_POWER_SUSPEND,
+			       AP_POWER_RESUME);
 
 int power_signal_external_init(void)
 {

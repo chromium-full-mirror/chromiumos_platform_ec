@@ -34,7 +34,8 @@
 			gpios = <&gpioc 4 (GPIO_OUTPUT | GPIO_ACTIVE_HIGH | GPIO_OUTPUT_INIT_LOW)>;
 		};
 		gpio_ec_en_edp_bl: ec_en_edp_bl {
-			gpios = <&gpioc 6 (GPIO_OUTPUT | GPIO_OPEN_DRAIN | GPIO_OUTPUT_INIT_HIGH)>;
+			gpios = <&gpioc 6 (GPIO_OUTPUT | GPIO_OPEN_DRAIN |GPIO_VOLTAGE_1P8 |GPIO_OUTPUT_INIT_LOW)>;
+			enum-name = "GPIO_ENABLE_BACKLIGHT";
 		};
 		gpio_espi_soc_rst_l: espi_soc_rst_l {
 			gpios = <&gpiod 2 (GPIO_INPUT | GPIO_VOLTAGE_1P8)>;
