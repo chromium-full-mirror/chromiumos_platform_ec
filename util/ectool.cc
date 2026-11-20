@@ -12315,6 +12315,13 @@ int cmd_wait_event(int argc, char *argv[])
 	ec_response_get_next_event_v1 buffer = { 0 };
 	long timeout = 5000;
 	long event_type;
+	/* All FINGERPRINT sub-events that --sub-event can select. */
+	constexpr uint32_t kFpSubEventAny =
+		EC_MKBP_FP_ENROLL | EC_MKBP_FP_MATCH | EC_MKBP_FP_FINGER_DOWN |
+		EC_MKBP_FP_FINGER_UP | EC_MKBP_FP_IMAGE_READY;
+	uint32_t fp_sub_event = kFpSubEventAny;
+	bool sub_event_given = false;
+	struct timespec start, now;
 	char *e;
 
 	BUILD_ASSERT(ARRAY_SIZE(mkbp_event_text) == EC_MKBP_EVENT_COUNT);
@@ -12332,7 +12339,8 @@ int cmd_wait_event(int argc, char *argv[])
 
 	if (argc < 2) {
 		fprintf(stderr,
-			"Usage: %s <type> [timeout [cmd [cmd_args...]]]\n",
+			"Usage: %s <type> [--sub-event=<name>] "
+			"[timeout [cmd [cmd_args...]]]\n",
 			argv[0]);
 		fprintf(stderr, "\n");
 		fprintf(stderr, "type: MKBP event number or name.\n");
@@ -12343,6 +12351,11 @@ int cmd_wait_event(int argc, char *argv[])
 				fprintf(stderr, "      %s or %d\n", name, i);
 			}
 		}
+		fprintf(stderr,
+			"--sub-event: FINGERPRINT sub-event to wait for: image-ready,\n"
+			"      finger-down, finger-up, enroll, match. Defaults to\n"
+			"      image-ready if cmd is 'fpmode ... capture ...',\n"
+			"      otherwise any FINGERPRINT event.\n");
 		fprintf(stderr, "timeout: "
 				"Timeout in milliseconds (default 5000).\n");
 		fprintf(stderr,
@@ -12368,11 +12381,63 @@ int cmd_wait_event(int argc, char *argv[])
 		fprintf(stderr, "Bad event type '%s'.\n", argv[1]);
 		return -1;
 	}
+
+	/* Optional --sub-event=<name> for FINGERPRINT. */
+	if (argc >= 3 && !strncmp(argv[2], "--sub-event=", 12)) {
+		const char *name = argv[2] + 12;
+
+		if (event_type != EC_MKBP_EVENT_FINGERPRINT) {
+			fprintf(stderr,
+				"--sub-event is only for FINGERPRINT.\n");
+			return -1;
+		}
+
+		if (!strcmp(name, "image-ready"))
+			fp_sub_event = EC_MKBP_FP_IMAGE_READY;
+		else if (!strcmp(name, "finger-down"))
+			fp_sub_event = EC_MKBP_FP_FINGER_DOWN;
+		else if (!strcmp(name, "finger-up"))
+			fp_sub_event = EC_MKBP_FP_FINGER_UP;
+		else if (!strcmp(name, "enroll"))
+			fp_sub_event = EC_MKBP_FP_ENROLL;
+		else if (!strcmp(name, "match"))
+			fp_sub_event = EC_MKBP_FP_MATCH;
+		else {
+			fprintf(stderr, "Bad sub-event '%s'.\n", name);
+			return -1;
+		}
+
+		sub_event_given = true;
+
+		/* Drop the option so the positional arguments are unchanged. */
+		for (i = 2; i + 1 < argc; i++)
+			argv[i] = argv[i + 1];
+		argc--;
+	}
+
 	if (argc >= 3) {
 		timeout = strtol(argv[2], &e, 0);
 		if (e && *e) {
 			fprintf(stderr, "Bad timeout value '%s'.\n", argv[2]);
 			return -1;
+		}
+	}
+
+	/*
+	 * Without --sub-event, any FINGERPRINT sub-event ends the wait,
+	 * preserving the previous behavior for existing callers (e.g.
+	 * "waitevent FINGERPRINT <timeout>" paired with "fpmode fingerup").
+	 * If the inline command starts a capture (e.g. "fpmode capture
+	 * vendor"), wait for image-ready instead so intermediate finger-down
+	 * events are skipped.
+	 */
+	if (event_type == EC_MKBP_EVENT_FINGERPRINT && !sub_event_given &&
+	    argc >= 5 && !strcmp(argv[3], "fpmode")) {
+		for (i = 4; i < argc; i++) {
+			if (!strcmp(argv[i], "capture")) {
+				fp_sub_event = EC_MKBP_FP_IMAGE_READY;
+				break;
+			}
 		}
 	}
 
@@ -12389,17 +12454,42 @@ int cmd_wait_event(int argc, char *argv[])
 		rv = cmd->handler(argc - 3, argv + 3);
 	}
 
-	rv = events.Wait(timeout);
-	if (rv == 0) {
-		fprintf(stderr, "Timeout waiting for MKBP event\n");
-		return -ETIMEDOUT;
-	} else if (rv < 0) {
-		perror("Error polling for MKBP event\n");
-		return -EIO;
+	/*
+	 * For FINGERPRINT events, keep waiting until the requested sub-event
+	 * arrives, skipping other events. The timeout covers the whole wait,
+	 * not each individual event.
+	 */
+	clock_gettime(CLOCK_MONOTONIC, &start);
+	for (;;) {
+		long remaining;
+
+		clock_gettime(CLOCK_MONOTONIC, &now);
+		remaining = timeout - timespec_diff_ms(&now, &start);
+		if (remaining <= 0) {
+			fprintf(stderr, "Timeout waiting for MKBP event\n");
+			return -ETIMEDOUT;
+		}
+
+		rv = events.Wait(remaining);
+		if (rv == 0) {
+			fprintf(stderr, "Timeout waiting for MKBP event\n");
+			return -ETIMEDOUT;
+		} else if (rv < 0) {
+			perror("Error polling for MKBP event\n");
+			return -EIO;
+		}
+
+		buffer = {};
+		rv = read(comm_get_fd(), &buffer, sizeof(buffer));
+		if (rv < 0)
+			return rv;
+
+		if (event_type != EC_MKBP_EVENT_FINGERPRINT)
+			break;
+
+		if (buffer.data.fp_events & fp_sub_event)
+			break;
 	}
-	rv = read(comm_get_fd(), &buffer, sizeof(buffer));
-	if (rv < 0)
-		return rv;
 
 	printf("MKBP event %d data: ", buffer.event_type);
 	for (i = 0; i < rv - 1; ++i)
@@ -13266,7 +13356,7 @@ const struct command commands[] = {
 	  "\tGet USB PD power information." },
 	{ "version", cmd_version, "\n\tPrints EC version." },
 	{ "waitevent", cmd_wait_event,
-	  "<type> [timeout [command [command_args...]]]\n"
+	  "<type> [--sub-event=<name>] [timeout [command [command_args...]]]\n"
 	  "\tWait for the MKBP event of type and display it.\n"
 	  "\tOptionaly, run the command and wait for the mkbp event.\n"
 	  "\tRun with no arguments for more information." },
