@@ -334,7 +334,29 @@ class Platform(ABC):
 class Hardware(Platform):
     """Platform implementation for running on development boards."""
 
+    def __init__(self) -> None:
+        self._console_pty: Optional[str] = None
+
+    def _drain_console_pty(self) -> None:
+        if not self._console_pty:
+            return
+        try:
+            with open(
+                self._console_pty,
+                "rb",
+                buffering=0,
+                opener=lambda path, flags: os.open(
+                    path, flags | os.O_NONBLOCK | os.O_NOCTTY
+                ),
+            ) as console_file:
+                _drain_console(console_file)
+        except OSError as e:
+            logging.debug(
+                "Failed to drain console PTY %s: %s", self._console_pty, e
+            )
+
     def get_console(self, board_config: BoardConfig) -> Optional[str]:
+        self._console_pty = None
         cmd = [
             "dut-control",
             board_config.servo_uart_name,
@@ -346,7 +368,8 @@ class Hardware(Platform):
                 logging.debug(line)
                 pty = line.split(":")
                 if len(pty) == 2 and pty[0] == board_config.servo_uart_name:
-                    return pty[1].strip()
+                    self._console_pty = pty[1].strip()
+                    return self._console_pty
 
         return None
 
@@ -406,12 +429,13 @@ class Hardware(Platform):
                 image_path,
             ]
         )
+        self._drain_console_pty()
         logging.debug('Running command: "%s"', " ".join(cmd))
         completed_process = subprocess.run(cmd, check=False)
         return completed_process.returncode == 0
 
     def cleanup(self) -> None:
-        pass
+        self._console_pty = None
 
     def skip_test(
         self, test_config: TestConfig, board_config: BoardConfig, zephyr: bool
@@ -1789,6 +1813,26 @@ def readlines_until_timeout(file: BinaryIO, timeout: timedelta) -> list[bytes]:
             break
 
     return lines
+
+
+CONSOLE_DRAIN_CHUNK_SIZE_BYTES = 4096
+
+
+def _drain_console(console: BinaryIO) -> None:
+    """Discard any unread bytes currently buffered on console.
+
+    The console stream must be unbuffered (buffering=0) and non-blocking so
+    select.select() reflects all unread data and read() never blocks.
+    """
+    drained_bytes = 0
+    with suppress(OSError):
+        while select.select([console], [], [], 0)[0]:
+            chunk = console.read(CONSOLE_DRAIN_CHUNK_SIZE_BYTES)
+            if not chunk:
+                break
+            drained_bytes += len(chunk)
+    if drained_bytes:
+        logging.debug("Discarded %d stale console bytes", drained_bytes)
 
 
 def process_console_output_line(line: bytes, test: TestConfig):

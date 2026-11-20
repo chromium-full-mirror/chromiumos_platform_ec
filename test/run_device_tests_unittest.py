@@ -12,16 +12,23 @@ import collections
 from collections.abc import Sequence
 import dataclasses
 import datetime
+import errno
 import io
 import os
 from pathlib import Path
+import select
 import signal
 import socket
+import subprocess
+import tty
 import types
 import unittest
 from unittest import mock
 
 import run_device_tests
+
+
+_REAL_SELECT = select.select
 
 
 @dataclasses.dataclass
@@ -51,6 +58,11 @@ class _FakeConsole:
         default_factory=collections.deque, init=False
     )
     _buf: bytearray = dataclasses.field(default_factory=bytearray, init=False)
+
+    def prebuffer(self, *args: bytes) -> None:
+        """Buffer bytes already unread in the console before reading."""
+        for chunk in args:
+            self._buf.extend(chunk)
 
     def feed(
         self,
@@ -105,6 +117,7 @@ class _FakeProcess:
 
     pid: int = 12345
     stdin: None = None
+    stdout: io.BytesIO = dataclasses.field(default_factory=io.BytesIO)
     waited: bool = False
 
     def poll(self) -> int | None:
@@ -116,6 +129,41 @@ class _FakeProcess:
         del timeout
         self.waited = True
         return 0
+
+    def __enter__(self) -> _FakeProcess:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        del args
+
+
+@dataclasses.dataclass
+class _FakeReadStream:
+    """In-memory stream fake for fault-injecting _drain_console() reads."""
+
+    responses: collections.deque[bytes | None | Exception] = dataclasses.field(
+        default_factory=collections.deque
+    )
+
+    def select(
+        self,
+        rlist: Sequence[object],
+        _wlist: Sequence[object],
+        _xlist: Sequence[object],
+        _timeout: float,
+    ) -> tuple[list[object], list[object], list[object]]:
+        """Report readable while scripted responses remain."""
+        if self.responses:
+            return list(rlist), [], []
+        return [], [], []
+
+    def read(self, size: int = -1) -> bytes | None:
+        """Return or raise the next scripted read outcome."""
+        del size
+        outcome = self.responses.popleft()
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
 
 
 # pylint: disable=unused-argument
@@ -679,6 +727,204 @@ class RunDeviceTestsTest(unittest.TestCase):
 
         self.assertTrue(passed)
         self.assertEqual(platform.get_console_calls, [board])
+
+    def _drain_stream(
+        self, *responses: bytes | None | Exception
+    ) -> _FakeReadStream:
+        stream = _FakeReadStream(collections.deque(responses))
+        self.enterContext(
+            mock.patch(
+                "run_device_tests.select.select", side_effect=stream.select
+            )
+        )
+        run_device_tests._drain_console(stream)
+        return stream
+
+    def _open_raw_pty(self) -> tuple[int, int, str]:
+        master_fd, slave_fd = os.openpty()
+        self.addCleanup(os.close, master_fd)
+        self.addCleanup(os.close, slave_fd)
+        tty.setraw(slave_fd)
+        os.set_blocking(slave_fd, False)
+        self.enterContext(
+            mock.patch(
+                "run_device_tests.select.select", side_effect=_REAL_SELECT
+            )
+        )
+        return master_fd, slave_fd, os.ttyname(slave_fd)
+
+    def _stub_dut_control(self, *outputs: bytes) -> None:
+        procs = [_FakeProcess(stdout=io.BytesIO(out)) for out in outputs]
+        self.enterContext(
+            mock.patch.object(
+                subprocess, "Popen", autospec=True, side_effect=procs
+            )
+        )
+
+    def _stub_subprocess_run(self) -> mock.MagicMock:
+        return self.enterContext(
+            mock.patch.object(
+                subprocess,
+                "run",
+                autospec=True,
+                return_value=subprocess.CompletedProcess([], 0),
+            )
+        )
+
+    def _flash_hardware(
+        self,
+        platform: run_device_tests.Hardware,
+        board: run_device_tests.BoardConfig = (
+            run_device_tests.HELIPILOT_CONFIG
+        ),
+        *,
+        remote_ip: str = "",
+        remote_port: int = 0,
+    ) -> bool:
+        return platform.flash(
+            board_config=board,
+            image_path="/tmp/abort.bin",
+            flasher=run_device_tests.JTRACE,
+            remote_ip=remote_ip,
+            remote_port=remote_port,
+            test_config=run_device_tests.TestConfig(test_name="abort"),
+            zephyr=False,
+        )
+
+    def test_drain_console_drains_multiple_chunks_until_unreadable(
+        self,
+    ) -> None:
+        chunk_size = run_device_tests.CONSOLE_DRAIN_CHUNK_SIZE_BYTES
+        self.console.prebuffer(b"a" * chunk_size, b"tail")
+
+        with self.assertLogs(level="DEBUG") as logs:
+            run_device_tests._drain_console(self.console)
+
+        self.assertEqual(self.console.read(1), b"")
+        self.assertEqual(self.clock.now, 0.0)
+        self.assertTrue(
+            any(
+                f"Discarded {chunk_size + 4} stale console bytes" in msg
+                for msg in logs.output
+            )
+        )
+
+    def test_drain_console_stops_on_eof(self) -> None:
+        stream = self._drain_stream(b"", b"unreachable")
+
+        self.assertEqual(list(stream.responses), [b"unreachable"])
+
+    def test_drain_console_stops_on_nonblocking_empty_read(self) -> None:
+        stream = self._drain_stream(None, b"unreachable")
+
+        self.assertEqual(list(stream.responses), [b"unreachable"])
+
+    def test_drain_console_stops_on_oserror(self) -> None:
+        stream = self._drain_stream(
+            OSError(errno.EIO, "hangup"), b"unreachable"
+        )
+
+        self.assertEqual(list(stream.responses), [b"unreachable"])
+
+    def test_hardware_flash_without_get_console_succeeds(self) -> None:
+        mock_run = self._stub_subprocess_run()
+
+        with run_device_tests.Hardware() as platform:
+            flashed = self._flash_hardware(
+                platform, remote_ip="127.0.0.1", remote_port=19020
+            )
+
+        self.assertTrue(flashed)
+        mock_run.assert_called_once()
+
+    def test_hardware_flash_discards_stale_console_pty_bytes(self) -> None:
+        master_fd, slave_fd, slave_path = self._open_raw_pty()
+        os.write(master_fd, b"[Image: RW, stale]\r\n> ")
+
+        board = run_device_tests.HELIPILOT_CONFIG
+        self._stub_dut_control(
+            f"{board.servo_uart_name}:{slave_path}\n".encode()
+        )
+
+        def fake_flash(
+            cmd: Sequence[str], **_kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            os.write(master_fd, b"[Image: RW, fresh]\r\n")
+            return subprocess.CompletedProcess(cmd, 0)
+
+        self.enterContext(
+            mock.patch.object(
+                subprocess, "run", autospec=True, side_effect=fake_flash
+            )
+        )
+
+        with run_device_tests.Hardware() as platform:
+            pty_path = platform.get_console(board)
+            flashed = self._flash_hardware(platform, board)
+
+        self.assertEqual(pty_path, slave_path)
+        self.assertTrue(flashed)
+        self.assertEqual(
+            os.read(slave_fd, run_device_tests.CONSOLE_DRAIN_CHUNK_SIZE_BYTES),
+            b"[Image: RW, fresh]\r\n",
+        )
+
+    def test_hardware_flash_ignores_unopenable_console_pty(self) -> None:
+        board = run_device_tests.HELIPILOT_CONFIG
+        self._stub_dut_control(
+            f"{board.servo_uart_name}:/dev/nonexistent-servo-pty\n".encode()
+        )
+        self._stub_subprocess_run()
+
+        with self.assertLogs(level="DEBUG") as logs:
+            with run_device_tests.Hardware() as platform:
+                platform.get_console(board)
+                flashed = self._flash_hardware(platform, board)
+
+        self.assertTrue(flashed)
+        self.assertTrue(
+            any("Failed to drain console PTY" in msg for msg in logs.output)
+        )
+
+    def test_hardware_get_console_failure_clears_cached_console_pty(
+        self,
+    ) -> None:
+        master_fd, slave_fd, slave_path = self._open_raw_pty()
+        board = run_device_tests.HELIPILOT_CONFIG
+        self._stub_dut_control(
+            f"{board.servo_uart_name}:{slave_path}\n".encode(), b""
+        )
+        self._stub_subprocess_run()
+
+        with run_device_tests.Hardware() as platform:
+            self.assertEqual(platform.get_console(board), slave_path)
+            self.assertIsNone(platform.get_console(board))
+            os.write(master_fd, b"unflushed after failed lookup\r\n")
+            self._flash_hardware(platform, board)
+
+        self.assertEqual(
+            os.read(slave_fd, run_device_tests.CONSOLE_DRAIN_CHUNK_SIZE_BYTES),
+            b"unflushed after failed lookup\r\n",
+        )
+
+    def test_hardware_cleanup_clears_cached_console_pty(self) -> None:
+        master_fd, slave_fd, slave_path = self._open_raw_pty()
+        board = run_device_tests.HELIPILOT_CONFIG
+        self._stub_dut_control(
+            f"{board.servo_uart_name}:{slave_path}\n".encode()
+        )
+        self._stub_subprocess_run()
+
+        with run_device_tests.Hardware() as platform:
+            platform.get_console(board)
+
+        os.write(master_fd, b"after cleanup\r\n")
+        self._flash_hardware(platform, board)
+
+        self.assertEqual(
+            os.read(slave_fd, run_device_tests.CONSOLE_DRAIN_CHUNK_SIZE_BYTES),
+            b"after cleanup\r\n",
+        )
 
 
 if __name__ == "__main__":
