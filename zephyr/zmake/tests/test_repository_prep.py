@@ -520,12 +520,20 @@ def test_preparer_edge_cases(cros_checkout, tmp_path, setup_git_repo):
             prep.commit_changes()
 
 
-def test_copy_build_metadata_to_shadow(tmp_path):
+def test_copy_build_metadata_to_shadow(tmp_path, monkeypatch):
     """Test _copy_build_metadata_to_shadow copies only Zephyr build metadata."""
     real_co, shadow_co = tmp_path / "real", tmp_path / "shadow"
     ec_rel = pathlib.Path("src/platform/ec")
-    real_build = real_co / ec_rel / "build/zephyr"
+    real_build = tmp_path / "real_out/build/zephyr"
     shadow_build = shadow_co / ec_rel / "build/zephyr"
+    monkeypatch.setattr(
+        util,
+        "get_default_build_dir",
+        {
+            real_co / ec_rel: real_build,
+            shadow_co / ec_rel: shadow_build,
+        }.__getitem__,
+    )
 
     _copy_build_metadata_to_shadow(real_co, shadow_co, ec_rel)
     assert not shadow_build.exists()
@@ -533,7 +541,8 @@ def test_copy_build_metadata_to_shadow(tmp_path):
     (real_build / "board_a").mkdir(parents=True)
     (real_build / ".shard_info.json").write_text("{}\n", encoding="utf-8")
     (real_build / "board_a/a.info").write_text(
-        f"SF:{real_co}/a.c\n", encoding="utf-8"
+        f"SF:{real_co}/a.c\nSF:{real_build}/board_a/include/ec_version.h\n",
+        encoding="utf-8",
     )
     (real_build.parent / "host").mkdir()
     (real_build.parent / "host/b.info").touch()
@@ -543,18 +552,29 @@ def test_copy_build_metadata_to_shadow(tmp_path):
     assert (shadow_build / ".shard_info.json").read_text(
         encoding="utf-8"
     ) == "{}\n"
-    assert (shadow_build / "board_a/a.info").read_text(
-        encoding="utf-8"
-    ) == f"SF:{shadow_co}/a.c\n"
+    assert (shadow_build / "board_a/a.info").read_text(encoding="utf-8") == (
+        f"SF:{shadow_co}/a.c\nSF:{shadow_build}/board_a/include/ec_version.h\n"
+    )
     assert not (shadow_build.parent / "host").exists()
 
 
-def test_copy_outputs_back_merges_and_fixes_lcov_paths(tmp_path):
+def test_copy_outputs_back_merges_and_fixes_lcov_paths(tmp_path, monkeypatch):
     """Test copy_outputs_back merges Zephyr outputs and fixes lcov paths."""
     real_co, shadow_co = tmp_path / "real", tmp_path / "shadow"
     ec_rel = pathlib.Path("src/platform/ec")
+    (real_co / ec_rel).mkdir(parents=True)
 
-    real_build = real_co / ec_rel / "build/zephyr"
+    real_build = tmp_path / "real_out/build/zephyr"
+    shadow_build = shadow_co / ec_rel / "build/zephyr"
+    monkeypatch.setattr(
+        util,
+        "get_default_build_dir",
+        {
+            real_co / ec_rel: real_build,
+            shadow_co / ec_rel: shadow_build,
+        }.__getitem__,
+    )
+
     (real_build / "board_a").mkdir(parents=True)
     (real_build / "board_a" / "ec.bin").write_text("bin_a\n", encoding="utf-8")
     (real_build / "board_a" / "a.info").write_text(
@@ -564,15 +584,19 @@ def test_copy_outputs_back_merges_and_fixes_lcov_paths(tmp_path):
     (real_build / "sym_dir").mkdir(parents=True)
     (real_build / "sym_dir" / "old.txt").write_text("old\n", encoding="utf-8")
 
-    shadow_build = shadow_co / ec_rel / "build/zephyr"
     (shadow_build / "board_b").mkdir(parents=True)
     (shadow_build / "board_b" / "ec.bin").write_text(
         "bin_b\n", encoding="utf-8"
     )
     os.symlink(shadow_co / "b.c", shadow_build / "board_b" / "b.c")
+    os.symlink(
+        shadow_build / "board_b/include/ec_version.h",
+        shadow_build / "board_b/ver.h",
+    )
     os.symlink(real_build / "board_a", shadow_build / "sym_dir")
     (shadow_build / "lcov.info").write_text(
         f"SF:{shadow_co}/src/platform/ec/main.c\n"
+        f"SF:{shadow_build}/board_b/include/ec_version.h\n"
         f"SF:{shadow_co}_other/src/platform/ec/main.c\n"
         "end_of_record\n",
         encoding="utf-8",
@@ -604,6 +628,7 @@ def test_copy_outputs_back_merges_and_fixes_lcov_paths(tmp_path):
     ) == "{}\n"
     assert (real_build / "lcov.info").read_text(encoding="utf-8") == (
         f"SF:{real_co}/src/platform/ec/main.c\n"
+        f"SF:{real_build}/board_b/include/ec_version.h\n"
         f"SF:{shadow_co}_other/src/platform/ec/main.c\n"
         "end_of_record\n"
     )
@@ -612,6 +637,9 @@ def test_copy_outputs_back_merges_and_fixes_lcov_paths(tmp_path):
     ) == f"SF:{shadow_co}/a.c\n"
     assert os.readlink(real_build / "board_a" / "a.c") == str(shadow_co / "a.c")
     assert os.readlink(real_build / "board_b" / "b.c") == str(real_co / "b.c")
+    assert os.readlink(real_build / "board_b/ver.h") == str(
+        real_build / "board_b/include/ec_version.h"
+    )
 
 
 def test_create_shadow_checkout_and_fix_symlinks(cros_checkout, tmp_path):
