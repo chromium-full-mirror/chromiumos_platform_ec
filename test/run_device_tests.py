@@ -330,14 +330,28 @@ class Platform(ABC):
     ) -> bool:
         """Returns true if the given test should be skipped."""
 
+    def attach_console(self, console: Optional[BinaryIO]) -> None:
+        """Bind or detach the active console stream for draining."""
+        del console
+
+    def discard_console_input(self) -> None:
+        """Discard stale unread console output before flashing or resets."""
+
 
 class Hardware(Platform):
     """Platform implementation for running on development boards."""
 
     def __init__(self) -> None:
+        self._console: Optional[BinaryIO] = None
         self._console_pty: Optional[str] = None
 
-    def _drain_console_pty(self) -> None:
+    def attach_console(self, console: Optional[BinaryIO]) -> None:
+        self._console = console
+
+    def discard_console_input(self) -> None:
+        if self._console is not None:
+            _drain_console(self._console)
+            return
         if not self._console_pty:
             return
         try:
@@ -356,6 +370,7 @@ class Hardware(Platform):
             )
 
     def get_console(self, board_config: BoardConfig) -> Optional[str]:
+        self._console = None
         self._console_pty = None
         cmd = [
             "dut-control",
@@ -429,12 +444,13 @@ class Hardware(Platform):
                 image_path,
             ]
         )
-        self._drain_console_pty()
+        self.discard_console_input()
         logging.debug('Running command: "%s"', " ".join(cmd))
         completed_process = subprocess.run(cmd, check=False)
         return completed_process.returncode == 0
 
     def cleanup(self) -> None:
+        self._console = None
         self._console_pty = None
 
     def skip_test(
@@ -1567,6 +1583,7 @@ def power_cycle(platform: Platform, board_config: BoardConfig) -> None:
     logging.debug("power_cycling board")
     platform.power(board_config, power_on=False)
     time.sleep(board_config.reboot_timeout.total_seconds())
+    platform.discard_console_input()
     platform.power(board_config, power_on=True)
     time.sleep(board_config.reboot_timeout.total_seconds())
 
@@ -2109,6 +2126,8 @@ def flash_and_run_test(
                 console = stack.enter_context(console_file)
                 os.set_blocking(console.fileno(), False)
 
+            platform.attach_console(console)
+            stack.callback(platform.attach_console, None)
             platform.hw_write_protect(test.enable_hw_write_protect)
 
             if test.toggle_power:

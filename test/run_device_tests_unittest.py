@@ -22,6 +22,7 @@ import socket
 import subprocess
 import tty
 import types
+from typing import BinaryIO
 import unittest
 from unittest import mock
 
@@ -175,6 +176,10 @@ class _FakePlatform(run_device_tests.Platform):
     get_console_calls: list[run_device_tests.BoardConfig] = dataclasses.field(
         default_factory=list
     )
+    attached_consoles: list[BinaryIO | None] = dataclasses.field(
+        default_factory=list
+    )
+    events: list[str] = dataclasses.field(default_factory=list)
 
     def get_console(
         self, board_config: run_device_tests.BoardConfig
@@ -183,13 +188,26 @@ class _FakePlatform(run_device_tests.Platform):
         self.get_console_calls.append(board_config)
         return self.console_pty
 
+    def attach_console(self, console: BinaryIO | None) -> None:
+        """Record the attached console stream."""
+        self.attached_consoles.append(console)
+        self.events.append(
+            "detach_console" if console is None else "attach_console"
+        )
+
+    def discard_console_input(self) -> None:
+        """Record a console-input discard request."""
+        self.events.append("discard_console_input")
+
     def hw_write_protect(self, enable: bool) -> None:
-        """No-op hardware write-protect toggle."""
+        """Record a hardware write-protect toggle."""
+        self.events.append(f"hw_write_protect({enable})")
 
     def power(
         self, board_config: run_device_tests.BoardConfig, power_on: bool
     ) -> None:
-        """No-op board power toggle."""
+        """Record a board power toggle."""
+        self.events.append(f"power({power_on})")
 
     def flash(
         self,
@@ -201,11 +219,13 @@ class _FakePlatform(run_device_tests.Platform):
         test_config: run_device_tests.TestConfig,
         zephyr: bool,
     ) -> bool:
-        """Succeed immediately without invoking a flasher."""
+        """Record flashing and succeed immediately."""
+        self.events.append("flash")
         return True
 
     def cleanup(self) -> None:
-        """No-op platform cleanup."""
+        """Record platform cleanup."""
+        self.events.append("cleanup")
 
     def skip_test(
         self,
@@ -924,6 +944,128 @@ class RunDeviceTestsTest(unittest.TestCase):
         self.assertEqual(
             os.read(slave_fd, run_device_tests.CONSOLE_DRAIN_CHUNK_SIZE_BYTES),
             b"after cleanup\r\n",
+        )
+
+    def test_power_cycle_hardware_discards_buffered_console_output(
+        self,
+    ) -> None:
+        def fake_power(
+            cmd: Sequence[str], **_kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            if cmd[-1].endswith(":off"):
+                self.console.prebuffer(b"[trailing before power off]\r\n")
+            elif cmd[-1].endswith(":pp3300"):
+                self.console.prebuffer(b"[Image: RW, fresh]\r\n")
+            return subprocess.CompletedProcess(cmd, 0)
+
+        def fake_sleep(secs: float) -> None:
+            self.clock.sleep(secs)
+            if len(self.clock.sleeps) == 1:
+                self.console.prebuffer(b"[trailing during power-off sleep]\r\n")
+
+        self.enterContext(
+            mock.patch.object(
+                subprocess, "run", autospec=True, side_effect=fake_power
+            )
+        )
+        self.enterContext(
+            mock.patch("run_device_tests.time.sleep", side_effect=fake_sleep)
+        )
+        with run_device_tests.Hardware() as platform:
+            platform.attach_console(self.console)
+            self.console.prebuffer(
+                b"[Image: RW, helipilot]\r\n[0.001 Inits done]\r\n"
+            )
+
+            run_device_tests.power_cycle(
+                platform, run_device_tests.HELIPILOT_CONFIG
+            )
+
+        self.assertEqual(
+            self.console.read(run_device_tests.CONSOLE_DRAIN_CHUNK_SIZE_BYTES),
+            b"[Image: RW, fresh]\r\n",
+        )
+        self.assertEqual(self.clock.sleeps, [3.0, 3.0])
+
+    def test_power_cycle_renode_leaves_buffered_console_output_intact(
+        self,
+    ) -> None:
+        with run_device_tests.Renode() as platform:
+            platform.attach_console(self.console)
+            self.console.prebuffer(b"[Image: RW, dartmonkey]\r\n")
+
+            run_device_tests.power_cycle(
+                platform, run_device_tests.DARTMONKEY_CONFIG
+            )
+
+        self.assertEqual(
+            self.console.read(run_device_tests.CONSOLE_DRAIN_CHUNK_SIZE_BYTES),
+            b"[Image: RW, dartmonkey]\r\n",
+        )
+
+    def test_hardware_cleanup_detaches_attached_console(self) -> None:
+        with run_device_tests.Hardware() as platform:
+            platform.attach_console(self.console)
+
+        self.console.prebuffer(b"after cleanup\r\n")
+        platform.discard_console_input()
+
+        self.assertEqual(
+            self.console.read(run_device_tests.CONSOLE_DRAIN_CHUNK_SIZE_BYTES),
+            b"after cleanup\r\n",
+        )
+
+    def test_hardware_get_console_detaches_attached_console(self) -> None:
+        board = run_device_tests.HELIPILOT_CONFIG
+        self._stub_dut_control(b"")
+        with run_device_tests.Hardware() as platform:
+            platform.attach_console(self.console)
+            self.assertIsNone(platform.get_console(board))
+            self.console.prebuffer(b"after get_console\r\n")
+            platform.discard_console_input()
+
+        self.assertEqual(
+            self.console.read(run_device_tests.CONSOLE_DRAIN_CHUNK_SIZE_BYTES),
+            b"after get_console\r\n",
+        )
+
+    def test_flash_and_run_test_attaches_console_before_power_cycle(
+        self,
+    ) -> None:
+        self._stub_build_and_run_test()
+        fake_socket = _FakeSocket()
+        self.enterContext(
+            mock.patch.object(
+                socket, "socket", autospec=True, return_value=fake_socket
+            )
+        )
+        platform = _FakePlatform()
+        args = self._make_args(remote="127.0.0.1", console_port=10000)
+        test = run_device_tests.TestConfig(test_name="abort", toggle_power=True)
+
+        passed = run_device_tests.flash_and_run_test(
+            test,
+            platform,
+            run_device_tests.HELIPILOT_CONFIG,
+            args,
+        )
+
+        self.assertTrue(passed)
+        self.assertEqual(
+            platform.attached_consoles, [fake_socket.console, None]
+        )
+        self.assertEqual(
+            platform.events,
+            [
+                "flash",
+                "attach_console",
+                "hw_write_protect(False)",
+                "power(False)",
+                "discard_console_input",
+                "power(True)",
+                "detach_console",
+                "cleanup",
+            ],
         )
 
 
