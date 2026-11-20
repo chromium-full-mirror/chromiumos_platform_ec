@@ -7,12 +7,16 @@
 
 from __future__ import annotations
 
+import argparse
 import collections
 from collections.abc import Sequence
 import dataclasses
 import datetime
+import io
+import os
 from pathlib import Path
 import signal
+import socket
 import types
 import unittest
 from unittest import mock
@@ -112,6 +116,85 @@ class _FakeProcess:
         del timeout
         self.waited = True
         return 0
+
+
+# pylint: disable=unused-argument
+@dataclasses.dataclass
+class _FakePlatform(run_device_tests.Platform):
+    """In-memory Platform fake for flash_and_run_test() unit tests."""
+
+    console_pty: str | None = None
+    get_console_calls: list[run_device_tests.BoardConfig] = dataclasses.field(
+        default_factory=list
+    )
+
+    def get_console(
+        self, board_config: run_device_tests.BoardConfig
+    ) -> str | None:
+        """Record the board_config query and return the configured PTY path."""
+        self.get_console_calls.append(board_config)
+        return self.console_pty
+
+    def hw_write_protect(self, enable: bool) -> None:
+        """No-op hardware write-protect toggle."""
+
+    def power(
+        self, board_config: run_device_tests.BoardConfig, power_on: bool
+    ) -> None:
+        """No-op board power toggle."""
+
+    def flash(
+        self,
+        board_config: run_device_tests.BoardConfig,
+        image_path: str,
+        flasher: str,
+        remote_ip: str,
+        remote_port: int,
+        test_config: run_device_tests.TestConfig,
+        zephyr: bool,
+    ) -> bool:
+        """Succeed immediately without invoking a flasher."""
+        return True
+
+    def cleanup(self) -> None:
+        """No-op platform cleanup."""
+
+    def skip_test(
+        self,
+        test_config: run_device_tests.TestConfig,
+        board_config: run_device_tests.BoardConfig,
+        zephyr: bool,
+    ) -> bool:
+        """Never skip tests."""
+        return False
+
+
+@dataclasses.dataclass
+class _FakeSocket:
+    """In-memory TCP socket fake for remote console unit tests."""
+
+    console: io.BytesIO = dataclasses.field(default_factory=io.BytesIO)
+    connected_addr: tuple[str, int] | None = None
+
+    def connect(self, address: tuple[str, int]) -> None:
+        """Record the remote endpoint address."""
+        self.connected_addr = address
+
+    def setblocking(self, flag: bool) -> None:
+        """No-op socket blocking mode toggle."""
+
+    def makefile(self, mode: str = "r", buffering: int = -1) -> io.BytesIO:
+        """Return the in-memory console stream."""
+        return self.console
+
+    def __enter__(self) -> _FakeSocket:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        pass
+
+
+# pylint: enable=unused-argument
 
 
 # pylint: disable=missing-function-docstring,protected-access
@@ -491,6 +574,111 @@ class RunDeviceTestsTest(unittest.TestCase):
         self.assertTrue(passed)
         self.assertEqual(self.clock.sleeps, [])
         self.assertEqual(self.console.writes, [])
+
+    def _stub_build_and_run_test(self) -> None:
+        self.enterContext(
+            mock.patch.object(run_device_tests, "build", autospec=True)
+        )
+        self.enterContext(
+            mock.patch.object(
+                run_device_tests,
+                "get_image_path",
+                autospec=True,
+                return_value="/tmp/abort.bin",
+            )
+        )
+        self.enterContext(
+            mock.patch.object(
+                os.path, "exists", autospec=True, return_value=True
+            )
+        )
+        self.enterContext(
+            mock.patch.object(
+                run_device_tests, "run_test", autospec=True, return_value=True
+            )
+        )
+
+    def _make_args(
+        self,
+        *,
+        remote: str | None = None,
+        jlink_port: int | None = None,
+        console_port: int | None = None,
+    ) -> argparse.Namespace:
+        return argparse.Namespace(
+            build_only=False,
+            compiler=run_device_tests.GCC,
+            console_port=console_port,
+            flasher=run_device_tests.JTRACE,
+            jlink_port=jlink_port,
+            remote=remote,
+            renode=False,
+            zephyr=False,
+        )
+
+    def _open_pty_path(self) -> str:
+        master_fd, slave_fd = os.openpty()
+        self.addCleanup(os.close, master_fd)
+        self.addCleanup(os.close, slave_fd)
+        return os.ttyname(slave_fd)
+
+    def test_flash_and_run_test_remote_console_skips_get_console(self) -> None:
+        self._stub_build_and_run_test()
+        fake_socket = _FakeSocket()
+        self.enterContext(
+            mock.patch.object(
+                socket, "socket", autospec=True, return_value=fake_socket
+            )
+        )
+        platform = _FakePlatform()
+        args = self._make_args(remote="127.0.0.1", console_port=10000)
+
+        passed = run_device_tests.flash_and_run_test(
+            run_device_tests.TestConfig(test_name="abort"),
+            platform,
+            run_device_tests.HELIPILOT_CONFIG,
+            args,
+        )
+
+        self.assertTrue(passed)
+        self.assertEqual(platform.get_console_calls, [])
+        self.assertEqual(fake_socket.connected_addr, ("127.0.0.1", 10000))
+
+    def test_flash_and_run_test_remote_jlink_only_uses_local_console(
+        self,
+    ) -> None:
+        self._stub_build_and_run_test()
+        board = run_device_tests.HELIPILOT_CONFIG
+        platform = _FakePlatform(console_pty=self._open_pty_path())
+        args = self._make_args(remote="127.0.0.1", jlink_port=19020)
+
+        passed = run_device_tests.flash_and_run_test(
+            run_device_tests.TestConfig(test_name="abort"),
+            platform,
+            board,
+            args,
+        )
+
+        self.assertTrue(passed)
+        self.assertEqual(platform.get_console_calls, [board])
+
+    def test_flash_and_run_test_without_remote_uses_local_console(
+        self,
+    ) -> None:
+        self._stub_build_and_run_test()
+        board = run_device_tests.HELIPILOT_CONFIG
+        platform = _FakePlatform(console_pty=self._open_pty_path())
+        args = self._make_args(console_port=10000)
+
+        passed = run_device_tests.flash_and_run_test(
+            run_device_tests.TestConfig(test_name="abort"),
+            platform,
+            board,
+            args,
+        )
+
+        self.assertTrue(passed)
+        self.assertEqual(platform.get_console_calls, [board])
 
 
 if __name__ == "__main__":

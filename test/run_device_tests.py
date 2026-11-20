@@ -2030,8 +2030,11 @@ def flash_and_run_test(
         return True
 
     with platform:
+        use_remote_console = bool(args.remote and args.console_port)
         # Get the console file before flashing to listen ASAP after flashing.
-        console_pty = platform.get_console(board_config)
+        console_pty = (
+            None if use_remote_console else platform.get_console(board_config)
+        )
 
         # flash test binary
         if not platform.flash(
@@ -2047,7 +2050,7 @@ def flash_and_run_test(
             return False
 
         with ExitStack() as stack:
-            if args.remote and args.console_port:
+            if use_remote_console:
                 console_socket = stack.enter_context(
                     socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 )
