@@ -12299,6 +12299,13 @@ err:
 	return rv < 0;
 }
 
+static long timespec_diff_ms(const struct timespec *t1,
+			     const struct timespec *t2)
+{
+	return ((t1->tv_sec - t2->tv_sec) * 1000 +
+		(t1->tv_nsec - t2->tv_nsec) / 1000000);
+}
+
 int cmd_wait_event(int argc, char *argv[])
 {
 	static const char *const mkbp_event_text[] = EC_MKBP_EVENT_TEXT;
@@ -12429,13 +12436,6 @@ static void cmd_cec_help(void)
 			"        <val> is the new CEC address\n"
 			"      enable: Enable or disable CEC\n"
 			"        <val> is 1 to enable, 0 to disable\n");
-}
-
-static long timespec_diff_ms(const struct timespec *t1,
-			     const struct timespec *t2)
-{
-	return ((t1->tv_sec - t2->tv_sec) * 1000 +
-		(t1->tv_nsec - t2->tv_nsec) / 1000000);
 }
 
 static int cmd_cec_write(int port, int argc, char *argv[])
