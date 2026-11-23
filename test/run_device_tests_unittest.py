@@ -1068,6 +1068,73 @@ class RunDeviceTestsTest(unittest.TestCase):
             ],
         )
 
+    def test_read_file_gsutil_succeeds_first_attempt(self) -> None:
+        cmd = ["gsutil", "cat", "gs://bucket/ro.bin"]
+        mock_run = self.enterContext(
+            mock.patch.object(
+                subprocess,
+                "run",
+                autospec=True,
+                return_value=subprocess.CompletedProcess(
+                    cmd, 0, stdout=b"firmware-ro"
+                ),
+            )
+        )
+
+        data = run_device_tests.read_file_gsutil("gs://bucket/ro.bin")
+
+        self.assertEqual(data, b"firmware-ro")
+        mock_run.assert_called_once_with(
+            cmd, stdout=subprocess.PIPE, check=True
+        )
+        self.assertEqual(self.clock.sleeps, [])
+
+    def test_read_file_gsutil_retries_then_succeeds(self) -> None:
+        cmd = ["gsutil", "cat", "gs://bucket/ro.bin"]
+        mock_run = self.enterContext(
+            mock.patch.object(
+                subprocess,
+                "run",
+                autospec=True,
+                side_effect=[
+                    subprocess.CalledProcessError(1, cmd),
+                    subprocess.CalledProcessError(1, cmd),
+                    subprocess.CompletedProcess(cmd, 0, stdout=b"firmware-ro"),
+                ],
+            )
+        )
+
+        with self.assertLogs(level="WARNING") as logs:
+            data = run_device_tests.read_file_gsutil("gs://bucket/ro.bin")
+
+        self.assertEqual(data, b"firmware-ro")
+        self.assertEqual(mock_run.call_count, 3)
+        self.assertEqual(self.clock.sleeps, [2.0, 4.0])
+        self.assertEqual(len(logs.output), 2)
+
+    def test_read_file_gsutil_raises_after_max_attempts(self) -> None:
+        cmd = ["gsutil", "cat", "gs://bucket/ro.bin"]
+        err = subprocess.CalledProcessError(1, cmd)
+        mock_run = self.enterContext(
+            mock.patch.object(
+                subprocess,
+                "run",
+                autospec=True,
+                side_effect=err,
+            )
+        )
+
+        with self.assertLogs(level="WARNING") as logs:
+            with self.assertRaises(subprocess.CalledProcessError) as ctx:
+                run_device_tests.read_file_gsutil("gs://bucket/ro.bin")
+
+        self.assertIs(ctx.exception, err)
+        self.assertEqual(
+            mock_run.call_count, run_device_tests.GSUTIL_MAX_ATTEMPTS
+        )
+        self.assertEqual(self.clock.sleeps, [2.0, 4.0, 8.0])
+        self.assertEqual(len(logs.output), 3)
+
 
 if __name__ == "__main__":
     unittest.main()

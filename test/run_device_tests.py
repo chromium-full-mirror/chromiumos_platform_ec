@@ -1507,15 +1507,34 @@ BOARD_CONFIGS = {
 }
 
 
+GSUTIL_MAX_ATTEMPTS = 4
+GSUTIL_RETRY_DELAY = timedelta(seconds=2)
+
+
 def read_file_gsutil(path: str) -> bytes:
     """Get data from bucket, using gsutil tool"""
     cmd = ["gsutil", "cat", path]
+    delay = GSUTIL_RETRY_DELAY
+    attempt = 1
 
-    logging.debug('Running command: "%s"', " ".join(cmd))
-    gsutil = subprocess.run(cmd, stdout=subprocess.PIPE, check=False)
-    gsutil.check_returncode()
-
-    return gsutil.stdout
+    while True:
+        logging.debug('Running command: "%s"', " ".join(cmd))
+        try:
+            gsutil = subprocess.run(cmd, stdout=subprocess.PIPE, check=True)
+            return gsutil.stdout
+        except subprocess.CalledProcessError as exc:
+            if attempt >= GSUTIL_MAX_ATTEMPTS:
+                raise
+            logging.warning(
+                "gsutil attempt %d/%d failed (rc=%d), retrying in %.1fs",
+                attempt,
+                GSUTIL_MAX_ATTEMPTS,
+                exc.returncode,
+                delay.total_seconds(),
+            )
+            time.sleep(delay.total_seconds())
+            delay *= 2
+            attempt += 1
 
 
 def find_section_offset_size(section: str, image: bytes) -> tuple[int, int]:
