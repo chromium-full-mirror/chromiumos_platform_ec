@@ -9,6 +9,7 @@
 # The intent is to try and keep the stack sizes in one place.
 
 configdefault MAIN_STACK_SIZE
+	default 2048 if PLATFORM_EC_LED_DT_LIGHTBAR
 	default 1536 if PLATFORM_EC_LOG_TOKENIZED
 	default 1536 if SOC_SERIES_IT8XXX2
 	default 1200 if SOC_SERIES_NPCX7
