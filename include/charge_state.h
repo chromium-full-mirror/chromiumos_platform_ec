@@ -360,6 +360,8 @@ struct charge_state_data *charge_get_status(void);
 
 enum ec_charge_control_mode get_chg_ctrl_mode(void);
 
+bool board_charge_control_normal(int8_t *lower, int8_t *upper);
+
 __test_only void reset_prev_disp_charge(void);
 
 /**

@@ -1497,7 +1497,10 @@ static void check_extpower(int chgnum)
 static int process_charge_state(int *need_staticp, int sleep_usec)
 {
 	if (IS_ENABLED(CONFIG_CHARGER_PROFILE_OVERRIDE) &&
-	    get_chg_ctrl_mode() == CHARGE_CONTROL_NORMAL) {
+			(get_chg_ctrl_mode() == CHARGE_CONTROL_NORMAL ||
+			(IS_ENABLED(CONFIG_BOARD_VELUZA) &&
+			get_chg_ctrl_mode() == CHARGE_CONTROL_IDLE &&
+			battery_sustainer_enabled()))) {
 		sleep_usec = charger_profile_override(&curr);
 		if (sleep_usec < 0)
 			charge_problem(PR_CUSTOM, sleep_usec);
@@ -1991,6 +1994,11 @@ void trigger_ocpc_reset(void)
 /*****************************************************************************/
 /* Host commands */
 
+__overridable bool board_charge_control_normal(int8_t *lower, int8_t *upper)
+{
+	return false;
+}
+
 static enum ec_status
 charge_command_charge_control(struct host_cmd_handler_args *args)
 {
@@ -2000,8 +2008,17 @@ charge_command_charge_control(struct host_cmd_handler_args *args)
 
 	if (p->cmd == EC_CHARGE_CONTROL_CMD_SET) {
 		if (p->mode == CHARGE_CONTROL_NORMAL) {
-			rv = battery_sustainer_set(p->sustain_soc.lower,
-						   p->sustain_soc.upper);
+			int8_t lower = p->sustain_soc.lower;
+			int8_t upper = p->sustain_soc.upper;
+
+			if (board_charge_control_normal(&lower, &upper)) {
+				rv = set_chg_ctrl_mode(p->mode);
+				if (rv != EC_SUCCESS)
+					return EC_RES_ERROR;
+				return EC_RES_SUCCESS;
+			}
+
+			rv = battery_sustainer_set(lower, upper);
 			if (rv == EC_RES_UNAVAILABLE)
 				return EC_RES_UNAVAILABLE;
 			if (rv)
