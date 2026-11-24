@@ -16,20 +16,27 @@
 #include "usb_hw.h"
 #include "util.h"
 
-static size_t rx_read(struct usb_stream_config const *config)
+/* Preserve rc_w0 CTR_RX (bit 15) and CTR_TX (bit 7) on USB_EPnR writes. */
+#define EP_CTR_PRESERVE (BIT(15) | BIT(7))
+
+static bool rx_read(struct usb_stream_config const *config)
 {
 	uintptr_t address = btable_ep[config->endpoint].rx_addr;
 	size_t count = btable_ep[config->endpoint].rx_count & RX_COUNT_MASK;
+
+	/* Zero-length bulk OUT packets have no payload, re-arm RX directly. */
+	if (count == 0)
+		return true;
 
 	/*
 	 * Only read the received USB packet if there is enough space in the
 	 * receive queue.
 	 */
 	if (count > queue_space(config->producer.queue))
-		return 0;
+		return false;
 
 	return queue_add_memcpy(config->producer.queue, (void *)address, count,
-				memcpy_from_usbram);
+				memcpy_from_usbram) == count;
 }
 
 static size_t tx_write(struct usb_stream_config const *config)
@@ -132,10 +139,21 @@ void usb_stream_clear_rx(struct usb_stream_config const *config)
 
 void usb_stream_clear_tx(struct usb_stream_config const *config)
 {
+	uint32_t key = irq_lock();
+	uint16_t ep_reg;
+
 	/* Remove any data in the queue for USB transmission. */
-	queue_advance_head(config->consumer.queue, (size_t)-1);
+	if (!queue_is_empty(config->consumer.queue))
+		queue_advance_head(config->consumer.queue, (size_t)-1);
+	config->state->flags &= ~USB_STREAM_TX_FLUSH;
+
 	/* Revoke any data already in USB memory marked as ready for sending. */
-	STM32_TOGGLE_EP(config->endpoint, EP_TX_MASK, EP_TX_NAK, 0);
+	ep_reg = STM32_USB_EP(config->endpoint);
+	if ((ep_reg & EP_TX_MASK) == EP_TX_VALID)
+		STM32_USB_EP(config->endpoint) =
+			((ep_reg & (EP_MASK | EP_TX_MASK)) ^ EP_TX_NAK) |
+			EP_CTR_PRESERVE;
+	irq_unlock(key);
 }
 
 void usb_stream_deferred(struct usb_stream_config const *config)
