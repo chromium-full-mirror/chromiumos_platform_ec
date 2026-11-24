@@ -37,15 +37,11 @@ enum limit_state {
 /* Persistent flag loaded from BBRAM: once true, 50% limit is disabled */
 static bool bbram_limit_disabled;
 
-#ifdef CONFIG_BBRAM
 static const struct device *const bbram_dev =
-	COND_CODE_1(DT_HAS_CHOSEN(cros_ec_bbram),
-		    DEVICE_DT_GET(DT_CHOSEN(cros_ec_bbram)), NULL);
-#endif
+	DEVICE_DT_GET(DT_CHOSEN(cros_ec_bbram));
 
 static int set_limit_disabled_bbram(bool disable)
 {
-#ifdef CONFIG_BBRAM
 	uint8_t val = disable ? BBRAM_DISABLE_LIMIT_MAGIC : 0x00;
 	int rv;
 
@@ -57,15 +53,10 @@ static int set_limit_disabled_bbram(bool disable)
 		bbram_limit_disabled = disable;
 
 	return rv;
-#else
-	(void)disable;
-	return -ENODEV;
-#endif
 }
 
 static void limit_bbram_init(void)
 {
-#ifdef CONFIG_BBRAM
 	uint8_t val = 0;
 
 	if (!bbram_dev || !device_is_ready(bbram_dev))
@@ -76,7 +67,6 @@ static void limit_bbram_init(void)
 		bbram_limit_disabled =
 			(val == BBRAM_DISABLE_LIMIT_MAGIC);
 	}
-#endif
 }
 DECLARE_HOOK(HOOK_INIT, limit_bbram_init, HOOK_PRIO_DEFAULT);
 
@@ -210,8 +200,9 @@ static void battery_limit_override(struct charge_state_data *curr)
 	    !(curr->batt.flags & BATT_FLAG_RESPONSIVE) ||
 	    (curr->batt.flags & BATT_FLAG_BAD_STATE_OF_CHARGE)) {
 		if (prev_disch) {
-			charger_discharge_on_ac(0);
-			prev_disch = false;
+			if (charger_discharge_on_ac(0) == EC_SUCCESS) {
+				prev_disch = false;
+			}
 		}
 		limit_state = LIMIT_NONE;
 		return;
@@ -238,8 +229,9 @@ static void battery_limit_override(struct charge_state_data *curr)
 		curr->requested_voltage = 0;
 	} else {
 		if (prev_disch) {
-			charger_discharge_on_ac(0);
-			prev_disch = false;
+			if (charger_discharge_on_ac(0) == EC_SUCCESS) {
+				prev_disch = false;
+			}
 		}
 		if (limit_state == LIMIT_IDLE) {
 			curr->batt.flags &= ~BATT_FLAG_WANT_CHARGE;
