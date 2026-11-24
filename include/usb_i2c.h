@@ -7,6 +7,7 @@
 #include "producer.h"
 #include "registers.h"
 #include "task.h"
+#include "timer.h"
 #include "usb_descriptor.h"
 #include "util.h"
 
@@ -129,16 +130,36 @@ enum usb_i2c_error {
 BUILD_ASSERT(POWER_OF_TWO(USB_I2C_READ_BUFFER));
 BUILD_ASSERT(POWER_OF_TWO(USB_I2C_WRITE_BUFFER));
 
+/* Timeout for discarding an incomplete multi-packet USB I2C request. */
+#define USB_I2C_RX_TIMEOUT_US (25 * MSEC)
+
 /*
- * Compile time Per-USB gpio configuration stored in flash.  Instances of this
- * structure are provided by the user of the USB i2c.  This structure binds
- * together all information required to operate a USB i2c.
+ * Per-USB I2C mutable state stored in RAM. Zero initialization in BSS leaves
+ * this structure in a valid initial state.
+ */
+struct usb_i2c_state {
+	/* Expected total byte length of the current request, or 0 if unset. */
+	size_t expected_size;
+	/* Remaining bytes to discard for an oversized request. */
+	size_t skip_bytes;
+	/* Deadline for receiving the next packet of an incomplete request. */
+	timestamp_t rx_deadline;
+};
+
+/*
+ * Compile time Per-USB I2C configuration stored in flash. Instances of this
+ * structure are provided by the user of the USB I2C. This structure binds
+ * together all information required to operate a USB I2C.
  */
 struct usb_i2c_config {
 	uint16_t *buffer;
+	struct usb_i2c_state *state;
 
-	/* Deferred function to call to handle SPI request. */
+	/* Deferred function to call to handle I2C request. */
 	const struct deferred_data *deferred;
+
+	/* Optional callback to discard stale TX queue and endpoint data. */
+	void (*clear_tx)(void);
 
 	struct consumer const consumer;
 	struct queue const *tx_queue;
@@ -149,6 +170,18 @@ extern struct consumer_ops const usb_i2c_consumer_ops;
 #define DECLARE_I2C_DEFERRED(NAME)                   \
 	static void CONCAT2(NAME, _deferred_)(void); \
 	DECLARE_DEFERRED(CONCAT2(NAME, _deferred_));
+
+#if !defined(CHIP_FAMILY_STM32F4) && !defined(BOARD_HOST)
+#define USB_I2C_DECLARE_CLEAR_TX(NAME)                      \
+	static void CONCAT2(NAME, _clear_tx_)(void)         \
+	{                                                   \
+		usb_stream_clear_tx(&CONCAT2(NAME, _usb_)); \
+	}
+#define USB_I2C_CLEAR_TX_PTR(NAME) CONCAT2(NAME, _clear_tx_)
+#else
+#define USB_I2C_DECLARE_CLEAR_TX(NAME)
+#define USB_I2C_CLEAR_TX_PTR(NAME) NULL
+#endif
 
 /*
  * Convenience macro for defining a USB I2C bridge driver.
@@ -164,35 +197,39 @@ extern struct consumer_ops const usb_i2c_consumer_ops;
  * ENDPOINT is the index of the USB bulk endpoint used for receiving and
  * transmitting bytes.
  */
-#define USB_I2C_CONFIG(NAME, INTERFACE, INTERFACE_NAME, ENDPOINT)              \
-	static uint16_t CONCAT2(NAME, _buffer_)[USB_I2C_BUFFER_SIZE / 2];      \
-	DECLARE_I2C_DEFERRED(NAME);                                            \
-	static struct queue const CONCAT2(NAME, _to_usb_);                     \
-	static struct queue const CONCAT3(usb_to_, NAME, _);                   \
-	USB_STREAM_CONFIG_FULL(CONCAT2(NAME, _usb_), INTERFACE,                \
-			       USB_CLASS_VENDOR_SPEC, USB_SUBCLASS_GOOGLE_I2C, \
-			       USB_PROTOCOL_GOOGLE_I2C, INTERFACE_NAME,        \
-			       ENDPOINT, USB_MAX_PACKET_SIZE,                  \
-			       USB_MAX_PACKET_SIZE, CONCAT3(usb_to_, NAME, _), \
-			       CONCAT2(NAME, _to_usb_), 1, 0)                  \
-	struct usb_i2c_config const NAME = {				\
-		.buffer    = CONCAT2(NAME, _buffer_),			\
-		.deferred  = &CONCAT2(NAME, _deferred__data),		\
-		.consumer  = {						\
-			.queue = &CONCAT3(usb_to_, NAME, _),		\
-			.ops   = &usb_i2c_consumer_ops,			\
-		},							\
-		.tx_queue = &CONCAT2(NAME, _to_usb_),			\
-	};                              \
-	static struct queue const CONCAT2(NAME, _to_usb_) =                    \
-		QUEUE_DIRECT(USB_I2C_READ_BUFFER, uint8_t, null_producer,      \
-			     CONCAT2(NAME, _usb_).consumer);                   \
-	static struct queue const CONCAT3(usb_to_, NAME, _) =                  \
-		QUEUE_DIRECT(USB_I2C_WRITE_BUFFER, uint8_t,                    \
-			     CONCAT2(NAME, _usb_).producer, NAME.consumer);    \
-	static void CONCAT2(NAME, _deferred_)(void)                            \
-	{                                                                      \
-		usb_i2c_deferred(&NAME);                                       \
+#define USB_I2C_CONFIG(NAME, INTERFACE, INTERFACE_NAME, ENDPOINT)                \
+	static uint16_t CONCAT2(NAME, _buffer_)[USB_I2C_BUFFER_SIZE / 2];        \
+	static struct usb_i2c_state CONCAT2(NAME, _state_);                      \
+	DECLARE_I2C_DEFERRED(NAME);                                              \
+	static struct queue const CONCAT2(NAME, _to_usb_);                       \
+	static struct queue const CONCAT3(usb_to_, NAME, _);                     \
+	USB_STREAM_CONFIG_FULL(CONCAT2(NAME, _usb_), INTERFACE,                  \
+			       USB_CLASS_VENDOR_SPEC, USB_SUBCLASS_GOOGLE_I2C,   \
+			       USB_PROTOCOL_GOOGLE_I2C, INTERFACE_NAME,          \
+			       ENDPOINT, USB_MAX_PACKET_SIZE,                    \
+			       USB_MAX_PACKET_SIZE, CONCAT3(usb_to_, NAME, _),   \
+			       CONCAT2(NAME, _to_usb_), 1, 0)                    \
+	USB_I2C_DECLARE_CLEAR_TX(NAME)                                           \
+	struct usb_i2c_config const NAME = {                                   \
+		.buffer = CONCAT2(NAME, _buffer_),                             \
+		.state = &CONCAT2(NAME, _state_),                              \
+		.deferred = &CONCAT2(NAME, _deferred__data),                   \
+		.clear_tx = USB_I2C_CLEAR_TX_PTR(NAME),                        \
+		.consumer = {                                                  \
+			.queue = &CONCAT3(usb_to_, NAME, _),                   \
+			.ops = &usb_i2c_consumer_ops,                          \
+		},                                                             \
+		.tx_queue = &CONCAT2(NAME, _to_usb_),                          \
+	}; \
+	static struct queue const CONCAT2(NAME, _to_usb_) =                      \
+		QUEUE_DIRECT(USB_I2C_READ_BUFFER, uint8_t, null_producer,        \
+			     CONCAT2(NAME, _usb_).consumer);                     \
+	static struct queue const CONCAT3(usb_to_, NAME, _) =                    \
+		QUEUE_DIRECT(USB_I2C_WRITE_BUFFER, uint8_t,                      \
+			     CONCAT2(NAME, _usb_).producer, NAME.consumer);      \
+	static void CONCAT2(NAME, _deferred_)(void)                              \
+	{                                                                        \
+		usb_i2c_deferred(&NAME);                                         \
 	}
 
 /*

@@ -325,6 +325,14 @@ int ncp15wb_calculate_temp(uint16_t adc);
 #define CONFIG_SW_CRC
 #endif
 
+#ifdef TEST_USB_I2C
+#define CONFIG_USB_I2C
+#undef CONFIG_USB_I2C_MAX_WRITE_COUNT
+#undef CONFIG_USB_I2C_MAX_READ_COUNT
+#define CONFIG_USB_I2C_MAX_WRITE_COUNT ((1 << 9) - 4)
+#define CONFIG_USB_I2C_MAX_READ_COUNT ((1 << 9) - 6)
+#endif
+
 #ifdef TEST_USB_PD_PDO_FIXED
 #define CONFIG_USB_POWER_DELIVERY
 #define CONFIG_USB_PD_TCPMV1
