@@ -1,0 +1,24 @@
+Upstream-PR: https://github.com/EgisMCU/egis_module/pull/1
+
+diff --git a/modules/hal/egis_module/soc/egis/et171/soc.c b/modules/hal/egis_module/soc/egis/et171/soc.c
+index bc58e6b..1ea941a 100644
+--- a/modules/hal/egis_module/soc/egis/et171/soc.c
++++ b/modules/hal/egis_module/soc/egis/et171/soc.c
+@@ -8,6 +8,7 @@
+ #include <zephyr/kernel.h>
+ #include <zephyr/types.h>
+ #include <zephyr/devicetree.h>
++#include <zephyr/drivers/timer/system_timer.h>
+ 
+ /* ================================================================== ET171 HAL
+  * et171 core
+@@ -217,8 +218,7 @@ static int soc_pre_init(void)
+ 	sys_write32(1, 0xF0A00014U);
+ 
+ #ifdef CONFIG_TIMER_READS_ITS_FREQUENCY_AT_RUNTIME
+-	extern unsigned int z_clock_hw_cycles_per_sec;
+-	z_clock_hw_cycles_per_sec = HAL_SMU_GetClock(SMU_CLK_APB);
++	z_sys_clock_hw_cycles_per_sec_set(HAL_SMU_GetClock(SMU_CLK_APB));
+ #endif
+ 
+ 	/* Overwrite the default I/O configurations to reduce power consumption.                                     */
