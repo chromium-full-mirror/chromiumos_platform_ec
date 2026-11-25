@@ -945,10 +945,25 @@ test_export_static void sustain_battery_soc(void)
 	enum ec_charge_control_mode new_mode;
 	int rv;
 
-	/* If either AC or battery is not present, nothing to do. */
-	if (!curr.ac || curr.batt.is_present != BP_YES ||
-	    !battery_sustainer_enabled())
+	if (!curr.ac || !battery_sustainer_enabled())
 		return;
+
+	/*
+	 * Reset to normal charge control when the battery is absent, cut off,
+	 * unresponsive, or reporting a bad SoC so we neither discharge AC
+	 * (Hi-Z) nor stay in IDLE (skipping battery wakeup).
+	 */
+	if (!battery_is_ready() ||
+	    (curr.batt.flags & BATT_FLAG_BAD_STATE_OF_CHARGE)) {
+		if (mode != CHARGE_CONTROL_NORMAL) {
+			rv = set_chg_ctrl_mode(CHARGE_CONTROL_NORMAL);
+			CPRINTS("%s: %s control mode to %s", __func__,
+				rv == EC_SUCCESS ? "Switched" :
+						   "Failed to switch",
+				mode_text[CHARGE_CONTROL_NORMAL]);
+		}
+		return;
+	}
 
 	new_mode = sustain_switch_mode(mode);
 

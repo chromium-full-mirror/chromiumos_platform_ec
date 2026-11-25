@@ -502,6 +502,7 @@ ZTEST(charge_state, test_battery_sustainer_state_machine)
 
 	curr->ac = 1;
 	curr->batt.is_present = BP_YES;
+	curr->batt.flags = BATT_FLAG_RESPONSIVE;
 
 	/* Sustainer disabled: sustain_battery_soc does nothing */
 	zassert_ok(battery_sustainer_set_hc(3, -1, -1, 0));
@@ -584,6 +585,50 @@ ZTEST(charge_state, test_battery_sustainer_state_machine)
 	curr->batt.display_charge = 800;
 	sustain_battery_soc();
 	zassert_equal(CHARGE_CONTROL_DISCHARGE, get_chg_ctrl_mode());
+}
+
+ZTEST(charge_state, test_battery_sustainer_unresponsive_or_cutoff)
+{
+	struct charge_state_data *curr = charge_get_status();
+
+	curr->ac = 1;
+	curr->batt.display_charge = 850;
+	zassert_ok(battery_sustainer_set_hc(3, 70, 80, 0));
+
+	/* Absent battery in charge state should not enter DISCHARGE */
+	curr->batt.is_present = BP_NO;
+	curr->batt.flags = BATT_FLAG_RESPONSIVE;
+	zassert_ok(set_chg_ctrl_mode(CHARGE_CONTROL_NORMAL));
+	sustain_battery_soc();
+	zassert_equal(CHARGE_CONTROL_NORMAL, get_chg_ctrl_mode());
+
+	/* Unresponsive battery should not enter DISCHARGE */
+	curr->batt.is_present = BP_YES;
+	curr->batt.flags = 0;
+	zassert_ok(set_chg_ctrl_mode(CHARGE_CONTROL_NORMAL));
+	sustain_battery_soc();
+	zassert_equal(CHARGE_CONTROL_NORMAL, get_chg_ctrl_mode());
+
+	/* Bad SoC reading should not enter DISCHARGE */
+	curr->batt.flags = BATT_FLAG_RESPONSIVE | BATT_FLAG_BAD_STATE_OF_CHARGE;
+	sustain_battery_soc();
+	zassert_equal(CHARGE_CONTROL_NORMAL, get_chg_ctrl_mode());
+
+	/* Losing responsiveness while discharging exits DISCHARGE */
+	curr->batt.flags = 0;
+	zassert_ok(set_chg_ctrl_mode(CHARGE_CONTROL_DISCHARGE));
+	sustain_battery_soc();
+	zassert_equal(CHARGE_CONTROL_NORMAL, get_chg_ctrl_mode());
+
+	/* Leaving IDLE on unresponsive, absent, or bad SoC resets to NORMAL */
+	zassert_ok(set_chg_ctrl_mode(CHARGE_CONTROL_IDLE));
+	sustain_battery_soc();
+	zassert_equal(CHARGE_CONTROL_NORMAL, get_chg_ctrl_mode());
+
+	curr->batt.flags = BATT_FLAG_RESPONSIVE | BATT_FLAG_BAD_STATE_OF_CHARGE;
+	zassert_ok(set_chg_ctrl_mode(CHARGE_CONTROL_IDLE));
+	sustain_battery_soc();
+	zassert_equal(CHARGE_CONTROL_NORMAL, get_chg_ctrl_mode());
 }
 
 ZTEST(charge_state, test_current_limit_battery_soc)
