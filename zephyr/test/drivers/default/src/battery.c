@@ -396,9 +396,15 @@ ZTEST(battery, test_board_wants_reduced_input_voltage_cutoff)
 	hook_notify(HOOK_AC_CHANGE);
 	test_set_chipset_to_power_level(POWER_G3);
 
-	/* Ensure battery is ready before testing cutoff guard */
+	/* At 50% SoC, battery wants charge so input voltage is not reduced */
+	test_set_battery_level(50);
 	zassert_true(WAIT_FOR(battery_is_ready(), 1000000, k_msleep(50)));
-	(void)board_wants_reduced_input_voltage();
+	zassert_false(board_wants_reduced_input_voltage());
+
+	/* At 100% SoC in G3, full ready battery requests reduced voltage */
+	test_set_battery_level(100);
+	zassert_true(WAIT_FOR(battery_is_ready(), 1000000, k_msleep(50)));
+	zassert_true(board_wants_reduced_input_voltage());
 
 	/* Cutoff prevents reducing input voltage while chipset is off */
 	zassert_ok(shell_execute_cmd(get_ec_shell(), "cutoff"));
