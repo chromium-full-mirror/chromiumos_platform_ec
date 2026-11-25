@@ -61,11 +61,26 @@ config FP_EGIS_EGIS660_ALGORITHM
 	  library is required.
 
 config FP_FT98XX_ALGORITHM
-	bool "FT98XX matching algorithm"
-	default y if FINGERPRINT_SENSOR_FT98XX
+	bool
 	help
 	  Enable Focaltech FT98XX matching algorithm. To work properly, Focaltech
 	  private library is required.
+
+config FP_FT9849_ALGORITHM
+	bool "Focaltech FT9849 matching algorithm"
+	default y if FINGERPRINT_SENSOR_FT9849
+	select FP_FT98XX_ALGORITHM
+	help
+	  Enable Focaltech FT9849 matching algorithm. To work properly,
+	  Focaltech private library is required.
+
+config FP_FT9869_ALGORITHM
+	bool "Focaltech FT9869 matching algorithm"
+	default y if FINGERPRINT_SENSOR_FT9869
+	select FP_FT98XX_ALGORITHM
+	help
+	  Enable Focaltech FT9869 matching algorithm. To work properly,
+	  Focaltech private library is required.
 
 config FP_ALGORITHM_TEMPLATE_SIZE
 	int "Size of template size"

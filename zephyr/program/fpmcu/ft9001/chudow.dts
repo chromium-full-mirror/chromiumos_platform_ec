@@ -22,6 +22,8 @@
 	frame-size = <15680>;
 
 &fp_sensor {
+	compatible = "focaltech,ft9869";
+
 	configs {
 		compatible = "fingerprint-image-frame-params";
 		config0 {

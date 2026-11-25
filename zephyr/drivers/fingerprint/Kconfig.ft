@@ -3,11 +3,10 @@
 # found in the LICENSE file.
 
 config FINGERPRINT_SENSOR_FT98XX
-	bool "FT98XX sensor driver"
-	default y
-	depends on DT_HAS_FOCALTECH_FT98XX_ENABLED
+	bool
 	help
-	  Enable driver for focaltech ft98 series sensor
+	  Enable driver for focaltech ft98 series sensor. It is selected by
+	  the per-sensor options below.
 
 if FINGERPRINT_SENSOR_FT98XX
 
@@ -37,3 +36,23 @@ config HAVE_FT98XX_PRIVATE_DRIVER
 	  If enabled, it indicates that focaltech private driver is present.
 
 endif # FINGERPRINT_SENSOR_FT98XX
+
+config FINGERPRINT_SENSOR_FT9849
+	bool "Fingerprint driver for FT9849"
+	default y
+	depends on DT_HAS_FOCALTECH_FT9849_ENABLED
+	select FINGERPRINT_SENSOR_FT98XX
+	help
+	  Driver for FT9849 fingerprint sensor. It requires the Focaltech private
+	  library. Without it, the driver builds but sensor operations return
+	  -ENOTSUP.
+
+config FINGERPRINT_SENSOR_FT9869
+	bool "Fingerprint driver for FT9869"
+	default y
+	depends on DT_HAS_FOCALTECH_FT9869_ENABLED
+	select FINGERPRINT_SENSOR_FT98XX
+	help
+	  Driver for FT9869 fingerprint sensor. It requires the Focaltech private
+	  library. Without it, the driver builds but sensor operations return
+	  -ENOTSUP.

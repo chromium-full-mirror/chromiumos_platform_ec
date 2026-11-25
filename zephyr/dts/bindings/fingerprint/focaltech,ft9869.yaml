@@ -2,9 +2,9 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-description: FT98XX fingerprint sensor
+description: FT9869 fingerprint sensor
 
-compatible: "focaltech,ft98xx"
+compatible: "focaltech,ft9869"
 
 include: [spi-device.yaml]
 

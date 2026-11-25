@@ -3,7 +3,13 @@
  * found in the LICENSE file.
  */
 
-#define DT_DRV_COMPAT focaltech_ft98xx
+#if defined(CONFIG_FINGERPRINT_SENSOR_FT9849)
+#define DT_DRV_COMPAT focaltech_ft9849
+#elif defined(CONFIG_FINGERPRINT_SENSOR_FT9869)
+#define DT_DRV_COMPAT focaltech_ft9869
+#else
+#error "No valid FT98XX fingerprint sensor selected."
+#endif
 
 #include "fingerprint_ft98xx.h"
 #include "fingerprint_ft98xx_pal.h"

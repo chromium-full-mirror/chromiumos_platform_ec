@@ -224,7 +224,7 @@ config EMUL_FPC1145
 
 config EMUL_FT98XX
 	bool "FT98XX fingerprint sensor emulator"
-	depends on ZTEST && DT_HAS_FOCALTECH_FT98XX_ENABLED && ARCH_POSIX
+	depends on ZTEST && DT_HAS_FOCALTECH_FT9849_ENABLED && ARCH_POSIX
 	default y
 	help
 	  This option enables the FT98XX fingerprint sensor emulator.

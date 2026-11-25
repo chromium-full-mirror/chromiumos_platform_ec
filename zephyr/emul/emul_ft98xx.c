@@ -13,7 +13,7 @@
 
 #include <emul/emul_ft98xx.h>
 
-#define DT_DRV_COMPAT focaltech_ft98xx
+#define DT_DRV_COMPAT focaltech_ft9849
 
 LOG_MODULE_REGISTER(emul_ft98xx, LOG_LEVEL_INF);
 

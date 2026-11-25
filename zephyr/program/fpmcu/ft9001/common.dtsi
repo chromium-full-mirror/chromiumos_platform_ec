@@ -156,8 +156,7 @@
 };
 
 &spi2 {
-	fp_sensor: ft98xx@0 {
-		compatible = "focaltech,ft98xx";
+	fp_sensor: fp_sensor@0 {
 		reg = <0>;
 		spi-max-frequency = <4000000>;
 
