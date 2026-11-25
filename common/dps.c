@@ -520,7 +520,7 @@ void dps_task(void *u)
 			continue;
 		}
 
-		if (battery_is_present() != BP_YES) {
+		if (!battery_is_ready()) {
 			atomic_or(&flag, DPS_FLAG_NO_BATTERY);
 			continue;
 		}
@@ -556,9 +556,7 @@ void dps_task(void *u)
 
 void check_battery_present(void)
 {
-	const struct batt_params *batt = charger_current_battery_params();
-
-	if (batt->is_present == BP_YES && (flag & DPS_FLAG_NO_BATTERY)) {
+	if ((flag & DPS_FLAG_NO_BATTERY) && battery_is_ready()) {
 		atomic_clear_bits(&flag, DPS_FLAG_NO_BATTERY);
 		task_wake(TASK_ID_DPS);
 	}

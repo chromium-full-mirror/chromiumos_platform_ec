@@ -5,12 +5,16 @@
 
 #include "battery.h"
 #include "charge_state.h"
+#include "ec_commands.h"
 #include "math_util.h"
 #include "test/drivers/test_state.h"
+#include "test/drivers/utils.h"
 
 #include <zephyr/ztest.h>
 
 int battery_outside_charging_temperature(void);
+int set_chg_ctrl_mode(enum ec_charge_control_mode mode);
+void sustain_battery_soc(void);
 
 struct charge_state_fixture {
 	struct charge_state_data charge_state_data;
@@ -126,4 +130,65 @@ ZTEST(charge_state, test_minimum_current_limit)
 		      " but current limit is %d (capped to %d)",
 		      96, charger_current_limit,
 		      CONFIG_PLATFORM_EC_CHARGER_MIN_INPUT_CURRENT_LIMIT);
+}
+
+static int battery_sustainer_set_hc(int8_t lower, int8_t upper)
+{
+	struct ec_params_charge_control p = {
+		.cmd = EC_CHARGE_CONTROL_CMD_SET,
+		.mode = CHARGE_CONTROL_NORMAL,
+		.sustain_soc = {
+			.lower = lower,
+			.upper = upper,
+		},
+	};
+	struct ec_response_charge_control r;
+
+	return ec_cmd_charge_control_v2(NULL, &p, &r);
+}
+
+ZTEST(charge_state, test_battery_sustainer_unresponsive_or_cutoff)
+{
+	struct charge_state_data *curr = charge_get_status();
+
+	curr->ac = 1;
+	curr->batt.display_charge = 850;
+	zassert_ok(battery_sustainer_set_hc(70, 80));
+
+	/* Absent battery in charge state should not enter DISCHARGE */
+	curr->batt.is_present = BP_NO;
+	curr->batt.flags = BATT_FLAG_RESPONSIVE;
+	zassert_ok(set_chg_ctrl_mode(CHARGE_CONTROL_NORMAL));
+	sustain_battery_soc();
+	zassert_equal(CHARGE_CONTROL_NORMAL, get_chg_ctrl_mode());
+
+	/* Unresponsive battery should not enter DISCHARGE */
+	curr->batt.is_present = BP_YES;
+	curr->batt.flags = 0;
+	zassert_ok(set_chg_ctrl_mode(CHARGE_CONTROL_NORMAL));
+	sustain_battery_soc();
+	zassert_equal(CHARGE_CONTROL_NORMAL, get_chg_ctrl_mode());
+
+	/* Bad SoC reading should not enter DISCHARGE */
+	curr->batt.flags = BATT_FLAG_RESPONSIVE | BATT_FLAG_BAD_STATE_OF_CHARGE;
+	sustain_battery_soc();
+	zassert_equal(CHARGE_CONTROL_NORMAL, get_chg_ctrl_mode());
+
+	/* Losing responsiveness while discharging exits DISCHARGE */
+	curr->batt.flags = 0;
+	zassert_ok(set_chg_ctrl_mode(CHARGE_CONTROL_DISCHARGE));
+	sustain_battery_soc();
+	zassert_equal(CHARGE_CONTROL_NORMAL, get_chg_ctrl_mode());
+
+	/* Leaving IDLE on unresponsive, absent, or bad SoC resets to NORMAL */
+	zassert_ok(set_chg_ctrl_mode(CHARGE_CONTROL_IDLE));
+	sustain_battery_soc();
+	zassert_equal(CHARGE_CONTROL_NORMAL, get_chg_ctrl_mode());
+
+	curr->batt.flags = BATT_FLAG_RESPONSIVE | BATT_FLAG_BAD_STATE_OF_CHARGE;
+	zassert_ok(set_chg_ctrl_mode(CHARGE_CONTROL_IDLE));
+	sustain_battery_soc();
+	zassert_equal(CHARGE_CONTROL_NORMAL, get_chg_ctrl_mode());
+
+	zassert_ok(battery_sustainer_set_hc(-1, -1));
 }

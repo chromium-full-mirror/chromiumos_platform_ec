@@ -5,9 +5,11 @@
 
 #include "battery.h"
 #include "battery_fuel_gauge.h"
+#include "console.h"
 #include "crc8.h"
 #include "emul/emul_common_i2c.h"
 #include "emul/emul_smart_battery.h"
+#include "hooks.h"
 #include "test/drivers/test_state.h"
 #include "test/drivers/utils.h"
 
@@ -16,6 +18,7 @@
 #include <zephyr/drivers/gpio/gpio_emul.h>
 #include <zephyr/fff.h>
 #include <zephyr/kernel.h>
+#include <zephyr/shell/shell.h>
 #include <zephyr/ztest.h>
 
 #define GPIO_BATT_PRES_ODL_PATH NAMED_GPIOS_GPIO_NODE(ec_batt_pres_odl)
@@ -305,3 +308,32 @@ ZTEST_F(battery, test_get_disconnect_state)
 
 	zassert_equal(BATTERY_DISCONNECTED, rv, "RV=%x", rv);
 }
+
+#ifdef CONFIG_BATT_FULL_CHIPSET_OFF_INPUT_LIMIT_MV
+bool board_wants_reduced_input_voltage(void);
+
+ZTEST(battery, test_board_wants_reduced_input_voltage_cutoff)
+{
+	set_ac_enabled(true);
+	hook_notify(HOOK_AC_CHANGE);
+	test_set_chipset_to_power_level(POWER_G3);
+
+	/* Ensure battery is ready before testing cutoff guard */
+	zassert_true(WAIT_FOR(battery_is_ready(), 1000000, k_msleep(50)));
+	(void)board_wants_reduced_input_voltage();
+
+	/* Cutoff prevents reducing input voltage while chipset is off */
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "cutoff"));
+	zassert_true(battery_cutoff_in_progress());
+	zassert_false(board_wants_reduced_input_voltage());
+
+	zassert_true(WAIT_FOR(battery_is_cut_off(), 2105000, k_msleep(250)));
+	zassert_false(board_wants_reduced_input_voltage());
+
+	/* Restore AC to clear cutoff state */
+	set_ac_enabled(true);
+	hook_notify(HOOK_AC_CHANGE);
+	zassert_false(battery_is_cut_off());
+	test_set_chipset_to_s0();
+}
+#endif /* CONFIG_BATT_FULL_CHIPSET_OFF_INPUT_LIMIT_MV */

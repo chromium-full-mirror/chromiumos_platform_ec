@@ -436,6 +436,24 @@ int battery_cutoff_in_progress(void);
 int battery_is_cut_off(void);
 
 /**
+ * Check if the battery is present, responsive, and not cut off or cutting off.
+ *
+ * Uses the cached battery parameters so callers do not trigger blocking I2C
+ * reads on boards with custom battery-present detection, and verifies that
+ * battery cutoff is neither active nor in progress.
+ *
+ * @return true if a responsive, non-cut-off battery is present.
+ */
+#ifdef CONFIG_BATTERY
+bool battery_is_ready(void);
+#else
+test_mockable_static_inline bool battery_is_ready(void)
+{
+	return false;
+}
+#endif
+
+/**
  * Read battery vendor parameter.
  *
  * Vendor parameter handlers are implemented in a board-specific battery.c

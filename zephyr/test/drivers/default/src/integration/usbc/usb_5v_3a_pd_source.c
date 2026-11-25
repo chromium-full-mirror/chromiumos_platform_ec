@@ -5,10 +5,13 @@
 
 #include "battery.h"
 #include "battery_smart.h"
+#include "charge_manager.h"
+#include "charge_state.h"
 #include "dps.h"
 #include "emul/emul_isl923x.h"
 #include "emul/emul_smart_battery.h"
 #include "emul/tcpc/emul_tcpci_partner_src.h"
+#include "hooks.h"
 #include "system.h"
 #include "task.h"
 #include "test/drivers/test_state.h"
@@ -360,4 +363,44 @@ ZTEST_F(usb_attach_5v_3a_pd_source, test_dps_info)
 	/* PDMaxMV */
 	sprintf(format_buffer, "PDMaxMV:   %dmV", pd_get_max_voltage());
 	zassert_not_null(strstr(outbuffer, format_buffer));
+}
+
+ZTEST_F(usb_attach_5v_3a_pd_source, test_dps_battery_cutoff)
+{
+	control_battery_present(true);
+	set_ac_enabled(true);
+	hook_notify(HOOK_AC_CHANGE);
+	k_msleep(500);
+	zassert_equal(BP_YES, battery_is_present());
+	zassert_false(battery_is_cut_off());
+	zassert_false(battery_cutoff_in_progress());
+	zassert_equal(TEST_PORT, charge_manager_get_active_charge_port());
+
+	/* Wait for smart battery task cycle to mark battery responsive */
+	zassert_true(WAIT_FOR(battery_is_ready(), 1000000, k_msleep(50)));
+
+	/* Cut off battery while physical GPIO stays BP_YES */
+	zassert_ok(shell_execute_cmd(get_ec_shell(), "cutoff"));
+	zassert_true(battery_cutoff_in_progress());
+	zassert_false(battery_is_ready());
+	zassert_true(WAIT_FOR(battery_is_cut_off(), 2105000, k_msleep(250)));
+	zassert_false(battery_is_ready());
+	zassert_equal(BP_YES, battery_is_present());
+
+	/* DPS must stop and stay stopped despite HOOK_BATTERY_SOC_CHANGE */
+	task_wake(TASK_ID_DPS);
+	k_sleep(K_MSEC(5000));
+	zassert_true(dps_get_flag() & DPS_FLAG_NO_BATTERY);
+	hook_notify(HOOK_BATTERY_SOC_CHANGE);
+	k_msleep(100);
+	zassert_true(dps_get_flag() & DPS_FLAG_NO_BATTERY);
+
+	/* Restore normal battery state for subsequent tests */
+	control_battery_present(true);
+	set_ac_enabled(true);
+	hook_notify(HOOK_AC_CHANGE);
+	zassert_true(WAIT_FOR(battery_is_ready(), 1000000, k_msleep(50)));
+	hook_notify(HOOK_BATTERY_SOC_CHANGE);
+	k_msleep(100);
+	zassert_false(dps_get_flag() & DPS_FLAG_NO_BATTERY);
 }

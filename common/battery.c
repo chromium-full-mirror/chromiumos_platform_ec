@@ -143,6 +143,22 @@ static void print_battery_strings(void)
 		ccprintf("%s\n", text);
 }
 
+test_mockable bool battery_is_ready(void)
+{
+#if defined(HAS_TASK_CHARGER)
+	const struct batt_params *batt = charger_current_battery_params();
+#else
+	struct batt_params _batt;
+	const struct batt_params *batt = &_batt;
+
+	battery_get_params(&_batt);
+#endif
+
+	return batt->is_present == BP_YES && !battery_is_cut_off() &&
+	       !battery_cutoff_in_progress() &&
+	       (batt->flags & BATT_FLAG_RESPONSIVE);
+}
+
 static void print_battery_params(void)
 {
 #if defined(HAS_TASK_CHARGER)
@@ -538,6 +554,11 @@ test_mockable int battery_is_cut_off(void)
 {
 	return 0; /* Always return NOT cut off */
 }
+
+test_mockable int battery_cutoff_in_progress(void)
+{
+	return 0; /* Always return NOT in progress */
+}
 #endif /* CONFIG_BATTERY_CUT_OFF */
 
 #ifdef CONFIG_BATTERY_VENDOR_PARAM
@@ -746,12 +767,15 @@ __overridable enum battery_disconnect_state battery_get_disconnect_state(void)
  * Returns true if input voltage should be reduced (chipset is in S5/G3) and
  * battery is full, otherwise returns false
  */
-static bool board_wants_reduced_input_voltage(void)
+test_export_static bool board_wants_reduced_input_voltage(void)
 {
 	struct batt_params batt;
 
 	/* Chipset not in S5/G3, so we don't want to reduce voltage */
 	if (!chipset_in_or_transitioning_to_state(CHIPSET_STATE_ANY_OFF))
+		return false;
+
+	if (!battery_is_ready())
 		return false;
 
 	battery_get_params(&batt);
