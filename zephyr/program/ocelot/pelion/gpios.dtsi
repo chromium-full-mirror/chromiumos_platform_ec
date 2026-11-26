@@ -33,7 +33,8 @@
 		compatible = "named-gpios";
 
 		gpio_all_sys_pwrgd_r: all_sys_pwrgd_r {
-			gpios = <&gpiod 5 (GPIO_INPUT)>;
+			gpios = <&gpiod 5 (GPIO_INPUT | GPIO_VOLTAGE_1P8)>;
+			no-auto-init;
 		};
 		gpio_ec_accel_mb_int_l: ec_accel_mb_int_l {
 			gpios = <&gpiof 7 (GPIO_INPUT)>;
@@ -112,7 +113,7 @@
 			no-auto-init;
 		};
 		gpio_sys_slp_s0ix_l: sys_slp_s0ix_l {
-			gpios = <&gpioj 5 (GPIO_INPUT)>;
+			gpios = <&gpioj 5 (GPIO_INPUT | GPIO_VOLTAGE_1P8)>;
 			no-auto-init;
 		};
 		gpio_ec_soc_pwr_btn_odl: ec_soc_pwr_btn_odl {
@@ -124,11 +125,11 @@
 			no-auto-init;
 		};
 		gpio_ec_slp_s3_l: ec_slp_s3_l {
-			gpios = <&gpioh 3 (GPIO_INPUT | GPIO_ACTIVE_LOW)>;
+			gpios = <&gpioh 3 (GPIO_INPUT | GPIO_VOLTAGE_1P8)>;
 			no-auto-init;
 		};
 		gpio_ec_slp_s4_l: ec_slp_s4_l {
-			gpios = <&gpioh 4 (GPIO_INPUT | GPIO_ACTIVE_LOW)>;
+			gpios = <&gpioh 4 (GPIO_INPUT | GPIO_VOLTAGE_1P8)>;
 			no-auto-init;
 		};
 		gpio_ec_forcepr_odl: ec_forcepr_odl {
