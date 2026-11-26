@@ -188,16 +188,15 @@ DECLARE_HOOK(HOOK_SECOND, current_update, HOOK_PRIO_DEFAULT);
 static void battery_limit_override(struct charge_state_data *curr)
 {
 	static enum limit_state limit_state = LIMIT_NONE;
-	static bool prev_disch;
+	static bool prev_disch = true;
 	int display_soc;
 
 	/*
 	 * Bypass 50% limit once disabled via chargecontrol normal
-	 * 101 102 (BBRAM flag is set), AC is unplugged, or SoC is invalid.
+	 * 101 102 (BBRAM flag is set), AC is unplugged, battery is not ready,
+	 * or SoC is invalid.
 	 */
-	if (bbram_limit_disabled || !curr->ac ||
-	    (curr->batt.is_present != BP_YES) ||
-	    !(curr->batt.flags & BATT_FLAG_RESPONSIVE) ||
+	if (bbram_limit_disabled || !curr->ac || !battery_is_ready() ||
 	    (curr->batt.flags & BATT_FLAG_BAD_STATE_OF_CHARGE)) {
 		if (prev_disch) {
 			if (charger_discharge_on_ac(0) == EC_SUCCESS) {
