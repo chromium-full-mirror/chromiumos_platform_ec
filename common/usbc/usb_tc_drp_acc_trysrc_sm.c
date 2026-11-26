@@ -3,6 +3,7 @@
  * found in the LICENSE file.
  */
 
+#include "battery.h"
 #include "builtin/assert.h"
 #include "charge_manager.h"
 #include "charge_state.h"
@@ -1610,6 +1611,18 @@ void tc_state_init(int port)
 	if (!IS_ENABLED(CONFIG_BOARD_RESET_AFTER_POWER_ON) &&
 	    !IS_ENABLED(CONFIG_VBOOT_EFS2) && IS_ENABLED(CONFIG_BATTERY) &&
 	    !pd_is_battery_capable()) {
+		first_state = TC_UNATTACHED_SNK;
+	}
+
+	/*
+	 * Avoid applying CC open when the battery is not ready (e.g., EC soft
+	 * reboot while battery is cut off on EFS2 boards). Dropping CC cuts
+	 * VBUS (the only power source), browning out the system and resetting
+	 * the PPC to its power-on default OVP before the partner finishes
+	 * ramping down from high voltage (e.g., 20V) to 5V.
+	 */
+	if (first_state == TC_ERROR_RECOVERY && IS_ENABLED(CONFIG_BATTERY) &&
+	    !battery_is_ready()) {
 		first_state = TC_UNATTACHED_SNK;
 	}
 
